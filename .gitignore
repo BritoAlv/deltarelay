@@ -1,0 +1,44 @@
+# Generated binaries, caches, and private runtime state.
+/bin/
+/data/
+/cache/
+/dist/
+/.runtime/
+node_modules/
+
+# Credentials and machine-local configuration; commit examples only.
+.env
+.env.*
+*.token
+*.env
+*.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+!.env.example
+!*.env.example
+/opencode.json
+/opencode.jsonc
+/.opencode/
+*.local.json
+*.local.jsonc
+
+# Logs, local databases, and test output.
+*.log
+*.pid
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.test
+coverage.out
+__pycache__/
+*.pyc
+
+# Diagnostic exports from the README; keep other private inputs in .runtime/.
+/request.json
+/reconstructed.json
+/answer.sse
+.deltarelay-*.part
+.deltarelay-*.part.json

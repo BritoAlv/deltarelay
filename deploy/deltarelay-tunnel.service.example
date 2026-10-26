@@ -1,0 +1,13 @@
+# Replace YOUR_USER and YOUR_VPS. Establish and verify SSH host trust yourself
+# first. This intentionally does not disable SSH host-key verification.
+[Unit]
+Description=DeltaRelay encrypted PC-to-VPS tunnel
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -NT -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:8787:127.0.0.1:8787 YOUR_USER@YOUR_VPS
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

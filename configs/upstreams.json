@@ -1,0 +1,5 @@
+[
+  { "name": "openai", "origin": "https://api.openai.com", "path_prefix": "/v1/" },
+  { "name": "chatgpt", "origin": "https://chatgpt.com", "path_prefix": "/backend-api/" },
+  { "name": "opencode", "origin": "https://opencode.ai", "path_prefix": "/inference/" }
+]

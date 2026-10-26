@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Merge this entry LAST into your existing plugins array. Do not replace
+  // unrelated settings. Generate real paths with: node integration/opencode/config.mjs
+  // This file is only a template; its placeholders must not be used literally.
+  "plugins": [
+    {
+      "package": "/absolute/path/to/deltarelay/integration/opencode",
+      "options": {
+        "gateway": "http://127.0.0.1:8788",
+        "localTokenFile": "/absolute/path/to/private/local.token",
+        "providers": ["openai", "opencode-go"],
+        "headerTimeout": 14400000
+      }
+    }
+  ]
+}

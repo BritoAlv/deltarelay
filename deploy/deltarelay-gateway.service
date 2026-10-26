@@ -1,0 +1,18 @@
+# Install as ~/.config/systemd/user/deltarelay-gateway.service.
+# This example uses an SSH tunnel already listening on PC port 8787.
+[Unit]
+Description=DeltaRelay local OpenCode gateway
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/deltarelay gateway --server http://127.0.0.1:8787 --token-file %h/.config/deltarelay/relay.token --local-token-file %h/.config/deltarelay/local.token --upstreams %h/.config/deltarelay/upstreams.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
