@@ -71,6 +71,7 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	batch := flags.Int("batch-bytes", 256<<10, "upload batch size; shrinks after failures")
 	recovery := bindRecovery(flags, true)
 	quiet := flags.Bool("quiet", false, "disable per-request metadata-only statistics logs")
+	statsFile := flags.String("stats-file", defaultEnv("DELTARELAY_STATS_FILE", ".runtime/dashboard-stats.json"), "private bounded session statistics; empty disables persistence")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -112,6 +113,7 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	handler, err := gateway.New(gateway.Config{
 		Client: c, LocalToken: localToken, Upstreams: rules, AllowPrivateUpstreams: *allowPrivate,
 		MaxBodySize: *maxBody, MaxConcurrent: *concurrent, RequestTimeout: *requestTimeout,
+		StatsFile: *statsFile,
 		OnStart: func(id string) {
 			if !*quiet {
 				logMu.Lock()
@@ -130,6 +132,7 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	if err != nil {
 		return err
 	}
+	defer handler.Close()
 	srv := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 128 << 10, BaseContext: func(net.Listener) context.Context { return ctx }}
 	done := make(chan struct{})
 	shutdownDone := make(chan struct{})

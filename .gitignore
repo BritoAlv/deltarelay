@@ -5,6 +5,9 @@
 /dist/
 /.runtime/
 node_modules/
+/web/dist/
+/web/.astro/
+/web/.test-build/
 
 # Credentials and machine-local configuration; commit examples only.
 .env

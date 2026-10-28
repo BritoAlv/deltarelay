@@ -1,0 +1,216 @@
+# Local web dashboard
+
+DeltaRelay's dashboard is an optional Astro application written in TypeScript,
+built with pnpm. It is static HTML/CSS plus a small browser script, served by the
+Go binary. There is no Node production server, UI framework, charting package,
+database, CDN, remote font, or paid health probe.
+
+## What you can see
+
+- Global and per-session original bytes, encoded uploads, bandwidth saved, and
+  upload reduction, including failed attempts and negative savings.
+- Cache reuse versus raw uploaded chunks; hourly traffic over 24 hours or 7 days.
+- Active requests, upstream, request kind (primary/title/compaction/generate),
+  status, duration, and safe error codes in a session inspector.
+- Gateway concurrency and uptime; relay reachability, identity, protocol and
+  health-check latency; chunk-cache and durable-response-mailbox usage/capacity;
+  pending cancellations and control errors.
+- Latest retained provider results. These are observations, **not** live provider
+  account/authentication checks. An enabled allowlist is not proof of a healthy
+  provider. No provider generation is sent by the dashboard.
+- Session search, state filters, pagination, CSV export, manual refresh, and
+  pause/resume. Automatic refresh is every ten seconds while the tab is visible.
+  A failed refresh keeps the last live snapshot and explicitly marks it stale.
+
+**Sample data** is an opt-in, clearly labeled preview. It is never merged with
+live data, saved to gateway history, or returned by the diagnostic API. Returning
+to live clears the sample numbers even if the gateway is disconnected.
+
+## Build entirely offline
+
+Run from the repository root. Go 1.24+, Node.js 22.12+ and pnpm 11+ are needed to
+build. The committed lockfile was verified with pnpm 12.5.1. The cached native
+toolchain used here targets Linux x64/glibc; its explicit Rollup binary dependency
+avoids silently skipped optional native packages during offline installs. Other
+build platforms need their corresponding cached native tooling. This does not
+change cross-compiling the standalone Go binary.
+
+```sh
+pnpm install --offline --frozen-lockfile --trust-lockfile
+pnpm check
+pnpm test
+pnpm build
+go build -trimpath -o bin/deltarelay ./cmd/deltarelay
+```
+
+`--offline` never falls back to downloads. The workspace also defaults to offline
+mode and disables dependency lifecycle scripts, preventing postinstall download
+fallbacks. Astro telemetry is disabled in the scripts. Vite, Rollup, and one
+Markdown transitive dependency are pinned to cached versions. No additional
+client UI dependencies are installed.
+
+pnpm 12's `--trust-lockfile` skips fetching fresh registry metadata for its
+supply-chain policy check; it uses the reviewed, committed lockfile and its
+integrity hashes. Use it only with a lockfile you trust. In particular, do not
+replace it with an arbitrary downloaded lockfile to work around missing packages.
+
+On a different machine, the pnpm store must **already contain** the locked
+packages and the platform's native build tools. A Git clone is not a package
+cache. If the install reports a cache miss, stop: transfer/provision the pnpm
+store from a trusted machine rather than removing `--offline`. If your shell uses
+a private `XDG_CACHE_HOME` while the existing pnpm metadata lives elsewhere, point
+that environment variable to your actual cache **for installation only**. No
+machine-specific cache path is committed in this project.
+
+The built `web/dist/` can instead be copied from a trusted build machine; the Go
+dashboard command needs no pnpm, Node, package store, or internet at runtime.
+
+## Connect to your gateway
+
+For the **already configured private Codespace test profile**, `./startup.sh`
+starts/reuses the dashboard automatically after recovery, including with
+`--no-desktop`. It selects the profile's gateway on port 18788 and its existing
+local token file. Missing/stale builds use Go and the offline pnpm cache; live
+services are never restarted automatically. Use `--no-dashboard` to skip it, or
+set `DELTARELAY_DASHBOARD_PORT` to choose another loopback port (default 8790).
+See [CODESPACE_RECOVERY.md](CODESPACE_RECOVERY.md) for prerequisites and logs.
+This shortcut does not provision a profile in a fresh clone.
+
+First follow [SETUP.md](SETUP.md) to configure the relay, tunnel, local gateway,
+and OpenCode plugin. Rebuild and restart an older **Go gateway** for the new
+diagnostic endpoint. No routing configuration is changed automatically.
+
+The gateway collects bounded, private session metadata by default:
+
+```sh
+./bin/deltarelay gateway \
+  --server http://127.0.0.1:8787 \
+  --token-file /path/to/private/relay.token \
+  --local-token-file /path/to/private/local.token \
+  --upstreams /path/to/private/upstreams.json \
+  --stats-file .runtime/dashboard-stats.json
+```
+
+Use your existing gateway flags, upload budgets, and recovery configuration; do
+not start another gateway on the same port. `--stats-file` is the only new flag
+needed for an alternative history location. `DELTARELAY_STATS_FILE` can also set
+it. `--stats-file ''` keeps history in memory only. Statistics are collected even
+with `--quiet`, which only suppresses metadata logs.
+
+In another terminal, start the dashboard with the **same local token file as the
+gateway**, not the VPS bearer token:
+
+```sh
+./bin/deltarelay dashboard \
+  --gateway http://127.0.0.1:8788 \
+  --local-token-file /path/to/private/local.token \
+  --assets web/dist
+```
+
+Open **http://127.0.0.1:8790**. `DELTARELAY_LOCAL_TOKEN_FILE` or
+`DELTARELAY_LOCAL_TOKEN` are supported instead of the flag, just as for the
+gateway. Never put tokens in URLs or browser-side environment variables. Token
+files must be private (`chmod 600`). Run from the repository root or pass an
+absolute `--assets` directory. `--listen 127.0.0.1:8791` changes the dashboard
+port, independently of the gateway.
+
+The plugin forwards the hook's opaque `sessionID` and request kind in local-only
+`X-DeltaRelay-*` headers. The gateway strips those headers before dispatching
+anything to the VPS/provider; no request body is parsed or rewritten. Existing
+clients using a valid `X-Opencode-Session` header are also recognized. Requests
+without a valid session ID are grouped as **Unattributed requests**, not assigned
+invented sessions. Only allowlisted requests with valid request IDs enter this
+history; authentication failures and invalid/disallowed targets do not.
+
+## Privacy, retention, and state
+
+The browser requests only `GET /api/dashboard`. The Go dashboard authenticates
+its own `GET /v1/dashboard` to the local gateway; it does not forward browser
+headers, cookies, arbitrary routes, or query parameters. Gateway and VPS tokens,
+provider credentials, target URLs, prompts, and response bodies are not exposed.
+The dashboard makes no model requests and has no cancellation, ACK, or replay
+controls. Existing gateway authentication and browser-origin rejection remain
+intact.
+
+Both listeners are loopback-only. The dashboard rejects non-loopback Host values,
+cross-origin/cross-site requests, and writes, and sends restrictive CSP/frame
+headers with no permissive CORS. This is a **single-user local tool**, not a
+multi-user login service: another process/user on the same machine can read its
+local dashboard port. Do not publish it through a public proxy or public port
+forward. Session IDs, timing, and provider names are still private metadata.
+
+History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
+
+- Up to **256 sessions** and **1,000 request entries**. The least-recently-active
+  idle session is evicted first; active requests/sessions are not evicted.
+  Request entries for an evicted session are trimmed too. Global totals are
+  preserved and trimming counters are shown in measurement notes.
+- A session that returns after eviction starts new retained totals. Charts and
+  request lists cover retained entries only; they can differ from global totals.
+- Statistics start when the new gateway first runs. Existing logs, old sessions,
+  standalone `sync` calls, and activity bypassing this gateway are not imported.
+- Byte totals appear after a request finishes; active requests still show their
+  IDs, kinds, upstreams, and elapsed time. They are local gateway states, not a
+  list of all saved VPS jobs or OpenCode's current agent/tool states.
+- After restart, locally running entries become **interrupted**. That does not
+  assert that the VPS job stopped. Use the request-recovery CLI before sending
+  a potentially duplicate paid generation.
+- Runtime history-write failures are reported without breaking provider calls.
+  Such new statistics may not survive a restart. Invalid, unsafe, or incompatible
+  history files fail gateway startup rather than being overwritten silently.
+- One gateway owns each statistics file. Keep different deployments' histories
+  separate. Back up/rename an existing history while its gateway is stopped if
+  intentionally starting a new history; do not edit it while the gateway runs.
+
+`.runtime/`, `web/dist/`, `.astro/`, `node_modules/`, and test output are ignored
+by Git. CSV exports contain session metadata; store them privately too.
+
+## How savings are measured
+
+```text
+saved bytes       = original body bytes − encoded request-body bytes sent
+upload reduction  = 100 × (1 − encoded bytes / original body bytes)
+cache reuse       = 100 × reused body bytes / original body bytes
+```
+
+Encoded uploads include manifest/control bodies, framing, compression, and retry
+attempts counted by the Go transport. They exclude response/download traffic,
+HTTP headers, TLS/TCP/IP overhead, and retransmissions. They are not packet-level
+counters. A failed call can have partial progress, and small calls or retries can
+have **negative savings**. Zero original bytes produces an unavailable percentage,
+not a fabricated 100%. Failed attempts are included in totals.
+
+This is a comparison with uncompressed original bodies, **not** a measured direct
+provider-upload baseline. Cache reuse is inventory-time content reuse, not
+provider token/KV-cache reuse. Neither metric promises a provider-billing discount.
+The dashboard's “How savings are measured” section repeats these boundaries.
+
+## Development
+
+Keep the credential-bearing API in Go while Astro serves hot-reloaded assets:
+
+```sh
+# Terminal 1: requires the configured/running local gateway
+./bin/deltarelay dashboard --assets '' --local-token-file /path/to/private/local.token
+
+# Terminal 2
+pnpm dev
+```
+
+Visit **http://127.0.0.1:4321**. Vite proxies only `/api/dashboard` to the local
+Go listener on port 8790. The browser still receives no gateway token. Bind the
+development server to loopback and do not expose it as a production service.
+
+```sh
+go test -race ./...
+go vet ./...
+node --test integration/opencode/*.test.mjs
+pnpm check
+pnpm test
+pnpm build
+```
+
+The tests cover session grouping, concurrency, savings, streaming active state,
+failure accounting, bounded retention, restart interruption, private persistence,
+file locking, write failures, authentication, credential/header isolation,
+read-only routes, origin/Host checks, redirects, and frontend measurement logic.

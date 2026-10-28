@@ -455,3 +455,54 @@ Validation used shell syntax checking and isolated stub profiles for argument
 forwarding, `--no-desktop`, no-display refusal, duplicate detection, and
 post-launch lock release. No live Codespace start or Desktop instance was created
 by these checks.
+
+## 13. Persistent ChatGPT token-sharing compatibility — 2026-10-26–27
+
+Investigated an upstream `subscription_sharing_unsupported_capability` error on
+`input` after a reasoning-level change. OpenCode 2.1.4's built-in ChatGPT plugin
+already disables native effort-update items, but applies its compatibility policy
+only after resolving OAuth successfully. Its startup load suppresses resolution
+errors, and a later token-only refresh does not trigger its account-switch
+listener. Thus valid credentials and missing ChatGPT compatibility settings can
+coexist. Reloading after authentication recovers the settings temporarily, not
+permanently. The earlier authorization 403 response body was not retained; its
+provider-side rejection reason is still unknown.
+
+Added the opt-in DeltaRelay option `chatgptTokenSharingProviders`. For its selected
+providers, every model-registry rebuild disables `supportsEffortUpdates` and
+forces summary compaction at provider, model, and variant levels. This prevents
+unsupported in-history `configuration_update` items without changing selected
+reasoning levels, rewriting finished request bodies, discarding history, reading
+provider secrets, or adding an OAuth implementation. Ordinary API-key providers
+are unchanged by default. The policy must be explicitly removed when that
+provider is no longer used for token sharing.
+
+Enabled `["openai"]` in the private isolated profile after making a private
+configuration backup. Its original Desktop profile and credentials were not
+modified. Recovered the existing relay/tunnel using `recover.sh`, preserving the
+remote relay identity, cache, private visibility, and idle policy.
+
+Validation:
+
+- All eight Node plugin/config tests pass, including repeated fresh registry
+  rebuilds without any authentication API, provider scoping, preserved reasoning
+  choices, and validation of invalid opt-ins.
+- `go test -race ./...`, `go vet ./...`, and the opt-in installed-OpenCode mock
+  integration test pass; stopping the mock gateway still prevents direct fallback.
+- Verified all OpenAI models have the policy in the isolated home, repository,
+  and test-project locations after a full configuration reload.
+- A new harmless live GPT-6.1 Sol conversation succeeded at `low`, then at `max`
+  in the same session, recovering a remembered marker. Between turns, evicted
+  only the idle test project's cached services through OpenCode's supported API;
+  the safeguard survived the subsequent fresh boot. Both calls returned provider
+  HTTP 200 through the actual Codespace, and OpenCode recorded `succeeded`.
+- At 2026-10-27 00:02 UTC, Desktop, gateway, tunnel, and isolated OpenCode were
+  running and `doctor` reported ready, with no active requests or pending
+  cancellations. This is a point-in-time check, not an idle-suspension guarantee.
+
+The pre-existing `response_transfer_interrupted` gateway counters still occurred
+on the two successful live replies. Their stream-close accounting discrepancy is
+separate from the fixed token-sharing compatibility failure and was not changed
+or claimed resolved. Codespace suspension and genuine OAuth/network failures
+still require normal recovery; they no longer determine whether this explicit
+compatibility policy is applied.

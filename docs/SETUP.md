@@ -278,6 +278,33 @@ While enabled, the plugin:
   upload is not cut short; `headerTimeout` is adjustable in milliseconds.
 - Propagates the original abort signal, so Stop cancels both hops and upstream.
 
+### Persistent ChatGPT token-sharing compatibility
+
+When using **OpenAI → Sign in with ChatGPT** (token sharing), add this option
+to the DeltaRelay plugin entry in that profile's configuration:
+
+```jsonc
+"chatgptTokenSharingProviders": ["openai"]
+```
+
+This explicit policy reapplies `compatibility.supportsEffortUpdates: false` to
+every model of those providers on every registry rebuild and uses local summary
+compaction instead of the unsupported native compaction route. Model and variant
+reasoning levels, conversation history, endpoints, and credentials are preserved.
+Changing reasoning level still works; OpenCode sends the current level on the
+next request rather than an unsupported `configuration_update` input item.
+
+This avoids depending on OpenCode 2.1.4's ChatGPT plugin successfully resolving
+OAuth during startup. Its conditional settings can otherwise remain absent after
+a failed refresh followed by successful authentication. The DeltaRelay policy
+does not read or refresh provider credentials and survives config reloads,
+idle project eviction, and subsequent token refreshes.
+
+The option defaults to `[]` and must contain only IDs in `providers`. Enable it
+only for providers you deliberately use with token sharing; remove the opt-in
+when switching that provider to an ordinary API key or legacy Codex connection.
+It does not fix expired authorization, provider outages, or a stopped Codespace.
+
 Avoid another plugin rewriting the destination after this plugin. Verify that
 the plugin loaded successfully in OpenCode, then make a small model request and
 confirm a matching gateway counter increase. Like any integration, an absent or
@@ -402,6 +429,7 @@ Common checks:
 | Midstream error | Provider/network disconnect or idle timeout; output is aborted, not replaced with fake SSE |
 | No gateway counters | Wrong provider ID, plugin load failure, or a different OpenCode server |
 | Provider 401/403 | Original account credential, region, model entitlement, or VPS IP restriction |
+| ChatGPT token sharing rejects an unsupported feature after changing reasoning | Enable `chatgptTokenSharingProviders: ["openai"]` in this profile's DeltaRelay options; see persistent compatibility above |
 
 Do not paste tokens, provider headers, original request bodies, or full URLs
 containing query credentials into bug reports. Share sanitized metadata only.

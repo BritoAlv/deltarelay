@@ -7,7 +7,7 @@ Desktop launcher. For a new computer or VPS, follow [SETUP.md](SETUP.md) instead
 The tracked Python helpers accept an explicit profile and Codespace name; they
 never discover or provision the original developer's deployment from this repo.
 
-## Start everything, including Desktop
+## Start everything, including the dashboard and Desktop
 
 From the project directory:
 
@@ -15,17 +15,38 @@ From the project directory:
 ./startup.sh
 # Optional: allow 20 minutes of bounded retries on an unreliable connection.
 ./startup.sh --timeout 1200
-# Recover the services only; leave Desktop closed.
+# Recover the services and start the dashboard; leave Desktop closed.
 ./startup.sh --no-desktop
+# Optional: skip the dashboard (does not stop an existing dashboard).
+./startup.sh --no-dashboard
 ```
 
-`startup.sh` first performs the recovery described below, then launches the
-existing isolated Desktop profile from `.runtime/codespace-test/launch-desktop.sh`.
-That profile is configured to send selected provider requests through the
-recovered local gateway. The script does not start a second copy when that
-Desktop profile is already running, and it does not touch your original Desktop
-profile or provider credentials. It must run from a graphical session unless
-`--no-desktop` is used.
+`startup.sh` first performs the recovery described below, starts or reuses the
+local dashboard at **http://127.0.0.1:8790**, then launches the existing isolated
+Desktop profile from `.runtime/codespace-test/launch-desktop.sh`. Both use the
+recovered local gateway on port **18788**. The dashboard still starts when
+Desktop is already running or `--no-desktop` is used. The script does not touch
+your original Desktop profile or provider credentials. It must run from a
+graphical session unless `--no-desktop` is used.
+
+Missing/stale dashboard builds are prepared automatically: Go builds the local
+`bin/deltarelay` with module/toolchain downloads disabled, and pnpm builds Astro
+using **only the offline package cache**. A missing cache or build tool produces
+an actionable error, not a network download; use `--no-dashboard` to recover
+without it. Existing up-to-date builds need no Go/pnpm invocation. An already
+running dashboard is reused without rebuilding its live assets or restarting it.
+The private deployed gateway binary is **not** replaced or restarted. If it is
+too old to expose dashboard diagnostics, startup warns; rebuild/restart that
+gateway separately when safe to begin recording sessions.
+
+The dashboard uses the existing profile's `local.token`, with the token kept out
+of the browser and process arguments. Its PID is stored in
+`.runtime/codespace-test/dashboard.pid`; logs are appended privately to
+`.runtime/codespace-test/logs/dashboard.log`. An unrecognized owner of the chosen
+port is never killed or replaced. Set `DELTARELAY_DASHBOARD_PORT=8791` before
+`./startup.sh` to choose another loopback port. [DASHBOARD.md](DASHBOARD.md) covers
+the UI, offline cache prerequisites, and measurement limits. Nothing is published
+through a public port forward, and the launcher does not open an extra browser.
 
 ## Recover the services only
 
@@ -70,17 +91,19 @@ force-restart an available but unreachable Codespace.
 
 The recovery step does **not** submit or replay inference, change provider
 credentials, restart Desktop, or open another Desktop profile. `recover.sh` stops
-after readiness; `startup.sh` then launches the isolated Desktop profile if it is
-not already running. A completed saved response can be fetched by its request ID;
+after readiness; `startup.sh` then starts/reuses the dashboard and launches the
+isolated Desktop profile if it is not already running. A completed saved response
+can be fetched by its request ID;
 generation interrupted by suspension is not automatically regenerated. The
 existing gateway may deliver previously queued, explicit cancellations once
 connectivity returns.
 
 Implementation: `startup.sh` (the full start sequence) plus
-`deploy/recover_codespace.py` and its self-contained remote helper
-`deploy/recover_relay.py`. The private wrapper only supplies the existing
-Codespace name and profile path; `startup.sh` calls that wrapper and then the
-private Desktop launcher. For equivalent direct invocation of recovery only:
+`deploy/recover_codespace.py`, its self-contained remote helper
+`deploy/recover_relay.py`, and `deploy/start_dashboard.py`. The private wrapper
+only supplies the existing Codespace name and profile path; `startup.sh` calls
+that wrapper, the local dashboard helper, and then the private Desktop launcher.
+For equivalent direct invocation of recovery only:
 
 ```sh
 python3 deploy/recover_codespace.py --codespace '<existing-codespace-name>' \

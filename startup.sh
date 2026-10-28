@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Recover the existing Codespace deployment, then open its OpenCode Desktop.
+# Recover the existing Codespace deployment, start its dashboard, then Desktop.
 set -euo pipefail
 umask 077
 
@@ -14,30 +14,35 @@ DESKTOP_DIR="$PROFILE/desktop-profile"
 
 usage() {
   cat <<'EOF'
-Usage: ./startup.sh [--no-desktop] [recovery options]
+Usage: ./startup.sh [--no-desktop] [--no-dashboard] [recovery options]
 
-Recover the existing private Codespace test deployment and, unless --no-desktop
-is given, launch its isolated OpenCode Desktop profile. That profile uses the
-recovered local gateway.
+Recover the existing private Codespace test deployment, start the local dashboard,
+and, unless --no-desktop is given, launch its isolated OpenCode Desktop profile.
+Both use the recovered local gateway. Missing/stale dashboard builds use Go and
+the offline pnpm cache; no dependencies are downloaded.
 
 Options:
-  --no-desktop       Recover relay/tunnel/gateway only; do not start Desktop.
+  --no-desktop       Recover services and start the dashboard, without Desktop.
+  --no-dashboard     Skip the dashboard; leave any running dashboard untouched.
   -h, --help         Show this help.
 
 Recovery options are passed to .runtime/codespace-test/recover.sh, for example:
   --timeout 1200     Allow up to 20 minutes of bounded retries.
 
-The script never starts a second copy when the isolated Desktop profile is
-already running. It does not stop services, replay inference, or change tokens,
-provider credentials, Codespace idle policy, or port visibility.
+Dashboard: http://127.0.0.1:8790 (override with DELTARELAY_DASHBOARD_PORT).
+The script reuses its existing dashboard and isolated Desktop processes. It does
+not stop services, replay inference, or change tokens, provider credentials,
+Codespace idle policy, or port visibility.
 EOF
 }
 
 launch_desktop=1
+launch_dashboard=1
 recover_args=()
 for argument in "$@"; do
   case "$argument" in
     --no-desktop) launch_desktop=0 ;;
+    --no-dashboard) launch_dashboard=0 ;;
     -h|--help) usage; exit 0 ;;
     *) recover_args+=("$argument") ;;
   esac
@@ -57,7 +62,7 @@ fi
 mkdir -p -m 700 "$PROFILE/logs"
 
 # Serialize whole startups. recover.sh has its own recovery lock; this one also
-# prevents two Desktop launches from racing after an idempotent recovery.
+# prevents dashboard/Desktop launches racing after an idempotent recovery.
 if ! command -v flock >/dev/null 2>&1; then
   echo "startup.sh: flock is required to serialize startup" >&2
   exit 1
@@ -92,6 +97,12 @@ if ((${#recover_args[@]})); then
   "$RECOVER" "${recover_args[@]}" 9>&-
 else
   "$RECOVER" 9>&-
+fi
+
+if ((launch_dashboard)); then
+  echo "==> Starting the local DeltaRelay dashboard"
+  python3 "$ROOT/deploy/start_dashboard.py" --project "$ROOT" --profile "$PROFILE" \
+    --port "${DELTARELAY_DASHBOARD_PORT:-8790}" 9>&-
 fi
 
 if ((!launch_desktop)); then

@@ -1,0 +1,14 @@
+packages:
+  - web
+
+offline: true
+ignoreScripts: true
+
+overrides:
+  vite: 6.4.3
+  rollup: 4.63.1
+  micromark-extension-gfm-table: 2.1.1
+
+allowBuilds:
+  esbuild: false
+  sharp: false

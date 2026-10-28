@@ -33,6 +33,11 @@ export async function setup(ctx) {
     throw new Error("DeltaRelay providers must be a nonempty array of provider IDs")
   }
   const selected = new Set(providers)
+  const chatgptProviders = options.chatgptTokenSharingProviders ?? []
+  if (!Array.isArray(chatgptProviders) || chatgptProviders.some((id) => typeof id !== "string" || !selected.has(id))) {
+    throw new Error("DeltaRelay chatgptTokenSharingProviders must be an array of selected provider IDs")
+  }
+  const tokenSharing = new Set(chatgptProviders)
   const headerTimeout = options.headerTimeout ?? 4 * 60 * 60 * 1000
   if (!Number.isSafeInteger(headerTimeout) || headerTimeout <= 0) {
     throw new Error("DeltaRelay headerTimeout must be positive milliseconds")
@@ -45,6 +50,7 @@ export async function setup(ctx) {
         if (!selected.has(provider.id)) continue
         editor.update(provider.id, (draft) => {
           draft.settings = { ...draft.settings, transport: "http", encoding: "none", headerTimeout }
+          if (tokenSharing.has(provider.id)) draft.settings.compaction = { type: "summary" }
         })
       }
     }))
@@ -53,8 +59,21 @@ export async function setup(ctx) {
         if (!selected.has(model.providerID)) continue
         editor.update(model.providerID, model.id, (draft) => {
           draft.settings = { ...draft.settings, encoding: "none" }
+          // These are account-policy settings, not a snapshot of OAuth health.
+          // Reapply on every registry rebuild even if OpenCode's ChatGPT plugin
+          // skipped its own transforms after a failed credential refresh.
+          if (tokenSharing.has(model.providerID)) {
+            draft.compatibility = { ...draft.compatibility, supportsEffortUpdates: false }
+            draft.settings.compaction = { type: "summary" }
+          }
           if (Array.isArray(draft.variants)) {
-            draft.variants = draft.variants.map((variant) => ({ ...variant, settings: { ...variant.settings, encoding: "none" } }))
+            draft.variants = draft.variants.map((variant) => ({
+              ...variant,
+              settings: {
+                ...variant.settings, encoding: "none",
+                ...(tokenSharing.has(model.providerID) ? { compaction: { type: "summary" } } : {}),
+              },
+            }))
           }
         })
       }
@@ -73,6 +92,16 @@ export async function setup(ctx) {
         headers.set("x-deltarelay-local-token", readToken(options.localTokenFile))
         headers.set("x-deltarelay-target", original.url)
         headers.set("x-deltarelay-request-id", randomUUID())
+        // Local metadata only: CleanHeaders strips these before VPS/provider
+        // dispatch. Never inspect or rewrite the one-shot conversation body.
+        headers.delete("x-deltarelay-session-id")
+        headers.delete("x-deltarelay-request-kind")
+        if (typeof event.sessionID === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(event.sessionID)) {
+          headers.set("x-deltarelay-session-id", event.sessionID)
+        }
+        if (["primary", "title", "compaction", "generate"].includes(event.kind)) {
+          headers.set("x-deltarelay-request-kind", event.kind)
+        }
         if (!headers.has("user-agent")) headers.set("user-agent", "opencode-deltarelay/0.2")
         event.request = new Request(new URL("/v1/proxy", gateway), {
           method: original.method, headers, body: original.body,

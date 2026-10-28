@@ -1,0 +1,19 @@
+{
+  "name": "@deltarelay/dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 node node_modules/astro/astro.js dev --host 127.0.0.1",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 node node_modules/astro/astro.js build",
+    "check": "ASTRO_TELEMETRY_DISABLED=1 node node_modules/astro/astro.js sync && node node_modules/typescript/bin/tsc --noEmit",
+    "test": "node node_modules/typescript/bin/tsc -p tsconfig.test.json && node --test .test-build/test/*.test.js"
+  },
+  "dependencies": {
+    "astro": "5.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.2",
+    "typescript": "5.9.3"
+  }
+}

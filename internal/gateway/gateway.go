@@ -18,6 +18,7 @@ import (
 
 	"deltarelay/internal/client"
 	"deltarelay/internal/protocol"
+	"deltarelay/internal/telemetry"
 	"deltarelay/internal/upstream"
 )
 
@@ -31,6 +32,7 @@ type Config struct {
 	RequestTimeout        time.Duration
 	OnResult              func(Result)
 	OnStart               func(string)
+	StatsFile             string
 }
 
 type Result struct {
@@ -42,6 +44,7 @@ type Result struct {
 	DurationMillis int64        `json:"duration_ms"`
 	Failed         bool         `json:"failed"`
 	ErrorCode      string       `json:"error_code,omitempty"`
+	SessionID      string       `json:"session_id,omitempty"`
 }
 
 type Gateway struct {
@@ -50,6 +53,8 @@ type Gateway struct {
 	policy                                                                          *upstream.Policy
 	mux                                                                             *http.ServeMux
 	slots                                                                           chan struct{}
+	history                                                                         *telemetry.Recorder
+	startedAt                                                                       time.Time
 	requests, active, failed, bodyBytes, uploadedBytes, encodedBytes, responseBytes atomic.Int64
 }
 
@@ -76,10 +81,15 @@ func New(config Config) (*Gateway, error) {
 	if !policy.Enabled() {
 		return nil, errors.New("gateway requires an explicit upstream allowlist")
 	}
-	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent)}
+	history, err := telemetry.Open(config.StatsFile)
+	if err != nil {
+		return nil, err
+	}
+	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent), history: history, startedAt: time.Now().UTC()}
 	g.mux.HandleFunc("POST /v1/proxy", g.proxy)
 	g.mux.HandleFunc("GET /healthz", g.health)
 	g.mux.HandleFunc("GET /metrics", g.metrics)
+	g.mux.HandleFunc("GET /v1/dashboard", g.dashboard)
 	return g, nil
 }
 
@@ -98,6 +108,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mux.ServeHTTP(w, r)
 }
 
+// Close releases the optional statistics-file lock after HTTP shutdown.
+func (g *Gateway) Close() { g.history.Close() }
+
 func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	select {
 	case g.slots <- struct{}{}:
@@ -109,6 +122,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	g.requests.Add(1)
 	g.active.Add(1)
 	result := Result{Status: http.StatusBadGateway, Failed: true}
+	var observation uint64
 	defer func() {
 		g.active.Add(-1)
 		if result.Failed {
@@ -119,6 +133,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		g.encodedBytes.Add(result.Stats.RequestBodyBytesSent)
 		g.responseBytes.Add(result.ResponseBytes)
 		result.DurationMillis = time.Since(started).Milliseconds()
+		g.history.Finish(observation, result.Status, result.Failed, result.ErrorCode, result.Stats, result.ResponseBytes, result.DurationMillis)
 		if g.config.OnResult != nil {
 			g.config.OnResult(result)
 		}
@@ -151,6 +166,14 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result.ID = id
+	result.SessionID = r.Header.Get("X-DeltaRelay-Session-ID")
+	if !telemetry.ValidLabel(result.SessionID) {
+		result.SessionID = r.Header.Get("X-Opencode-Session")
+	}
+	if !telemetry.ValidLabel(result.SessionID) {
+		result.SessionID = ""
+	}
+	observation = g.history.Begin(id, result.SessionID, rule.Name, r.Header.Get("X-DeltaRelay-Request-Kind"))
 	w.Header().Set("X-DeltaRelay-Request-ID", id)
 	if g.config.OnStart != nil {
 		g.config.OnStart(id)
@@ -191,6 +214,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if ctx.Err() != nil {
 			result.Status = 499
+			result.ErrorCode = "request_cancelled"
 			return
 		}
 		if errors.Is(err, client.ErrUploadBudget) {
@@ -244,6 +268,9 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	result.Failed = err != nil || response.StatusCode >= 400
 	if err != nil {
 		result.ErrorCode = "response_transfer_interrupted"
+		if ctx.Err() != nil {
+			result.Status, result.ErrorCode = 499, "request_cancelled"
+		}
 		panic(http.ErrAbortHandler)
 	}
 }

@@ -1,0 +1,14 @@
+{
+  "name": "deltarelay",
+  "private": true,
+  "engines": { "node": ">=22.12.0", "pnpm": ">=11" },
+  "devDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "4.63.1"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @deltarelay/dashboard dev",
+    "build": "pnpm --filter @deltarelay/dashboard build",
+    "check": "pnpm --filter @deltarelay/dashboard check",
+    "test": "pnpm --filter @deltarelay/dashboard test"
+  }
+}

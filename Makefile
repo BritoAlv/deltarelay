@@ -1,4 +1,4 @@
-.PHONY: build test race vet benchmark plugin-test plugin-config opencode-test recovery-test
+.PHONY: build test race vet benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test
 
 build:
 	go build -trimpath -o bin/deltarelay ./cmd/deltarelay
@@ -26,3 +26,13 @@ recovery-test:
 
 opencode-test:
 	DELTARELAY_TEST_OPENCODE=1 go test -v ./internal/gateway -run TestInstalledOpenCodePlugin -count=1
+
+dashboard-install:
+	pnpm install --offline --frozen-lockfile --trust-lockfile
+
+dashboard-build:
+	pnpm build
+
+dashboard-test:
+	pnpm check
+	pnpm test

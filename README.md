@@ -45,9 +45,10 @@ Private configuration, tokens, logs, conversation exports, and relay state are
 ignored files. On another computer, regenerate credentials for a new deployment
 or transfer the existing relay token securely if intentionally using the same VPS.
 
-`./startup.sh` is only a recovery launcher for an **already configured** private
-Codespace test profile. Its private wrappers, credentials, and Desktop profile
-are not included in a clone. Use the setup guide, not that script, for a new VPS.
+`./startup.sh` recovers an **already configured** private Codespace test profile
+and starts its local dashboard and isolated Desktop. Its private wrappers,
+credentials, and Desktop profile are not included in a clone. Use the setup
+guide, not that script, for a new VPS. See [recovery startup options](docs/CODESPACE_RECOVERY.md).
 
 ## Build and test
 
@@ -76,6 +77,28 @@ For a different Linux VPS architecture, cross-compile, for example:
 ```sh
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/deltarelay-linux-amd64 ./cmd/deltarelay
 ```
+
+## Web dashboard
+
+The optional **Astro + TypeScript** dashboard shows per-session bandwidth savings,
+active and recent requests, cache reuse, VPS/storage/mailbox health, pending
+cancellations, and observed provider results. It is local and read-only; gateway
+tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
+or database is required. Dependencies are pinned for an offline pnpm build.
+
+```sh
+pnpm install --offline --frozen-lockfile --trust-lockfile
+pnpm build
+go build -trimpath -o bin/deltarelay ./cmd/deltarelay
+./bin/deltarelay dashboard --local-token-file /path/to/private/local.token
+```
+
+With your gateway running, open **http://127.0.0.1:8790**. Rebuild and restart an
+older gateway to enable session collection. New gateways save bounded metadata
+in `.runtime/dashboard-stats.json` by default; previous logs are not imported.
+**[Dashboard setup, offline builds, and measurement details](docs/DASHBOARD.md)**
+explain the local token, cache requirements, development mode, and security model.
+Savings mean reduced uploads, **not** a promised provider-billing discount.
 
 ## Quick local trial
 

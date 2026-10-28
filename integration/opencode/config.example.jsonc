@@ -10,6 +10,9 @@
         "gateway": "http://127.0.0.1:8788",
         "localTokenFile": "/absolute/path/to/private/local.token",
         "providers": ["openai", "opencode-go"],
+        // For Sign in with ChatGPT (token sharing), opt in with ["openai"].
+        // Leave empty for ordinary API-key / legacy Codex connections.
+        "chatgptTokenSharingProviders": [],
         "headerTimeout": 14400000
       }
     }
