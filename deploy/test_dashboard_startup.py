@@ -139,18 +139,11 @@ class StartupScriptTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.profile = self.root / 'private profile'
         self.profile.mkdir()
-        (self.profile / 'project').mkdir()
         (self.root / 'deploy').mkdir()
         shutil.copyfile(Path(__file__).resolve().parents[1] / 'startup.sh', self.root / 'startup.sh')
         self.events = self.root / 'events'
-        recover = self.profile / 'recover.sh'
-        recover.write_text('#!/usr/bin/env bash\nprintf "recover" >>"$EVENTS"\nprintf " <%s>" "$@" >>"$EVENTS"\nprintf "\\n" >>"$EVENTS"\n')
-        recover.chmod(0o700)
-        launch = self.profile / 'launch-desktop.sh'
-        launch.write_text('#!/usr/bin/env bash\nprintf "desktop\\n" >>"$EVENTS"\n')
-        launch.chmod(0o700)
-        helper = self.root / 'deploy/start_dashboard.py'
-        helper.write_text('import os,sys\nwith open(os.environ["EVENTS"], "a") as f: f.write("dashboard " + repr(sys.argv[1:]) + "\\n")\n')
+        helper = self.root / 'deploy/start_supervisor.py'
+        helper.write_text('import json,os,sys\nwith open(os.environ["EVENTS"], "a") as f: f.write(json.dumps(sys.argv[1:]) + "\\n")\n')
         self.environment = dict(os.environ, DELTARELAY_PROFILE=str(self.profile), EVENTS=str(self.events),
                                 DISPLAY='', WAYLAND_DISPLAY='', DELTARELAY_DASHBOARD_PORT='19890')
 
@@ -158,52 +151,43 @@ class StartupScriptTest(unittest.TestCase):
         return subprocess.run(['bash', str(self.root / 'startup.sh'), *args],
                               cwd=self.root, env=self.environment, text=True, capture_output=True, timeout=10)
 
-    def test_no_desktop_still_starts_dashboard_after_recovery(self):
+    def test_no_desktop_starts_independent_supervisor_without_network_recovery(self):
         result = self.startup('--no-desktop', '--timeout', '1200')
         self.assertEqual(result.returncode, 0, result.stderr)
         events = self.events.read_text().splitlines()
-        self.assertEqual(events[0], 'recover <--timeout> <1200>')
-        self.assertTrue(events[1].startswith('dashboard '))
-        self.assertIn(str(self.profile), events[1])
-        self.assertIn('19890', events[1])
-        self.assertNotIn('desktop', events)
+        self.assertEqual(len(events), 1)
+        self.assertIn(str(self.profile), events[0])
+        self.assertIn('19890', events[0])
+        self.assertIn('--no-desktop', events[0])
+        self.assertNotIn('--timeout', events[0])
 
-    def test_opt_out_is_not_forwarded_to_recovery(self):
+    def test_dashboard_opt_out_reaches_supervisor(self):
         result = self.startup('--no-desktop', '--no-dashboard')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.events.read_text().splitlines(), ['recover <>'])
+        self.assertIn('--no-dashboard', self.events.read_text())
 
-    def test_dashboard_starts_before_graphical_session_check(self):
+    def test_no_graphical_session_does_not_block_local_controls(self):
         result = self.startup()
-        self.assertEqual(result.returncode, 1)
-        self.assertIn('no graphical session', result.stderr)
-        self.assertEqual(len(self.events.read_text().splitlines()), 2)
-        self.assertTrue(self.events.read_text().splitlines()[1].startswith('dashboard '))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.events.read_text().splitlines()), 1)
 
-    def test_existing_desktop_does_not_skip_dashboard_startup(self):
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)',
-                                  'ai.opencode', f'--user-data-dir={self.profile / "desktop-profile"}'])
-        try:
-            result = self.startup()
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('Desktop is already running', result.stdout)
-            self.assertTrue(self.events.read_text().splitlines()[1].startswith('dashboard '))
-            self.assertEqual((self.profile / 'desktop.pid').read_text().strip(), str(child.pid))
-        finally:
-            child.terminate()
-            child.wait(timeout=5)
+    def test_generic_vps_config_does_not_require_codespace_wrappers(self):
+        result = self.startup('--config', '/private configuration/vps.local.json', '--no-desktop')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = self.events.read_text()
+        self.assertIn('/private configuration/vps.local.json', event)
+        self.assertNotIn('--profile', event)
 
-    def test_failed_recovery_does_not_start_dashboard(self):
-        (self.profile / 'recover.sh').write_text('#!/usr/bin/env bash\nexit 42\n')
-        result = self.startup('--no-desktop')
-        self.assertEqual(result.returncode, 42)
+    def test_unknown_argument_fails_before_starting_anything(self):
+        result = self.startup('--unknown')
+        self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.events.exists())
 
-    def test_dashboard_failure_preserves_started_services_and_fails_clearly(self):
-        (self.root / 'deploy/start_dashboard.py').write_text('raise SystemExit(7)\n')
+    def test_startup_propagates_controller_launch_failure(self):
+        (self.root / 'deploy/start_supervisor.py').write_text('raise SystemExit(7)\n')
         result = self.startup('--no-desktop')
         self.assertEqual(result.returncode, 7)
-        self.assertEqual(self.events.read_text().splitlines(), ['recover <>'])
+        self.assertFalse(self.events.exists())
 
     def test_help_does_not_start_anything(self):
         result = self.startup('--help')

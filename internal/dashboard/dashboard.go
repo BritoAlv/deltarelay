@@ -1,8 +1,10 @@
-// Package dashboard serves Astro's static build and one read-only, authenticated
-// gateway diagnostic endpoint. Gateway credentials never cross into the browser.
+// Package dashboard serves local diagnostics and optional, narrowly scoped
+// supervisor controls. Service/provider credentials never cross into the browser.
 package dashboard
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net"
@@ -11,19 +13,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Config struct {
-	GatewayURL string
-	LocalToken string
-	Assets     string
+	GatewayURL          string
+	LocalToken          string
+	Assets              string
+	ControlSocket       string
+	OpenCodeServiceFile string
+	AuthIntegration     string
 }
 
 type Handler struct {
-	config Config
-	client *http.Client
-	files  http.Handler
+	config    Config
+	client    *http.Client
+	files     http.Handler
+	control   *http.Client
+	nonce     string
+	authMu    sync.Mutex
+	authCache AuthStatus
+	authNext  time.Time
 }
 
 func LoopbackHost(host string) bool {
@@ -43,6 +54,20 @@ func New(config Config) (*Handler, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	h := &Handler{config: config, client: &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, err
+	}
+	h.nonce = hex.EncodeToString(nonce[:])
+	if config.AuthIntegration == "" {
+		h.config.AuthIntegration = "openai"
+	}
+	if config.ControlSocket != "" {
+		if !filepath.IsAbs(config.ControlSocket) {
+			return nil, errors.New("control socket must be an absolute private path")
+		}
+		h.control = controlClient(config.ControlSocket)
+	}
 	if config.Assets != "" {
 		info, err := os.Stat(filepath.Join(config.Assets, "index.html"))
 		if err != nil || !info.Mode().IsRegular() {
@@ -53,7 +78,12 @@ func New(config Config) (*Handler, error) {
 	return h, nil
 }
 
-func (h *Handler) Close() { h.client.CloseIdleConnections() }
+func (h *Handler) Close() {
+	h.client.CloseIdleConnections()
+	if h.control != nil {
+		h.control.CloseIdleConnections()
+	}
+}
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -75,6 +105,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-origin requests are not accepted", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path == "/api/system/action" || r.URL.Path == "/api/system/settings" {
+		h.writeControl(w, r)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "read-only dashboard", http.StatusMethodNotAllowed)
@@ -82,6 +116,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/api/dashboard" {
 		h.snapshot(w, r)
+		return
+	}
+	if r.URL.Path == "/api/system" {
+		h.system(w, r)
 		return
 	}
 	if h.files != nil && (r.URL.Path == "/" || r.URL.Path == "/favicon.svg" || strings.HasPrefix(r.URL.Path, "/_astro/") && !strings.HasSuffix(r.URL.Path, "/")) {

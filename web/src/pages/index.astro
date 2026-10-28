@@ -21,7 +21,8 @@ import "../styles/dashboard.css"
       <nav aria-label="Dashboard navigation">
         <a class="nav-link selected" href="#overview" data-nav="overview" aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span><span class="nav-key">01</span></a>
         <a class="nav-link" href="#sessions" data-nav="sessions" aria-label="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
-        <a class="nav-link" href="#system" data-nav="system" aria-label="System health"><Icon name="system" size={18} /><span>System health</span></a>
+        <a class="nav-link" href="#controls" data-nav="controls" aria-label="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
+        <a class="nav-link" href="#system" data-nav="system" aria-label="System health"><Icon name="activity" size={18} /><span>System health</span></a>
       </nav>
       <div class="sidebar-bottom"><div class="private-note"><Icon name="shield" size={19} /><div><strong>Local. Private. Lossless.</strong><p>Your conversations stay out<br />of this dashboard.</p></div></div><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
     </aside>
@@ -49,6 +50,32 @@ import "../styles/dashboard.css"
           </div>
         </section>
 
+        <section id="controls" class="system-section" aria-labelledby="controls-title">
+          <div class="section-heading"><div><h2 id="controls-title">System controls</h2><p>Recovery stays active when this tab is closed.</p></div><button class="button" id="recover-all" type="button" disabled>Recover all</button></div>
+          <div class="control-overview">
+            <article class="panel control-panel">
+              <div class="control-heading"><h3>PC → VPS connection</h3><span id="control-connection" class="status-pill neutral">Checking</span></div>
+              <p id="recovery-status" role="status">Connecting to the independent local supervisor…</p>
+              <p id="recovery-detail" class="control-detail"></p>
+              <div class="control-settings">
+                <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic reconnect</label>
+                <label><input id="auto-wake" type="checkbox" disabled /> Automatic Codespace wake</label>
+              </div>
+              <div class="control-wake"><span id="codespace-state">Codespace state unknown</span><button id="wake-codespace" class="button" type="button" disabled>Wake Codespace</button></div>
+              <p class="control-detail">Waking a Codespace resumes GitHub compute usage/billing. Manual wake works with auto-wake on or off.</p>
+            </article>
+            <article class="panel control-panel">
+              <div class="control-heading"><h3>ChatGPT sign-in</h3><span id="auth-state" class="status-pill neutral">Checking</span></div>
+              <p id="auth-countdown" class="auth-countdown">—</p>
+              <p id="auth-deadline" class="control-detail">Reading local authentication metadata…</p>
+              <p class="control-detail">This is the current access token’s expiry, not a usage-limit reset or a guaranteed sign-in deadline. OpenCode may refresh it automatically.</p>
+              <p class="control-detail">If sign-in is required, use OpenCode’s Connect provider flow. This page never refreshes tokens or makes model requests.</p>
+            </article>
+          </div>
+          <div id="control-notice" class="notice" role="status" hidden></div>
+          <article class="panel service-panel"><div class="control-heading"><h3>Services</h3><button id="restart-all" class="text-button" type="button" disabled>Restart all…</button></div><div id="service-controls" class="service-controls"><p class="control-detail">Service controls are available even when the local gateway is down.</p></div><p class="control-detail">Restart means restart—not erase. Tokens, sessions, cached chunks, and saved responses are preserved. Restarting services can interrupt active requests.</p></article>
+        </section>
+
         <section id="system" class="system-section" aria-labelledby="system-title"><div class="section-heading"><div><h2 id="system-title">System health</h2><p>Every hop, in one place.</p></div><span class="section-meta" id="system-summary">Waiting for diagnostics</span></div><div class="system-grid" id="system-cards"><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="terminal" /></span><span class="status-pill neutral">Waiting</span></div><h3>Local gateway</h3><p>Connect to inspect your relay.</p></article><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="link" /></span><span class="status-pill neutral">Unknown</span></div><h3>VPS connection</h3><p>Authenticated relay reachability</p></article><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="system" /></span><span class="status-pill neutral">Unknown</span></div><h3>Storage & mailbox</h3><p>Cache and saved response capacity</p></article><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="globe" /></span><span class="status-pill neutral">Unobserved</span></div><h3>Provider forwarding</h3><p>Based on actual requests, not probes</p></article></div></section>
 
         <section id="sessions" class="sessions-section" aria-labelledby="sessions-title"><div class="section-heading"><div class="section-title-row"><h2 id="sessions-title">Sessions</h2><span class="count-badge" id="session-count">0</span></div><p class="section-meta">Session-level savings, without the conversation.</p></div><article class="panel sessions-panel"><div class="table-toolbar"><div class="search-field"><Icon name="search" size={17} /><label class="sr-only" for="session-search">Search session ID or upstream</label><input id="session-search" type="search" placeholder="Search sessions or upstreams…" autocomplete="off" /></div><label class="sr-only" for="session-filter">Filter sessions by state</label><select id="session-filter"><option value="all">All states</option><option value="active">Active</option><option value="idle">Idle</option><option value="attention">Needs attention</option></select><button class="text-button export-button" id="export-button" type="button" disabled><Icon name="download" size={16} />Export CSV</button></div><div class="table-scroll"><table><thead><tr><th scope="col">Session / upstream</th><th scope="col">State</th><th scope="col" class="number">Requests</th><th scope="col" class="number">Original</th><th scope="col" class="number">Uploaded</th><th scope="col" class="number">Reduction</th><th scope="col">Last activity</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead><tbody id="session-rows"></tbody></table></div><div class="empty-state" id="sessions-empty"><span class="empty-icon"><Icon name="sessions" size={28} /></span><h3>No sessions yet</h3><p>Routed requests will appear here automatically.<br />Start the local gateway and send a message through DeltaRelay.</p></div><div class="table-footer"><span id="table-summary">0 sessions</span><div class="pagination"><button class="text-button" id="previous-page" type="button" disabled>Previous</button><span id="page-label">Page 1 of 1</span><button class="text-button" id="next-page" type="button" disabled>Next</button></div></div></article></section>
@@ -59,5 +86,6 @@ import "../styles/dashboard.css"
 
     <dialog id="session-dialog" class="session-dialog" aria-labelledby="detail-title"><div class="dialog-heading"><div><div class="eyebrow">SESSION INSPECTOR</div><h2 id="detail-title">Session</h2></div><button class="icon-button" id="close-detail" type="button" aria-label="Close session details"><Icon name="close" /></button></div><div id="session-detail"></div></dialog>
     <script src="../scripts/dashboard.ts"></script>
+    <script src="../scripts/system.ts"></script>
   </body>
 </html>

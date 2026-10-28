@@ -45,10 +45,12 @@ Private configuration, tokens, logs, conversation exports, and relay state are
 ignored files. On another computer, regenerate credentials for a new deployment
 or transfer the existing relay token securely if intentionally using the same VPS.
 
-`./startup.sh` recovers an **already configured** private Codespace test profile
-and starts its local dashboard and isolated Desktop. Its private wrappers,
+`./startup.sh` starts persistent recovery for an **already configured** private
+Codespace profile, its local dashboard, and isolated Desktop. Controls come up
+before network recovery; Codespace auto-wake is selectable in the dashboard.
+`--config` also supports existing SSH/HTTPS VPS deployments. Its private wrappers,
 credentials, and Desktop profile are not included in a clone. Use the setup
-guide, not that script, for a new VPS. See [recovery startup options](docs/CODESPACE_RECOVERY.md).
+guide, not that script, to provision a new VPS. See [supervision and controls](docs/SUPERVISION.md).
 
 ## Build and test
 
@@ -69,7 +71,7 @@ node --test integration/opencode/*.test.mjs
 `-trimpath` keeps build-machine filesystem paths out of the binary. The OpenCode
 plugin has no npm dependencies, so no `npm install` is needed. The optional
 installed-OpenCode test additionally requires OpenCode V2 on `PATH`. Python 3
-is only needed for the optional Codespace recovery helpers and their offline tests
+is only needed for optional supervision/recovery helpers and their offline tests
 (`make recovery-test`).
 
 For a different Linux VPS architecture, cross-compile, for example:
@@ -82,7 +84,9 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/deltarelay-linux
 
 The optional **Astro + TypeScript** dashboard shows per-session bandwidth savings,
 active and recent requests, cache reuse, VPS/storage/mailbox health, pending
-cancellations, and observed provider results. It is local and read-only; gateway
+cancellations, and observed provider results. Optional supervisor integration adds
+service Start/Restart controls, automatic network recovery, a Codespace wake
+toggle/manual button, and a ChatGPT access-token expiry countdown. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.
 
@@ -99,6 +103,10 @@ in `.runtime/dashboard-stats.json` by default; previous logs are not imported.
 **[Dashboard setup, offline builds, and measurement details](docs/DASHBOARD.md)**
 explain the local token, cache requirements, development mode, and security model.
 Savings mean reduced uploads, **not** a promised provider-billing discount.
+
+**[Automatic recovery, service controls, and token expiry](docs/SUPERVISION.md)**
+cover VPN switching and private configuration for both deployment types. Without
+a configured supervisor socket, service controls remain disabled.
 
 ## Quick local trial
 

@@ -20,6 +20,9 @@ func dashboardCommand(ctx context.Context, args []string, stderr io.Writer) erro
 	endpoint := flags.String("gateway", "http://127.0.0.1:8788", "loopback gateway HTTP origin")
 	assets := flags.String("assets", "web/dist", "Astro build directory; empty serves only the development API")
 	localFile := flags.String("local-token-file", defaultEnv("DELTARELAY_LOCAL_TOKEN_FILE", ""), "private local gateway token file; otherwise DELTARELAY_LOCAL_TOKEN")
+	controlSocket := flags.String("control-socket", "", "optional private supervisor Unix socket; omission keeps controls disabled")
+	serviceFile := flags.String("opencode-service-file", "", "optional private OpenCode V2 service registration for read-only OAuth expiry metadata")
+	authIntegration := flags.String("auth-integration", "openai", "OpenCode integration whose active OAuth expiry is displayed")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -34,7 +37,8 @@ func dashboardCommand(ctx context.Context, args []string, stderr io.Writer) erro
 	if err != nil {
 		return err
 	}
-	handler, err := dashboard.New(dashboard.Config{GatewayURL: *endpoint, LocalToken: token, Assets: *assets})
+	handler, err := dashboard.New(dashboard.Config{GatewayURL: *endpoint, LocalToken: token, Assets: *assets,
+		ControlSocket: *controlSocket, OpenCodeServiceFile: *serviceFile, AuthIntegration: *authIntegration})
 	if err != nil {
 		return err
 	}
@@ -53,7 +57,7 @@ func dashboardCommand(ctx context.Context, args []string, stderr io.Writer) erro
 		case <-done:
 		}
 	}()
-	fmt.Fprintf(stderr, "DeltaRelay dashboard: http://%s (read-only, local access only)\n", *listen)
+	fmt.Fprintf(stderr, "DeltaRelay dashboard: http://%s (local access only; controls require a configured supervisor)\n", *listen)
 	err = srv.ListenAndServe()
 	close(done)
 	<-shutdownDone

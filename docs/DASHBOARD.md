@@ -7,6 +7,12 @@ database, CDN, remote font, or paid health probe.
 
 ## What you can see
 
+For VPN/network recovery, service Start/Restart controls, selectable Codespace
+auto-wake/manual wake, and the ChatGPT access-token expiry countdown, see
+**[Supervision and controls](SUPERVISION.md)**. Those APIs are independent of
+gateway statistics and remain available when the gateway is down. Controls are
+disabled unless the dashboard is explicitly connected to a private supervisor.
+
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed attempts and negative savings.
 - Cache reuse versus raw uploaded chunks; hourly traffic over 24 hours or 7 days.
@@ -68,11 +74,13 @@ dashboard command needs no pnpm, Node, package store, or internet at runtime.
 ## Connect to your gateway
 
 For the **already configured private Codespace test profile**, `./startup.sh`
-starts/reuses the dashboard automatically after recovery, including with
+starts/reuses the dashboard automatically before background recovery, including with
 `--no-desktop`. It selects the profile's gateway on port 18788 and its existing
-local token file. Missing/stale builds use Go and the offline pnpm cache; live
-services are never restarted automatically. Use `--no-dashboard` to skip it, or
-set `DELTARELAY_DASHBOARD_PORT` to choose another loopback port (default 8790).
+local token file. Missing/stale builds use Go and the offline pnpm cache. A
+verified legacy read-only dashboard is upgraded; other live services are adopted
+without restart. Use `--no-dashboard` to skip a new dashboard launch, or set
+`DELTARELAY_DASHBOARD_PORT` before the first supervised startup to choose another
+loopback port (default 8790).
 See [CODESPACE_RECOVERY.md](CODESPACE_RECOVERY.md) for prerequisites and logs.
 This shortcut does not provision a profile in a fresh clone.
 
@@ -124,16 +132,18 @@ history; authentication failures and invalid/disallowed targets do not.
 
 ## Privacy, retention, and state
 
-The browser requests only `GET /api/dashboard`. The Go dashboard authenticates
+For statistics, the browser requests `GET /api/dashboard`. The Go dashboard authenticates
 its own `GET /v1/dashboard` to the local gateway; it does not forward browser
 headers, cookies, arbitrary routes, or query parameters. Gateway and VPS tokens,
 provider credentials, target URLs, prompts, and response bodies are not exposed.
 The dashboard makes no model requests and has no cancellation, ACK, or replay
-controls. Existing gateway authentication and browser-origin rejection remain
+controls. Its separate `/api/system` metadata and optional predefined POST service
+controls are documented in [SUPERVISION.md](SUPERVISION.md); they never proxy
+arbitrary routes or expose provider credentials. Existing gateway authentication and browser-origin rejection remain
 intact.
 
 Both listeners are loopback-only. The dashboard rejects non-loopback Host values,
-cross-origin/cross-site requests, and writes, and sends restrictive CSP/frame
+cross-origin/cross-site requests and unapproved writes, and sends restrictive CSP/frame
 headers with no permissive CORS. This is a **single-user local tool**, not a
 multi-user login service: another process/user on the same machine can read its
 local dashboard port. Do not publish it through a public proxy or public port
@@ -198,7 +208,8 @@ pnpm dev
 ```
 
 Visit **http://127.0.0.1:4321**. Vite proxies only `/api/dashboard` to the local
-Go listener on port 8790. The browser still receives no gateway token. Bind the
+Go listener on port 8790; `/api/system` is proxied separately for local controls.
+The browser still receives no gateway token. Bind the
 development server to loopback and do not expose it as a production service.
 
 ```sh

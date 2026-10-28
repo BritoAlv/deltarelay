@@ -257,6 +257,7 @@ demoButton.addEventListener("click", async () => {
   busy = false
   refreshButton.disabled = false
   demo = !demo
+  document.dispatchEvent(new CustomEvent("deltarelay:demo", { detail: demo }))
   snapshot = null
   stale = false
   lastError = ""

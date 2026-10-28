@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -144,17 +145,64 @@ def ensure_relay(root, expected, port=18787):
     raise LinkError('Existing relay did not become ready; no process was killed')
 
 
+def restart_relay(root, expected):
+    """Explicit dashboard restart only; preserve the store and require its owner."""
+    data = saved_store(root, expected)
+    # Validate authentication and identity before signaling any process.
+    info = relay_info(18787, private_text(root / 'relay.token'), expected)
+    if info is None:
+        return ensure_relay(root, expected)
+    binary = root / 'deltarelay-linux-amd64'
+    pid = owned_pid(root / 'server.pid', [str(binary), 'serve', '--data', str(data)])
+    if pid is None:
+        raise RecoveryError('Cannot verify the relay process owner; no process stopped')
+    proc = Path('/proc') / str(pid)
+    birth = (proc / 'stat').read_text().rsplit(')', 1)[1].split()[19]
+    os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 12
+    while time.monotonic() < deadline:
+        try:
+            fields = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+            if fields[19] != birth or fields[0] == 'Z':
+                break
+        except FileNotFoundError:
+            break
+        time.sleep(0.1)
+    else:
+        # An explicit dashboard restart may recover a confirmed hung relay.
+        # Recheck its birth so a recycled PID is never signaled.
+        try:
+            fields = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+            if fields[19] == birth and fields[0] != 'Z':
+                os.kill(pid, signal.SIGKILL)
+                for _ in range(30):
+                    try:
+                        fields = (proc / 'stat').read_text().rsplit(')', 1)[1].split()
+                        if fields[19] != birth or fields[0] == 'Z':
+                            break
+                    except FileNotFoundError:
+                        break
+                    time.sleep(0.1)
+                else:
+                    raise RecoveryError('Relay did not stop after a verified forced kill')
+        except FileNotFoundError:
+            pass
+    return ensure_relay(root, expected)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--expected-state-id', required=True)
+    parser.add_argument('--restart', action='store_true', help='explicit disruptive restart; never reset the existing store')
     args = parser.parse_args()
     try:
         root = args.root.expanduser().resolve(strict=True)
         fd = os.open(root / '.recovery.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'r+') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            print(json.dumps(ensure_relay(root, args.expected_state_id)))
+            operation = restart_relay if args.restart else ensure_relay
+            print(json.dumps(operation(root, args.expected_state_id)))
     except LinkError as error:
         print(json.dumps({'error': str(error)}))
         return 74

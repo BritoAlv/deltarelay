@@ -1,145 +1,42 @@
 #!/usr/bin/env bash
-# Recover the existing Codespace deployment, start its dashboard, then Desktop.
+# Start local controls before remote recovery; no network dependency for the UI.
 set -euo pipefail
 umask 077
-
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROFILE="${DELTARELAY_PROFILE:-$ROOT/.runtime/codespace-test}"
-PROFILE="${PROFILE%/}"
-RECOVER="$PROFILE/recover.sh"
-LAUNCH="$PROFILE/launch-desktop.sh"
-PIDFILE="$PROFILE/desktop.pid"
-DESKTOP_LOG="$PROFILE/logs/desktop.log"
-DESKTOP_DIR="$PROFILE/desktop-profile"
+args=()
+config=0
+while (($#)); do
+  case "$1" in
+    --no-desktop|--no-dashboard) args+=("$1"); shift ;;
+    --config)
+      (($# >= 2)) || { echo 'startup.sh: --config needs a private JSON file' >&2; exit 1; }
+      args+=(--config "$2"); config=1; shift 2 ;;
+    --timeout)
+      (($# >= 2)) || { echo 'startup.sh: --timeout needs seconds' >&2; exit 1; }
+      echo 'Recovery now runs continuously with bounded attempts; --timeout is no longer needed.' >&2
+      shift 2 ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: ./startup.sh [--no-desktop] [--no-dashboard] [--config /private/profile.local.json]
 
-usage() {
-  cat <<'EOF'
-Usage: ./startup.sh [--no-desktop] [--no-dashboard] [recovery options]
+Start/reuse the persistent local supervisor and dashboard before network recovery.
+The default adapts the existing private Codespace profile; --config selects an
+already-configured SSH/HTTPS VPS or Codespace. No new deployment is provisioned.
+Builds use Go and the offline pnpm cache; nothing is downloaded.
 
-Recover the existing private Codespace test deployment, start the local dashboard,
-and, unless --no-desktop is given, launch its isolated OpenCode Desktop profile.
-Both use the recovered local gateway. Missing/stale dashboard builds use Go and
-the offline pnpm cache; no dependencies are downloaded.
-
-Options:
-  --no-desktop       Recover services and start the dashboard, without Desktop.
-  --no-dashboard     Skip the dashboard; leave any running dashboard untouched.
-  -h, --help         Show this help.
-
-Recovery options are passed to .runtime/codespace-test/recover.sh, for example:
-  --timeout 1200     Allow up to 20 minutes of bounded retries.
-
-Dashboard: http://127.0.0.1:8790 (override with DELTARELAY_DASHBOARD_PORT).
-The script reuses its existing dashboard and isolated Desktop processes. It does
-not stop services, replay inference, or change tokens, provider credentials,
-Codespace idle policy, or port visibility.
+The supervisor survives closing the terminal or browser. Dashboard settings select
+automatic reconnect and Codespace auto-wake (off initially, because billing resumes).
+Manual Wake is always available. Restarts never erase tokens, cache, or history.
+--no-desktop skips the initial OpenCode/Desktop launch.
+--no-dashboard skips a new dashboard launch; existing services are left running.
+Dashboard defaults to http://127.0.0.1:8790 (DELTARELAY_DASHBOARD_PORT overrides it
+when the default private supervisor configuration is first generated).
 EOF
-}
-
-launch_desktop=1
-launch_dashboard=1
-recover_args=()
-for argument in "$@"; do
-  case "$argument" in
-    --no-desktop) launch_desktop=0 ;;
-    --no-dashboard) launch_dashboard=0 ;;
-    -h|--help) usage; exit 0 ;;
-    *) recover_args+=("$argument") ;;
+      exit 0 ;;
+    *) echo "startup.sh: unknown option: $1" >&2; exit 1 ;;
   esac
 done
-
-for required in "$RECOVER" "$LAUNCH"; do
-  if [[ ! -x "$required" ]]; then
-    echo "startup.sh: missing executable helper: $required" >&2
-    echo "This launcher requires an existing private profile. For a fresh clone, follow docs/SETUP.md." >&2
-    exit 1
-  fi
-done
-if [[ ! -d "$PROFILE/project" ]]; then
-  echo "startup.sh: missing existing test project: $PROFILE/project" >&2
-  exit 1
-fi
-mkdir -p -m 700 "$PROFILE/logs"
-
-# Serialize whole startups. recover.sh has its own recovery lock; this one also
-# prevents dashboard/Desktop launches racing after an idempotent recovery.
-if ! command -v flock >/dev/null 2>&1; then
-  echo "startup.sh: flock is required to serialize startup" >&2
-  exit 1
-fi
-exec 9>"$PROFILE/.startup.lock"
-if ! flock -n 9; then
-  echo "startup.sh: another startup is already running for $PROFILE" >&2
-  exit 1
-fi
-
-find_desktop_pid() {
-  local proc pid cmd
-  for proc in /proc/[0-9]*; do
-    pid="${proc#/proc/}"
-    [[ -r "$proc/cmdline" ]] || continue
-    # Electron may rewrite its own argv, replacing NUL separators with spaces.
-    # Normalize both forms before looking for the profile argument and app name.
-    cmd="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null)" || continue
-    [[ " $cmd " == *" --user-data-dir=$DESKTOP_DIR "* ]] || continue
-    [[ "$cmd" == *"ai.opencode"* ]] || continue
-    if [[ "$cmd" == *"--type="* ]]; then
-      continue
-    fi
-    printf '%s\n' "$pid"
-    return 0
-  done
-  return 1
-}
-
-echo "==> Recovering the existing Codespace deployment"
-if ((${#recover_args[@]})); then
-  "$RECOVER" "${recover_args[@]}" 9>&-
-else
-  "$RECOVER" 9>&-
-fi
-
-if ((launch_dashboard)); then
-  echo "==> Starting the local DeltaRelay dashboard"
-  python3 "$ROOT/deploy/start_dashboard.py" --project "$ROOT" --profile "$PROFILE" \
-    --port "${DELTARELAY_DASHBOARD_PORT:-8790}" 9>&-
-fi
-
-if ((!launch_desktop)); then
-  echo "Recovery complete. Desktop was not started (--no-desktop)."
-  exit 0
-fi
-
-if existing_pid="$(find_desktop_pid)"; then
-  printf '%s\n' "$existing_pid" >"$PIDFILE"
-  echo "OpenCode Desktop is already running for the isolated profile (PID $existing_pid)."
-  exit 0
-fi
-
-if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
-  echo "Recovery succeeded, but no graphical session is available (DISPLAY and WAYLAND_DISPLAY are unset)." >&2
-  echo "Run startup.sh from your desktop terminal, or use --no-desktop." >&2
-  exit 1
-fi
-
-echo "==> Starting the isolated OpenCode Desktop profile"
-nohup "$LAUNCH" >>"$DESKTOP_LOG" 2>&1 </dev/null 9>&- &
-desktop_pid=$!
-printf '%s\n' "$desktop_pid" >"$PIDFILE"
-sleep 2
-if ! kill -0 "$desktop_pid" 2>/dev/null; then
-  # A concurrent or undetected existing instance can take over the Electron
-  # single-instance handoff and make this new process exit. Re-check before
-  # treating that as a startup failure, and never discard a live PID record.
-  if existing_pid="$(find_desktop_pid)"; then
-    printf '%s\n' "$existing_pid" >"$PIDFILE"
-    echo "OpenCode Desktop is already running for the isolated profile (PID $existing_pid; launch handed off)."
-    exit 0
-  fi
-  rm -f "$PIDFILE"
-  echo "startup.sh: Desktop exited during startup; see $DESKTOP_LOG" >&2
-  exit 1
-fi
-
-echo "Ready. OpenCode Desktop is running (PID $desktop_pid) via the recovered gateway."
-echo "Desktop log: $DESKTOP_LOG"
+if ((!config)); then args+=(--profile "$PROFILE"); fi
+exec python3 -B "$ROOT/deploy/start_supervisor.py" --project "$ROOT" \
+  --port "${DELTARELAY_DASHBOARD_PORT:-8790}" "${args[@]}"

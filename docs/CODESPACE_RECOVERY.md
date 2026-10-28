@@ -13,38 +13,46 @@ From the project directory:
 
 ```sh
 ./startup.sh
-# Optional: allow 20 minutes of bounded retries on an unreliable connection.
-./startup.sh --timeout 1200
+# Automatic retries continue in the background across VPN/network changes.
 # Recover the services and start the dashboard; leave Desktop closed.
 ./startup.sh --no-desktop
 # Optional: skip the dashboard (does not stop an existing dashboard).
 ./startup.sh --no-dashboard
 ```
 
-`startup.sh` first performs the recovery described below, starts or reuses the
-local dashboard at **http://127.0.0.1:8790**, then launches the existing isolated
-Desktop profile from `.runtime/codespace-test/launch-desktop.sh`. Both use the
-recovered local gateway on port **18788**. The dashboard still starts when
-Desktop is already running or `--no-desktop` is used. The script does not touch
-your original Desktop profile or provider credentials. It must run from a
-graphical session unless `--no-desktop` is used.
+`startup.sh` now starts an independent local supervisor and the dashboard at
+**http://127.0.0.1:8790** before attempting remote recovery. The dashboard remains
+available during outages and offers service Start/Restart controls, persistent
+auto-reconnect/auto-wake settings, an always-available manual Wake button, and a
+ChatGPT access-token expiry countdown. **[SUPERVISION.md](SUPERVISION.md)** covers
+the implementation, security, and reusable SSH/HTTPS VPS configuration.
+
+It adopts the existing gateway on **18788** and the isolated Desktop profile;
+neither is restarted just because the VPN changes. Initial Desktop launch uses
+the existing private launcher and needs a graphical session. Without one, local
+controls still work. `--no-desktop` leaves initial OpenCode/Desktop startup alone.
+Your original Desktop profile and provider credentials are never modified.
+Automatic Codespace wake is initially off because it resumes GitHub billing;
+choose your preference in the dashboard. The old `--timeout` startup option is
+accepted for compatibility but no longer bounds continuous monitoring.
 
 Missing/stale dashboard builds are prepared automatically: Go builds the local
 `bin/deltarelay` with module/toolchain downloads disabled, and pnpm builds Astro
 using **only the offline package cache**. A missing cache or build tool produces
 an actionable error, not a network download; use `--no-dashboard` to recover
 without it. Existing up-to-date builds need no Go/pnpm invocation. An already
-running dashboard is reused without rebuilding its live assets or restarting it.
-The private deployed gateway binary is **not** replaced or restarted. If it is
-too old to expose dashboard diagnostics, startup warns; rebuild/restart that
-gateway separately when safe to begin recording sessions.
+running supervised dashboard is reused. A verified legacy read-only dashboard is
+upgraded so it can expose the controls. Startup does **not** replace or restart
+the private deployed gateway binary. If it is too old to expose dashboard
+diagnostics, startup warns; use the dashboard's explicit Restart action when safe
+to begin recording sessions with the rebuilt local gateway.
 
 The dashboard uses the existing profile's `local.token`, with the token kept out
 of the browser and process arguments. Its PID is stored in
-`.runtime/codespace-test/dashboard.pid`; logs are appended privately to
-`.runtime/codespace-test/logs/dashboard.log`. An unrecognized owner of the chosen
-port is never killed or replaced. Set `DELTARELAY_DASHBOARD_PORT=8791` before
-`./startup.sh` to choose another loopback port. [DASHBOARD.md](DASHBOARD.md) covers
+`.runtime/codespace-test/dashboard.pid`; supervised logs and settings live in
+`.runtime/codespace-test/control/`. An unrecognized owner of the chosen port is
+never killed or replaced. Set `DELTARELAY_DASHBOARD_PORT=8791` before the first
+supervised startup to choose another loopback port. [DASHBOARD.md](DASHBOARD.md) covers
 the UI, offline cache prerequisites, and measurement limits. Nothing is published
 through a public port forward, and the launcher does not open an extra browser.
 
@@ -56,10 +64,13 @@ Run this instead when Desktop should remain closed:
 .runtime/codespace-test/recover.sh
 ```
 
-This is an **on-demand** recovery command, not an always-on wake-up loop. Starting
-a stopped Codespace resumes GitHub compute usage/billing. It leaves GitHub's idle
-policy unchanged. Changing your default idle timeout applies to new Codespaces;
-it does not change an existing Codespace's recorded timeout.
+This is an **on-demand** recovery command; the dashboard supervisor provides the
+continuous loop. Running both at once against the same services is not supported.
+This legacy helper always wakes a stopped Codespace and does not consult the
+dashboard's auto-wake setting. Starting a stopped Codespace resumes GitHub compute
+usage/billing. It leaves GitHub's idle policy unchanged. Changing your default
+idle timeout applies to new Codespaces; it does not change an existing
+Codespace's recorded timeout.
 
 Recovery uses the installed `gh`, Python 3 (standard library only), and the
 existing private test deployment. It does not install or upgrade anything.
@@ -91,9 +102,9 @@ force-restart an available but unreachable Codespace.
 
 The recovery step does **not** submit or replay inference, change provider
 credentials, restart Desktop, or open another Desktop profile. `recover.sh` stops
-after readiness; `startup.sh` then starts/reuses the dashboard and launches the
-isolated Desktop profile if it is not already running. A completed saved response
-can be fetched by its request ID;
+after readiness; `startup.sh` instead starts its independent supervisor and leaves
+it monitoring connectivity in the background. A completed saved response can be fetched by its
+request ID;
 generation interrupted by suspension is not automatically regenerated. The
 existing gateway may deliver previously queued, explicit cancellations once
 connectivity returns.

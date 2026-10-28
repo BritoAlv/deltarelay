@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "profile": "/home/YOU/.local/state/deltarelay",
+  "relay_url": "http://127.0.0.1:8787",
+  "gateway_url": "http://127.0.0.1:8788",
+  "relay_token_file": "/home/YOU/.config/deltarelay/relay.token",
+  "local_token_file": "/home/YOU/.config/deltarelay/local.token",
+  "relay_state_file": "/home/YOU/.local/state/deltarelay/relay-state.json",
+  "opencode_service_file": "/home/YOU/.local/state/opencode/service.json",
+  "components": {
+    "dashboard": {
+      "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "dashboard", "--gateway", "http://127.0.0.1:8788", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--assets", "/absolute/path/to/deltarelay/web/dist", "--control-socket", "/home/YOU/.local/state/deltarelay/control/supervisor.sock", "--opencode-service-file", "/home/YOU/.local/state/opencode/service.json"],
+      "pid_file": "/home/YOU/.local/state/deltarelay/dashboard.pid",
+      "port": 8790
+    },
+    "gateway": {
+      "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "gateway", "--server", "http://127.0.0.1:8787", "--token-file", "/home/YOU/.config/deltarelay/relay.token", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--upstreams", "/home/YOU/.config/deltarelay/upstreams.json", "--state-dir", "/home/YOU/.local/state/deltarelay", "--stats-file", "/home/YOU/.local/state/deltarelay/dashboard-stats.json"],
+      "pid_file": "/home/YOU/.local/state/deltarelay/gateway.pid",
+      "port": 8788
+    },
+    "tunnel": {
+      "command": ["ssh", "-NT", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=2", "-L", "127.0.0.1:8787:127.0.0.1:8787", "YOUR_USER@YOUR_VPS"],
+      "pid_file": "/home/YOU/.local/state/deltarelay/tunnel.pid",
+      "port": 8787
+    },
+    "relay": {
+      "start_command": ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "YOUR_USER@YOUR_VPS", "systemctl", "--user", "start", "deltarelay-server.service"],
+      "restart_command": ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "YOUR_USER@YOUR_VPS", "systemctl", "--user", "restart", "deltarelay-server.service"]
+    },
+    "opencode": {
+      "start_command": ["opencode", "service", "start"],
+      "restart_command": ["opencode", "service", "restart"]
+    }
+  }
+}
