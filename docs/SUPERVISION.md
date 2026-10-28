@@ -110,6 +110,14 @@ reports an unrecognized occupied port rather than replacing its owner.
   successful check, safe failure codes, and the next scheduled retry. It remains
   useful when the gateway's statistics endpoint is unavailable. Sample-data mode
   disables all real service controls.
+- **VPS unreachable** and **no internet** are reported separately. When the relay
+  probe fails with a network error, the supervisor checks an external HTTPS
+  endpoint (`internet_check_url`, default `https://api.github.com/`) and shows
+  either **No internet** (Wi-Fi, Ethernet, VPN, or default route) or **VPS
+  unreachable** (local internet works, but the relay/tunnel/remote host did not
+  respond). The check runs only during a relay outage, at most every 15 seconds,
+  sends no relay/provider credentials, and makes no model request. A successful
+  relay check confirms internet reachability without the external probe.
 
 Network recovery never restarts a healthy gateway merely because a tunnel failed.
 The existing Go request recovery retains the same request ID, uploads only missing

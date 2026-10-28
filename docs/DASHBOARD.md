@@ -21,6 +21,10 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
 - Gateway concurrency and uptime; relay reachability, identity, protocol and
   health-check latency; chunk-cache and durable-response-mailbox usage/capacity;
   pending cancellations and control errors.
+- Separate **no internet** and **VPS unreachable** states when the local
+  supervisor is configured. The supervisor confirms local internet connectivity
+  only after the relay probe fails, so a downed VPS is not mislabeled as an
+  offline computer.
 - Latest retained provider results. These are observations, **not** live provider
   account/authentication checks. An enabled allowlist is not proof of a healthy
   provider. No provider generation is sent by the dashboard.

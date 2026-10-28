@@ -1,10 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { countdown, isSystemStatus, fetchSystem, sendControl, type SystemStatus } from "../src/lib/system.js"
+import { connectionState, countdown, isSystemStatus, fetchSystem, sendControl, type SystemStatus } from "../src/lib/system.js"
 
 const status: SystemStatus = {
   version: 1, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
-  settings: { auto_reconnect: true, auto_wake: false }, relay_state: "unreachable", codespace_state: "Shutdown",
+  settings: { auto_reconnect: true, auto_wake: false }, relay_state: "unreachable", internet_state: "connected", internet_checked_at: null, codespace_state: "Shutdown",
   recovery: { busy: false, attempts: 0, phase: "monitoring", last_error: "", next_retry_at: null, last_connected_at: null },
   components: [{ id: "gateway", label: "Gateway", state: "stopped", can_start: true, can_restart: true }],
   auth: { state: "valid", stale: false, expires_at: "2026-10-28T13:00:00Z" },
@@ -23,9 +23,17 @@ test("countdown is absolute, clamps expired tokens, and handles long lifetimes",
 test("control snapshots validate schemas, components, timestamps, and ephemeral nonces", () => {
   assert.equal(isSystemStatus(status), true)
   assert.equal(isSystemStatus({ ...status, managed: false, components: [] }), true)
-  for (const change of [{ version: 2 }, { csrf_token: "" }, { auth: { state: "valid", stale: false, expires_at: "bad" } }, { settings: { auto_reconnect: "true", auto_wake: false } }, { components: [{ ...status.components[0], id: "arbitrary-command" }] }, { recovery: { ...status.recovery, attempts: NaN } }]) {
+  for (const change of [{ version: 2 }, { csrf_token: "" }, { internet_state: 1 }, { internet_checked_at: "bad" }, { auth: { state: "valid", stale: false, expires_at: "bad" } }, { settings: { auto_reconnect: "true", auto_wake: false } }, { components: [{ ...status.components[0], id: "arbitrary-command" }] }, { recovery: { ...status.recovery, attempts: NaN } }]) {
     assert.equal(isSystemStatus({ ...status, ...change }), false)
   }
+})
+
+test("connection state only blames the internet when the separate check also failed", () => {
+  assert.equal(connectionState({ ...status, relay_state: "connected", internet_state: "unreachable" }), "connected")
+  assert.equal(connectionState({ ...status, relay_state: "unreachable", internet_state: "connected" }), "vps_unreachable")
+  assert.equal(connectionState({ ...status, relay_state: "unreachable", internet_state: "unreachable" }), "no_internet")
+  assert.equal(connectionState({ ...status, relay_state: "unreachable", internet_state: "unknown" }), "unknown")
+  assert.equal(connectionState({ ...status, relay_state: "authentication_failed", internet_state: "connected" }), "unknown")
 })
 
 test("control API uses same-origin POST with nonce, never credentials in URLs", async (t) => {

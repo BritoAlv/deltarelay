@@ -1,4 +1,4 @@
-import { controlError, countdown, fetchSystem, sendControl, type SystemStatus } from "../lib/system.js"
+import { connectionState, controlError, countdown, fetchSystem, sendControl, type SystemStatus } from "../lib/system.js"
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const text = (id: string, value: string) => { element(id).textContent = value }
@@ -40,11 +40,15 @@ function render() {
   for (const id of ["recover-all", "restart-all", "auto-reconnect"]) element<HTMLButtonElement>(id).disabled = disabled
   for (const id of ["auto-wake", "wake-codespace"]) element<HTMLButtonElement>(id).disabled = disabled || !configuredCodespace
   if (system) {
+    const connection = connectionState(system)
     element<HTMLInputElement>("auto-reconnect").checked = system.settings.auto_reconnect
     element<HTMLInputElement>("auto-wake").checked = system.settings.auto_wake
-    badge("control-connection", demo ? "Sample data" : stale ? "Stale" : system.relay_state === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : "Disconnected", !demo && !stale && system.relay_state === "connected")
-    text("recovery-status", demo ? "Sample mode hides live recovery status and disables real controls." : system.error ? controlError(system.error) : system.recovery.busy ? `In progress: ${system.recovery.phase.replaceAll("_", " ")}` : system.recovery.last_error ? controlError(system.recovery.last_error) : system.relay_state === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity.")
+    badge("control-connection", demo ? "Sample data" : stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !demo && !stale && connection === "connected")
+    const internetDetail = system.internet_checked_at ? ` · checked ${new Date(system.internet_checked_at).toLocaleTimeString()}` : ""
+    text("recovery-status", demo ? "Sample mode hides live recovery status and disables real controls." : system.error ? controlError(system.error) : system.recovery.busy ? `In progress: ${system.recovery.phase.replaceAll("_", " ")}` : connection === "no_internet" ? controlError("no_internet") : connection === "vps_unreachable" ? "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." : system.recovery.last_error ? controlError(system.recovery.last_error) : connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity.")
+    text("network-detail", demo ? "" : connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
     text("recovery-detail", demo ? "" : `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
+    document.dispatchEvent(new CustomEvent("deltarelay:system", { detail: { connection: demo ? "unknown" : connection } }))
     text("codespace-state", demo ? "Sample data" : configuredCodespace ? `Codespace: ${system.codespace_state}` : "Regular VPS / no Codespace configured")
     const container = element("service-controls")
     container.replaceChildren()

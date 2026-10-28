@@ -14,6 +14,8 @@ export interface SystemStatus {
   settings: { auto_reconnect: boolean; auto_wake: boolean }
   recovery: { busy: boolean; phase: string; attempts: number; last_error: string; last_connected_at: string | null; next_retry_at: string | null }
   relay_state: string
+  internet_state: string
+  internet_checked_at: string | null
   codespace_state: string
   components: { id: string; label: string; state: string; can_start: boolean; can_restart: boolean }[]
   auth: AuthStatus
@@ -25,10 +27,22 @@ const componentIDs = ["dashboard", "gateway", "tunnel", "relay", "opencode", "de
 
 export function isSystemStatus(v: unknown): v is SystemStatus {
   if (!object(v) || v.version !== 1 || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token)) return false
+  if (typeof v.internet_state !== "string" || v.internet_checked_at !== null && !timestamp(v.internet_checked_at)) return false
   if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || v.auth.expires_at !== undefined && !timestamp(v.auth.expires_at) || v.auth.checked_at !== undefined && !timestamp(v.auth.checked_at)) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
   if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || typeof v.recovery.attempts !== "number" || !Number.isFinite(v.recovery.attempts) || v.recovery.attempts < 0 || v.recovery.next_retry_at !== null && !timestamp(v.recovery.next_retry_at) || v.recovery.last_connected_at !== null && !timestamp(v.recovery.last_connected_at)) return false
   return typeof v.relay_state === "string" && typeof v.codespace_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && componentIDs.includes(String(c.id)) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
+}
+
+export type ConnectionState = "connected" | "no_internet" | "vps_unreachable" | "unknown"
+
+export function connectionState(system: SystemStatus): ConnectionState {
+  if (system.relay_state === "connected") return "connected"
+  // Only claim "no internet" when the independent external check also failed.
+  // An old or disabled supervisor leaves internet_state unknown.
+  if (system.relay_state === "unreachable" && system.internet_state === "unreachable") return "no_internet"
+  if (system.relay_state === "unreachable" && system.internet_state === "connected") return "vps_unreachable"
+  return "unknown"
 }
 
 export function countdown(deadline: string, now = Date.now()): string {
@@ -61,6 +75,7 @@ export function controlError(code: string): string {
     graphical_session_required: "Desktop needs a graphical session. Start the supervisor from your desktop terminal.",
     graceful_stop_timeout: "The service did not stop gracefully. No forced kill or state reset was performed.",
     unreachable: "The relay is unreachable. Check the network, VPN, tunnel, and remote host.",
+    no_internet: "This computer has no internet connection. Check Wi-Fi, Ethernet, VPN, or the default route.",
   }
   return messages[code] ?? "The operation could not complete. Check the private supervisor/service logs."
 }

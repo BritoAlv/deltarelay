@@ -38,7 +38,7 @@ func TestSystemControlsSurviveGatewayOutageAndRejectCrossSiteWrites(t *testing.T
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/status" {
-			_, _ = io.WriteString(w, `{"version":1,"managed":true,"collected_at":"2026-10-28T00:00:00Z","codespace_state":"Shutdown","relay_state":"unreachable","components":[]}`)
+			_, _ = io.WriteString(w, `{"version":1,"managed":true,"collected_at":"2026-10-28T00:00:00Z","codespace_state":"Shutdown","relay_state":"unreachable","internet_state":"connected","internet_checked_at":null,"components":[]}`)
 			return
 		}
 		actions.Add(1)
@@ -55,6 +55,7 @@ func TestSystemControlsSurviveGatewayOutageAndRejectCrossSiteWrites(t *testing.T
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || !status.Managed || status.CSRFToken == "" || strings.Contains(w.Body.String(), "secret-gateway") {
 		t.Fatalf("controls unavailable with gateway down: %d %s", w.Code, w.Body)
 	}
+	if status.InternetState != "connected" || status.InternetCheckedAt != nil { t.Fatalf("internet reachability not preserved: %s", w.Body) }
 	for _, tc := range []struct { origin, nonce, content, site, query string; want int }{
 		{"", h.nonce, "application/json", "", "", 403},
 		{"http://evil.example", h.nonce, "application/json", "", "", 403},

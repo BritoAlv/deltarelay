@@ -86,7 +86,8 @@ The optional **Astro + TypeScript** dashboard shows per-session bandwidth saving
 active and recent requests, cache reuse, VPS/storage/mailbox health, pending
 cancellations, and observed provider results. Optional supervisor integration adds
 service Start/Restart controls, automatic network recovery, a Codespace wake
-toggle/manual button, and a ChatGPT access-token expiry countdown. It is local; gateway
+toggle/manual button, and a ChatGPT access-token expiry countdown. It distinguishes
+**no internet** from an **unreachable VPS**. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.
 

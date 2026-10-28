@@ -6,6 +6,7 @@
   "relay_token_file": "/home/YOU/.config/deltarelay/relay.token",
   "local_token_file": "/home/YOU/.config/deltarelay/local.token",
   "relay_state_file": "/home/YOU/.local/state/deltarelay/relay-state.json",
+  "internet_check_url": "https://api.github.com/",
   "opencode_service_file": "/home/YOU/.local/state/opencode/service.json",
   "components": {
     "dashboard": {

@@ -91,6 +91,46 @@ class SupervisorTest(unittest.TestCase):
             with patch.object(subject.opener, 'open', side_effect=error):
                 self.assertEqual(subject.probe(), want)
 
+    def test_internet_check_distinguishes_offline_computer_from_down_vps(self):
+        subject = self.supervisor()
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *_): pass
+            def read(self, _): return b''
+
+        def internet_error(kind):
+            if kind == 'offline':
+                return urllib.error.URLError(socket.gaierror(-3, 'Temporary failure in name resolution'))
+            return None
+
+        for kind, want in [('online', 'connected'), ('offline', 'unreachable')]:
+            error = internet_error(kind)
+            def open_(request, timeout=0, error=error):
+                if error:
+                    raise error
+                return Response()
+            subject.internet_state = 'unknown'
+            subject.internet_next = 0
+            with patch.object(subject.opener, 'open', side_effect=open_):
+                subject.update_internet('unreachable')
+            self.assertEqual(subject.internet_state, want)
+            self.assertIsNotNone(subject.internet_checked_at)
+
+        # Repeated checks are cached, and a reachable relay confirms internet
+        # without generating extra external traffic.
+        subject.internet_state = 'connected'
+        subject.internet_next = time.monotonic() + 60
+        with patch.object(subject.opener, 'open') as opened:
+            subject.update_internet('unreachable')
+            opened.assert_not_called()
+        subject.internet_state = 'unreachable'
+        with patch.object(subject.opener, 'open') as opened:
+            subject.update_internet('connected')
+            opened.assert_not_called()
+        self.assertEqual(subject.internet_state, 'connected')
+        self.assertIn('internet_state', subject.snapshot())
+
     def test_hung_live_tunnel_is_rebuilt_without_restarting_gateway_or_relay(self):
         self.component('tunnel')
         self.component('gateway')
@@ -112,7 +152,7 @@ class SupervisorTest(unittest.TestCase):
 
     def test_automatic_recovery_debounces_and_respects_disabled_setting(self):
         subject = self.supervisor()
-        with patch.object(subject, 'probe', return_value='unreachable'), patch.object(subject, 'recover') as recover:
+        with patch.object(subject, 'probe', return_value='unreachable'), patch.object(subject, 'internet_probe', return_value='connected'), patch.object(subject, 'recover') as recover:
             subject.tick()
             subject.tick()
             recover.assert_not_called()
@@ -226,6 +266,13 @@ class SupervisorTest(unittest.TestCase):
         for url in ('http://evil.example', 'http://user@127.0.0.1:8787', 'http://127.0.0.1:8787/path'):
             self.config['relay_url'] = url
             with self.assertRaises(control.ControlError): control.validate(self.config)
+        self.config['relay_url'] = 'http://127.0.0.1:18787'
+        for url in ('http://evil.example', 'ftp://example.com/', 'https://user@example.com/', 'https://example.com/?query=1'):
+            self.config['internet_check_url'] = url
+            with self.assertRaises(control.ControlError): control.validate(self.config)
+        for url in ('https://api.github.com/', 'http://127.0.0.1:9/'):
+            self.config['internet_check_url'] = url
+            control.validate(self.config)
 
 
 class LauncherTest(unittest.TestCase):

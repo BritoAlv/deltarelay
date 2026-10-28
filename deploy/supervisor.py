@@ -28,6 +28,8 @@ from recover_relay import NoRedirect, private_text
 
 COMPONENTS = ('dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop')
 LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Local gateway', 'VPS connection', 'Remote relay', 'OpenCode service', 'Isolated Desktop')))
+DEFAULT_INTERNET_CHECK_URL = 'https://api.github.com/'
+INTERNET_CHECK_INTERVAL = 15
 
 
 class ControlError(Exception):
@@ -91,6 +93,13 @@ def loopback_origin(value, https=False):
     return u.scheme == 'http' and u.hostname in ('localhost', '127.0.0.1', '::1')
 
 
+def internet_check_origin(value):
+    u = urllib.parse.urlsplit(value)
+    if u.username or u.password or u.query or u.fragment or u.path not in ('', '/') or not u.netloc:
+        return False
+    return u.scheme == 'https' or loopback_origin(value)
+
+
 def environment(overrides=None, allow_gh=False):
     # Do not inherit this agent's server selectors or provider credentials.
     # `gh` commands may need an explicitly exported GitHub token; managed
@@ -139,6 +148,9 @@ def validate(config):
             raise ControlError('absolute_private_paths_required')
     if not loopback_origin(config.get('relay_url', ''), https=True) or not loopback_origin(config.get('gateway_url', '')):
         raise ControlError('unsafe_endpoint')
+    if not isinstance(config.get('internet_check_url', DEFAULT_INTERNET_CHECK_URL), str) or \
+            not internet_check_origin(config.get('internet_check_url', DEFAULT_INTERNET_CHECK_URL)):
+        raise ControlError('unsafe_internet_check')
     for name, spec in config['components'].items():
         if name not in COMPONENTS or not isinstance(spec, dict):
             raise ControlError('invalid_component')
@@ -185,6 +197,9 @@ class Supervisor:
                          'last_connected_at': None, 'next_retry_at': None}
         self.relay_state = 'unknown'
         self.codespace_state = 'unknown' if config.get('codespace') else 'not_configured'
+        self.internet_state = 'unknown'
+        self.internet_checked_at = None
+        self.internet_next = 0.0
         self.failures = 0
         self.delay = 2
         self.next_attempt = 0
@@ -202,6 +217,7 @@ class Supervisor:
                                    'can_restart': bool(spec.get('command') or spec.get('restart_command') or builtin)})
             return {'version': 1, 'managed': True, 'collected_at': stamp(), 'settings': dict(self.settings),
                     'recovery': dict(self.recovery), 'relay_state': self.relay_state,
+                    'internet_state': self.internet_state, 'internet_checked_at': self.internet_checked_at,
                     'codespace_state': self.codespace_state, 'components': components}
 
     def update_settings(self, value):
@@ -371,6 +387,47 @@ class Supervisor:
         except (OSError, ValueError):
             return 'configuration_error'
 
+    def internet_probe(self):
+        """Check generic internet reachability without touching relay credentials.
+
+        This runs only while the relay probe is unreachable, so a healthy local
+        tunnel does not generate extra external traffic.
+        """
+        url = self.config.get('internet_check_url', DEFAULT_INTERNET_CHECK_URL)
+        request = urllib.request.Request(url, method='HEAD')
+        try:
+            with self.opener.open(request, timeout=2) as response:
+                response.read(1)
+            return 'connected'
+        except urllib.error.HTTPError as error:
+            # Any HTTP response proves that an internet path exists.
+            error.close()
+            return 'connected'
+        except urllib.error.URLError as error:
+            # A certificate/interception failure is not "no internet"; it is a
+            # separate TLS problem. DNS, routing, and connection failures are.
+            return 'connected' if isinstance(error.reason, ssl.SSLCertVerificationError) else 'unreachable'
+        except ssl.SSLError:
+            return 'connected'
+        except (TimeoutError, OSError):
+            return 'unreachable'
+
+    def update_internet(self, relay_state):
+        if relay_state == 'unreachable':
+            now = time.monotonic()
+            if self.internet_state == 'unknown' or now >= self.internet_next:
+                self.internet_state = self.internet_probe()
+                self.internet_checked_at = stamp()
+                self.internet_next = now + INTERNET_CHECK_INTERVAL
+            return
+        if relay_state == 'configuration_error':
+            return
+        # Authentication, TLS, identity, protocol, forwarding, and connected
+        # results all required a live network path to the relay.
+        self.internet_state = 'connected'
+        self.internet_checked_at = stamp()
+        self.internet_next = 0.0
+
     def remote(self, wake=False, restart=False):
         codespace = self.config.get('codespace')
         if not codespace:
@@ -523,6 +580,7 @@ class Supervisor:
                 self.start_component('dashboard')
             state = self.probe()
             self.relay_state = state
+            self.update_internet(state)
             if state == 'connected':
                 self.states['relay'] = 'running'
                 self.recovery.update(last_connected_at=stamp(), last_error='', phase='monitoring', next_retry_at=None)

@@ -37,10 +37,12 @@ type SystemStatus struct {
 		LastConnectedAt *string `json:"last_connected_at"`
 		NextRetryAt     *string `json:"next_retry_at"`
 	} `json:"recovery"`
-	RelayState     string            `json:"relay_state"`
-	CodespaceState string            `json:"codespace_state"`
-	Components     []ComponentStatus `json:"components"`
-	Auth           AuthStatus        `json:"auth"`
+	RelayState        string            `json:"relay_state"`
+	InternetState     string            `json:"internet_state"`
+	InternetCheckedAt *string           `json:"internet_checked_at"`
+	CodespaceState    string            `json:"codespace_state"`
+	Components        []ComponentStatus `json:"components"`
+	Auth              AuthStatus        `json:"auth"`
 }
 
 func controlClient(socket string) *http.Client {

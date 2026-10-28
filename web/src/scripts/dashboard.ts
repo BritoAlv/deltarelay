@@ -37,6 +37,15 @@ let selectedSession: string | null = null
 let requestController: AbortController | null = null
 let generation = 0
 let lastError = ""
+let networkConnection: "connected" | "no_internet" | "vps_unreachable" | "unknown" = "unknown"
+
+document.addEventListener("deltarelay:system", (event) => {
+  const value = (event as CustomEvent).detail?.connection
+  const next = value === "connected" || value === "no_internet" || value === "vps_unreachable" ? value : "unknown"
+  if (next === networkConnection) return
+  networkConnection = next
+  if (!demo) render()
+})
 
 function renderConnection() {
   const badge = element("connection-badge")
@@ -56,7 +65,7 @@ function renderConnection() {
   if (demo) notice.textContent = "SAMPLE DATA — An illustrative preview, not your sessions or system status. Return to live to inspect your local relay."
   else if (lastError) notice.textContent = `${lastError}${snapshot ? " Showing the last successful snapshot; system states below are stale." : " You can view sample data while configuring the connection."}`
   else if (snapshot?.history.persistence_error) notice.textContent = "Statistics could not be saved to disk. Live observations still work, but new history may be lost on restart. Check permissions and free space for the gateway’s --stats-file."
-  else if (snapshot && !snapshot.relay.reachable) notice.textContent = "The gateway is reachable, but its VPS health check failed. Check the relay, VPN, or SSH tunnel. There is no direct-provider fallback."
+  else if (snapshot && !snapshot.relay.reachable) notice.textContent = networkConnection === "no_internet" ? "This computer has no internet connection, so the VPS health check cannot run. Check Wi-Fi, Ethernet, VPN, or the default route. There is no direct-provider fallback." : networkConnection === "vps_unreachable" ? "Internet is reachable, but the VPS health check failed. Check the relay, VPN split routes, or SSH tunnel. There is no direct-provider fallback." : "The gateway is reachable, but its VPS health check failed. Check the relay, VPN, or SSH tunnel. There is no direct-provider fallback."
   else if (snapshot && !snapshot.history.persistent) notice.textContent = "History is in-memory only. Set the gateway’s --stats-file to retain session statistics across restarts."
   else notice.hidden = true
 }
@@ -125,7 +134,9 @@ function renderSystem(data: Snapshot) {
   const responseRatio = health.max_response_storage_bytes > 0 ? health.response_storage_bytes / health.max_response_storage_bytes : 0
   const storageIssue = Math.max(cacheRatio, responseRatio) >= .85
   const providerIssue = data.providers.some((p) => p.last_status >= 400 || p.last_error)
-  text("system-summary", stale ? "Stale · last observed states below" : !relay.reachable ? "VPS needs attention" : !health.forwarding ? "Forwarding is disabled" : controlIssue || storageIssue ? "Attention needed" : "Relay checks passed")
+  const noInternet = !relay.reachable && networkConnection === "no_internet"
+  const vpsUnreachable = !relay.reachable && networkConnection === "vps_unreachable"
+  text("system-summary", stale ? "Stale · last observed states below" : noInternet ? "No internet" : vpsUnreachable ? "VPS needs attention" : !relay.reachable ? "VPS needs attention" : !health.forwarding ? "Forwarding is disabled" : controlIssue || storageIssue ? "Attention needed" : "Relay checks passed")
   const statePill = (label: string, state: string) => pill(stale ? "Stale" : label, stale ? "warning" : state)
   const providers = data.providers.map((provider) => {
     const state = provider.active > 0 ? "active" : provider.last_status >= 400 || provider.last_error ? "warning" : provider.last_seen ? "good" : "neutral"
@@ -134,8 +145,8 @@ function renderSystem(data: Snapshot) {
   }).join("")
   element("system-cards").innerHTML = `
     <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[0]}</span>${statePill(controlIssue ? "Attention" : "Online", controlIssue ? "warning" : "good")}</div><h3>Local gateway</h3><p>${gateway.active} of ${gateway.concurrency} request slots in use<br />${gateway.pending_cancellations} pending cancellations${gateway.control_error ? " · control error" : ""}</p><p class="system-meta">Uptime ${escape(duration(Math.max(0, Date.parse(data.collected_at) - Date.parse(gateway.started_at))))}</p></article>
-    <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[1]}</span>${statePill(relay.reachable ? "Connected" : "Unreachable", relay.reachable ? "good" : "bad")}</div><h3>VPS connection</h3><p>${relay.reachable ? `Protocol v${health.version} · ${relay.latency_ms} ms health check<br />Authenticated relay identity` : "Health check failed or timed out.<br />Check relay, VPN, or SSH tunnel."}</p><p class="system-meta">${relay.reachable ? `STATE ${escape(health.state_id.slice(0, 14))}…` : "NO DIRECT FALLBACK"}</p></article>
-    <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[2]}</span>${statePill(!relay.reachable ? "Unknown" : storageIssue ? "Near capacity" : "Available", !relay.reachable ? "neutral" : storageIssue ? "warning" : "good")}</div><h3>Storage & mailbox</h3><p>${relay.reachable ? `Cache ${escape(bytes(health.cache_bytes))} / ${escape(bytes(health.max_cache_bytes))}<br />Responses ${escape(bytes(health.response_storage_bytes))} / ${escape(bytes(health.max_response_storage_bytes))}` : "Storage usage is unavailable.<br />Restore the VPS connection."}</p><div class="storage-meter" title="Highest of cache and response-storage usage"><span style="width:${relay.reachable ? Math.min(100, Math.max(cacheRatio, responseRatio) * 100) : 0}%"></span></div><p class="system-meta">${history.persistence_error ? "HISTORY SAVE FAILED" : history.persistent ? "SESSION HISTORY SAVED LOCALLY" : "SESSION HISTORY IN MEMORY"}</p></article>
+    <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[1]}</span>${statePill(noInternet ? "No internet" : relay.reachable ? "Connected" : "Unreachable", noInternet ? "warning" : relay.reachable ? "good" : "bad")}</div><h3>VPS connection</h3><p>${relay.reachable ? `Protocol v${health.version} · ${relay.latency_ms} ms health check<br />Authenticated relay identity` : noInternet ? "Internet connectivity from this computer failed.<br />The VPS has not been contacted." : vpsUnreachable ? "Internet is reachable, but the relay did not respond.<br />Check the relay, VPN split routes, or SSH tunnel." : "Health check failed or timed out.<br />Check relay, VPN, or SSH tunnel."}</p><p class="system-meta">${relay.reachable ? `STATE ${escape(health.state_id.slice(0, 14))}…` : noInternet ? "CHECK LOCAL NETWORK" : "NO DIRECT FALLBACK"}</p></article>
+    <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[2]}</span>${statePill(!relay.reachable ? "Unknown" : storageIssue ? "Near capacity" : "Available", !relay.reachable ? "neutral" : storageIssue ? "warning" : "good")}</div><h3>Storage & mailbox</h3><p>${relay.reachable ? `Cache ${escape(bytes(health.cache_bytes))} / ${escape(bytes(health.max_cache_bytes))}<br />Responses ${escape(bytes(health.response_storage_bytes))} / ${escape(bytes(health.max_response_storage_bytes))}` : noInternet ? "Storage usage is unavailable.<br />Restore internet connectivity." : "Storage usage is unavailable.<br />Restore the VPS connection."}</p><div class="storage-meter" title="Highest of cache and response-storage usage"><span style="width:${relay.reachable ? Math.min(100, Math.max(cacheRatio, responseRatio) * 100) : 0}%"></span></div><p class="system-meta">${history.persistence_error ? "HISTORY SAVE FAILED" : history.persistent ? "SESSION HISTORY SAVED LOCALLY" : "SESSION HISTORY IN MEMORY"}</p></article>
     <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[3]}</span>${statePill(!relay.reachable ? "Unknown" : health.forwarding ? providerIssue ? "Check results" : "Enabled" : "Disabled", !relay.reachable ? "neutral" : !health.forwarding || providerIssue ? "warning" : "good")}</div><h3>Provider forwarding</h3><p>Latest retained results, not live probes</p><div class="provider-list">${providers || '<span class="section-meta">No upstream observations</span>'}</div></article>`
 }
 
