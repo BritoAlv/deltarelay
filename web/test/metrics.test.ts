@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { bytes, duration, filterSessions, percentage, relativeTime, savings, sessionState, trafficBuckets } from "../src/lib/metrics.js"
-import { makeDemoSnapshot } from "../src/lib/demo.js"
+import { makeSnapshot } from "./fixture.js"
 import { fetchSnapshot, isSnapshot } from "../src/lib/api.js"
 
 test("savings include encoded overhead and retain negative reductions", () => {
@@ -18,7 +18,7 @@ test("savings include encoded overhead and retain negative reductions", () => {
 })
 
 test("session filtering is case insensitive and active has priority", () => {
-  const data = makeDemoSnapshot()
+  const data = makeSnapshot()
   assert.equal(filterSessions(data.history.sessions, "API-REFACTOR", "all").length, 1)
   assert.equal(filterSessions(data.history.sessions, "openai", "active").length, 1)
   assert.equal(filterSessions(data.history.sessions, "", "attention").length, 1)
@@ -30,7 +30,7 @@ test("session filtering is case insensitive and active has priority", () => {
 
 test("traffic buckets ignore running and out-of-window requests", () => {
   const now = Date.parse("2026-10-28T12:15:00Z")
-  const data = makeDemoSnapshot(now)
+  const data = makeSnapshot(now)
   const buckets = trafficBuckets(data.history.recent_requests, 24, now)
   assert.equal(buckets.length, 24)
   assert.equal(buckets.reduce((sum, b) => sum + b.requests, 0), 72)
@@ -45,7 +45,7 @@ test("traffic buckets ignore running and out-of-window requests", () => {
 })
 
 test("API validation refuses incomplete, invalid, and incompatible diagnostics", () => {
-  const data = makeDemoSnapshot()
+  const data = makeSnapshot()
   assert.equal(isSnapshot(data), true)
   assert.equal(isSnapshot({ ...data, version: 2 }), false)
   assert.equal(isSnapshot({ ...data, collected_at: "invalid" }), false)
@@ -56,7 +56,7 @@ test("API validation refuses incomplete, invalid, and incompatible diagnostics",
 })
 
 test("fetch uses only the local read-only API and handles malformed errors", async (t) => {
-  const data = makeDemoSnapshot()
+  const data = makeSnapshot()
   const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
     assert.equal(input, "/api/dashboard")
     assert.equal(options?.cache, "no-store")

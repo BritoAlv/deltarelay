@@ -6,7 +6,6 @@ let system: SystemStatus | null = null
 let stale = true
 let pending = false
 let polling = false
-let demo = false
 let lastMessage = ""
 let receivedAt = 0
 
@@ -18,12 +17,6 @@ function badge(id: string, value: string, good: boolean) {
 function renderAuth() {
   const auth = system?.auth
   if (!auth) return
-  if (demo) {
-    badge("auth-state", "Sample data", false)
-    text("auth-countdown", "—")
-    text("auth-deadline", "Sample mode never includes your ChatGPT credential or expiry.")
-    return
-  }
   const labels: Record<string, string> = { valid: "Current token", expires_soon: "Expires soon", expired_pending_refresh: "Refresh pending", needs_auth: "Sign-in required", not_configured: "Not configured", not_connected: "Not connected", not_oauth: "Not OAuth", expiry_unknown: "Expiry unknown", unavailable: "Unavailable" }
   badge("auth-state", auth.stale || stale ? "Stale metadata" : labels[auth.state] ?? "Unknown", !stale && !auth.stale && auth.state === "valid")
   // Use the server's observation time plus locally elapsed time, so a wrong
@@ -35,7 +28,7 @@ function renderAuth() {
 }
 
 function render() {
-  const disabled = stale || pending || demo || !system?.managed || Boolean(system?.recovery.busy)
+  const disabled = stale || pending || !system?.managed || Boolean(system?.recovery.busy)
   const configuredCodespace = Boolean(system && system.codespace_state !== "not_configured")
   for (const id of ["recover-all", "restart-all", "auto-reconnect"]) element<HTMLButtonElement>(id).disabled = disabled
   for (const id of ["auto-wake", "wake-codespace"]) element<HTMLButtonElement>(id).disabled = disabled || !configuredCodespace
@@ -43,13 +36,13 @@ function render() {
     const connection = connectionState(system)
     element<HTMLInputElement>("auto-reconnect").checked = system.settings.auto_reconnect
     element<HTMLInputElement>("auto-wake").checked = system.settings.auto_wake
-    badge("control-connection", demo ? "Sample data" : stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !demo && !stale && connection === "connected")
+    badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
     const internetDetail = system.internet_checked_at ? ` · checked ${new Date(system.internet_checked_at).toLocaleTimeString()}` : ""
-    text("recovery-status", demo ? "Sample mode hides live recovery status and disables real controls." : system.error ? controlError(system.error) : system.recovery.busy ? `In progress: ${system.recovery.phase.replaceAll("_", " ")}` : connection === "no_internet" ? controlError("no_internet") : connection === "vps_unreachable" ? "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." : system.recovery.last_error ? controlError(system.recovery.last_error) : connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity.")
-    text("network-detail", demo ? "" : connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
-    text("recovery-detail", demo ? "" : `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
-    document.dispatchEvent(new CustomEvent("deltarelay:system", { detail: { connection: demo ? "unknown" : connection } }))
-    text("codespace-state", demo ? "Sample data" : configuredCodespace ? `Codespace: ${system.codespace_state}` : "Regular VPS / no Codespace configured")
+    text("recovery-status", system.error ? controlError(system.error) : system.recovery.busy ? `In progress: ${system.recovery.phase.replaceAll("_", " ")}` : connection === "no_internet" ? controlError("no_internet") : connection === "vps_unreachable" ? "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." : system.recovery.last_error ? controlError(system.recovery.last_error) : connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity.")
+    text("network-detail", connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
+    text("recovery-detail", `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
+    document.dispatchEvent(new CustomEvent("deltarelay:system", { detail: { connection } }))
+    text("codespace-state", configuredCodespace ? `Codespace: ${system.codespace_state}` : "Regular VPS / no Codespace configured")
     const container = element("service-controls")
     container.replaceChildren()
     for (const service of system.components) {
@@ -75,8 +68,8 @@ function render() {
     }
   }
   const notice = element("control-notice")
-  notice.hidden = !lastMessage && !demo && !stale
-  notice.textContent = demo ? "Sample data is enabled. Live service controls are disabled; no sample action can affect your system." : lastMessage || (stale ? "System status is stale. Controls are disabled until a fresh connection is available." : "")
+  notice.hidden = !lastMessage && !stale
+  notice.textContent = lastMessage || (stale ? "System status is stale. Controls are disabled until a fresh connection is available." : "")
   renderAuth()
 }
 
@@ -96,7 +89,7 @@ async function refresh() {
 }
 
 async function actionRequest(component: string, action: string) {
-  if (!system || stale || pending || demo || system.recovery.busy) return
+  if (!system || stale || pending || system.recovery.busy) return
   if (action === "restart" && !window.confirm(`Restart ${component === "all" ? "all configured services" : component}? Active requests may be interrupted; provider work may already be billed. Cache, tokens, sessions, and saved responses will NOT be erased.`)) return
   if (action === "wake" && !window.confirm("Wake the existing Codespace? GitHub compute usage/billing will resume.")) return
   pending = true
@@ -114,7 +107,7 @@ async function actionRequest(component: string, action: string) {
 }
 
 async function settings() {
-  if (!system || stale || pending || demo) return
+  if (!system || stale || pending) return
   const autoWake = element<HTMLInputElement>("auto-wake").checked
   if (autoWake && !system.settings.auto_wake && !window.confirm("Allow automatic wake of a stopped Codespace? GitHub compute usage/billing will resume whenever recovery wakes it, even with this tab closed.")) { render(); return }
   const next = { auto_reconnect: element<HTMLInputElement>("auto-reconnect").checked, auto_wake: autoWake }
@@ -136,7 +129,6 @@ element("restart-all").addEventListener("click", () => void actionRequest("all",
 element("wake-codespace").addEventListener("click", () => void actionRequest("codespace", "wake"))
 element("auto-reconnect").addEventListener("change", () => void settings())
 element("auto-wake").addEventListener("change", () => void settings())
-document.addEventListener("deltarelay:demo", (event) => { demo = Boolean((event as CustomEvent).detail); render() })
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh() })
 element("refresh-button").addEventListener("click", () => void refresh())
 window.setInterval(() => { if (!document.hidden) void refresh() }, 5000)

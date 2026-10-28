@@ -32,10 +32,6 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   pause/resume. Automatic refresh is every ten seconds while the tab is visible.
   A failed refresh keeps the last live snapshot and explicitly marks it stale.
 
-**Sample data** is an opt-in, clearly labeled preview. It is never merged with
-live data, saved to gateway history, or returned by the diagnostic API. Returning
-to live clears the sample numbers even if the gateway is disconnected.
-
 ## Build entirely offline
 
 Run from the repository root. Go 1.24+, Node.js 22.12+ and pnpm 11+ are needed to

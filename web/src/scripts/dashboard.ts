@@ -23,18 +23,15 @@ const initialChart = element("traffic-chart").innerHTML
 const refreshButton = element<HTMLButtonElement>("refresh-button")
 const pauseButton = element<HTMLButtonElement>("pause-button")
 const pauseIcon = pauseButton.innerHTML
-const demoButton = element<HTMLButtonElement>("demo-button")
 const dialog = element<HTMLDialogElement>("session-dialog")
 const pageSize = 8
 
 let snapshot: Snapshot | null = null
-let demo = false
 let paused = false
 let stale = false
 let busy = false
 let page = 1
 let selectedSession: string | null = null
-let requestController: AbortController | null = null
 let generation = 0
 let lastError = ""
 let networkConnection: "connected" | "no_internet" | "vps_unreachable" | "unknown" = "unknown"
@@ -44,26 +41,22 @@ document.addEventListener("deltarelay:system", (event) => {
   const next = value === "connected" || value === "no_internet" || value === "vps_unreachable" ? value : "unknown"
   if (next === networkConnection) return
   networkConnection = next
-  if (!demo) render()
+  render()
 })
 
 function renderConnection() {
   const badge = element("connection-badge")
   badge.classList.toggle("stale", stale || paused)
-  text("connection-label", demo ? "Sample data" : stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting")
-  text("updated-at", snapshot ? `${demo ? "Illustrative snapshot" : "Updated"} ${relativeTime(snapshot.collected_at)}` : "Waiting for local gateway")
-  text("refresh-note", demo ? "Not connected to your system" : paused ? "Automatic refresh paused" : "Auto-refresh every 10s")
-  demoButton.textContent = demo ? "Return to live" : "Sample data"
-  pauseButton.disabled = demo
+  text("connection-label", stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting")
+  text("updated-at", snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : "Waiting for local gateway")
+  text("refresh-note", paused ? "Automatic refresh paused" : "Auto-refresh every 10s")
   pauseButton.setAttribute("aria-label", paused ? "Resume automatic refresh" : "Pause automatic refresh")
   pauseButton.title = paused ? "Resume automatic refresh" : "Pause automatic refresh"
   pauseButton.setAttribute("aria-pressed", String(paused))
   pauseButton.innerHTML = paused ? '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 5 12 7-12 7V5z"/></svg>' : pauseIcon
   const notice = element("notice")
-  notice.classList.toggle("demo", demo)
   notice.hidden = false
-  if (demo) notice.textContent = "SAMPLE DATA — An illustrative preview, not your sessions or system status. Return to live to inspect your local relay."
-  else if (lastError) notice.textContent = `${lastError}${snapshot ? " Showing the last successful snapshot; system states below are stale." : " You can view sample data while configuring the connection."}`
+  if (lastError) notice.textContent = `${lastError}${snapshot ? " Showing the last successful snapshot; system states below are stale." : ""}`
   else if (snapshot?.history.persistence_error) notice.textContent = "Statistics could not be saved to disk. Live observations still work, but new history may be lost on restart. Check permissions and free space for the gateway’s --stats-file."
   else if (snapshot && !snapshot.relay.reachable) notice.textContent = networkConnection === "no_internet" ? "This computer has no internet connection, so the VPS health check cannot run. Check Wi-Fi, Ethernet, VPN, or the default route. There is no direct-provider fallback." : networkConnection === "vps_unreachable" ? "Internet is reachable, but the VPS health check failed. Check the relay, VPN split routes, or SSH tunnel. There is no direct-provider fallback." : "The gateway is reachable, but its VPS health check failed. Check the relay, VPN, or SSH tunnel. There is no direct-provider fallback."
   else if (snapshot && !snapshot.history.persistent) notice.textContent = "History is in-memory only. Set the gateway’s --stats-file to retain session statistics across restarts."
@@ -197,8 +190,7 @@ function renderDetail() {
 function render() {
   renderConnection()
   if (!snapshot) {
-    // In particular, never leave illustrative sample numbers on screen after
-    // returning to a disconnected live gateway.
+    // Never leave stale numbers on screen after the gateway disconnects.
     for (const id of ["stat-reduction", "stat-saved", "stat-sessions", "stat-requests", "reuse-value", "reuse-bytes", "uploaded-bytes", "chart-original", "chart-encoded", "nav-session-count"]) {
       text(id, "—")
       element(id).classList.remove("negative")
@@ -224,17 +216,11 @@ function render() {
 }
 
 async function refresh() {
-  if (demo) {
-    const { makeDemoSnapshot } = await import("../lib/demo.js")
-    if (demo) { snapshot = makeDemoSnapshot(); render() }
-    return
-  }
   if (busy) return
   busy = true
   refreshButton.disabled = true
   const current = ++generation
   const controller = new AbortController()
-  requestController = controller
   const timeout = window.setTimeout(() => controller.abort(), 7000)
   try {
     const next = await fetchSnapshot(controller.signal)
@@ -261,21 +247,6 @@ pauseButton.addEventListener("click", () => {
   paused = !paused
   renderConnection()
   if (!paused) void refresh()
-})
-demoButton.addEventListener("click", async () => {
-  generation++
-  requestController?.abort()
-  busy = false
-  refreshButton.disabled = false
-  demo = !demo
-  document.dispatchEvent(new CustomEvent("deltarelay:demo", { detail: demo }))
-  snapshot = null
-  stale = false
-  lastError = ""
-  page = 1
-  dialog.close()
-  render()
-  await refresh()
 })
 element("chart-range").addEventListener("change", () => { if (snapshot) renderChart(snapshot) })
 for (const id of ["session-search", "session-filter"]) element(id).addEventListener(id === "session-search" ? "input" : "change", () => { page = 1; renderSessions() })
@@ -310,7 +281,7 @@ element("export-button").addEventListener("click", () => {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement("a")
   anchor.href = url
-  anchor.download = `deltarelay-${demo ? "sample-" : ""}sessions-${new Date().toISOString().slice(0, 10)}.csv`
+  anchor.download = `deltarelay-sessions-${new Date().toISOString().slice(0, 10)}.csv`
   anchor.click()
   URL.revokeObjectURL(url)
 })
@@ -318,10 +289,10 @@ element("export-button").addEventListener("click", () => {
 document.querySelectorAll<HTMLAnchorElement>("[data-nav]").forEach((link) => link.addEventListener("click", () => {
   document.querySelectorAll("[data-nav]").forEach((item) => item.classList.toggle("selected", item === link))
 }))
-document.addEventListener("visibilitychange", () => { if (!document.hidden && !paused && !demo) void refresh() })
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !paused) void refresh() })
 window.setInterval(() => {
   if (document.hidden) return
-  if (!paused && !demo) void refresh()
+  if (!paused) void refresh()
   else renderConnection()
 }, 10_000)
 void refresh()

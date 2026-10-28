@@ -83,7 +83,6 @@
   .live-badge.stale .tiny-dot { background: var(--amber); }
   .refresh-note { margin-left: auto; }
   .notice { background: #dcb5670b; border: 1px solid #dcb56740; border-radius: 7px; color: #dfc697; padding: 12px 16px; font-size: 12px; line-height: 1.7; margin-top: 16px; }
-  .notice.demo { color: #cce9b8; background: #b5f18c09; border-color: #b5f18c38; }
   .stat-card { padding: 20px 20px 17px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); position: relative; overflow: hidden; }
   .primary-stat { background: linear-gradient(115deg, #202b1c, #191e17); border-color: #46513b; }
   .stat-label { color: #aab4a5; font-size: 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; position: relative; z-index: 1; }

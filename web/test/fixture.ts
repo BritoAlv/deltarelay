@@ -1,8 +1,8 @@
-import { emptyTotals } from "./metrics.js"
-import type { RelayRequest, Session, Snapshot } from "./types.js"
+import { emptyTotals } from "../src/lib/metrics.js"
+import type { RelayRequest, Session, Snapshot } from "../src/lib/types.js"
 
-// Explicitly opt-in illustrative data. Never returned by the diagnostics API.
-export function makeDemoSnapshot(now = Date.now()): Snapshot {
+// Test-only fixture. The dashboard never ships illustrative data.
+export function makeSnapshot(now = Date.now()): Snapshot {
   const sessions: Session[] = ["ses_7fd82a_relay-dashboard", "ses_a93f10_api-refactor", "ses_2c817d_test-suite", "ses_8b12e6_docs-update", "ses_4d903a_cache-worker", "ses_1e77b4_release-check"].map((id, i) => ({
     ...emptyTotals(), id, upstream: i % 3 === 0 ? "openai" : "opencode-go", started_at: new Date(now - (24 - i * 2) * 3_600_000).toISOString(), updated_at: new Date(now - i * 17 * 60_000).toISOString(), last_status: i === 4 ? 503 : 200, last_error: i === 4 ? "relay_unreachable" : undefined, last_request_id: "",
   }))
@@ -15,7 +15,7 @@ export function makeDemoSnapshot(now = Date.now()): Snapshot {
     const failed = i === 64
     const at = now - (72 - i) * 18 * 60_000
     const transfer = { hash: "0".repeat(64), body_bytes: body, chunks: Math.ceil(body / 16384), unique_chunks: Math.ceil(body / 16384), uploaded_chunks: 8, uploaded_chunk_bytes: encoded * 2, missing_chunk_bytes: encoded * 2, reused_body_bytes: Math.round(body * .965), request_body_bytes_sent: encoded, requests: 5, duration_ms: 1700 + i * 11 }
-    const request: RelayRequest = { sequence: i + 1, id: `sample-request-${String(i + 1).padStart(4, "0")}`, session_id: session.id, upstream: session.upstream, kind: i % 12 === 0 ? "compaction" : "primary", started_at: new Date(at).toISOString(), finished_at: new Date(at + 17_000).toISOString(), state: failed ? "failed" : "completed", status: failed ? 503 : 200, error_code: failed ? "relay_unreachable" : undefined, transfer, response_bytes: 42_000, duration_ms: 17_000 + i * 327 }
+    const request: RelayRequest = { sequence: i + 1, id: `fixture-request-${String(i + 1).padStart(4, "0")}`, session_id: session.id, upstream: session.upstream, kind: i % 12 === 0 ? "compaction" : "primary", started_at: new Date(at).toISOString(), finished_at: new Date(at + 17_000).toISOString(), state: failed ? "failed" : "completed", status: failed ? 503 : 200, error_code: failed ? "relay_unreachable" : undefined, transfer, response_bytes: 42_000, duration_ms: 17_000 + i * 327 }
     requests.push(request)
     for (const target of [session, totals]) {
       target.requests++
@@ -33,7 +33,7 @@ export function makeDemoSnapshot(now = Date.now()): Snapshot {
   sessions[0]!.active++
   totals.requests++
   totals.active++
-  requests.push({ sequence: 73, id: "sample-request-active", session_id: sessions[0]!.id, upstream: "openai", kind: "primary", started_at: new Date(now - 12_000).toISOString(), state: "running", status: 0, transfer: { hash: "", body_bytes: 0, chunks: 0, unique_chunks: 0, uploaded_chunks: 0, uploaded_chunk_bytes: 0, missing_chunk_bytes: 0, reused_body_bytes: 0, request_body_bytes_sent: 0, requests: 0, duration_ms: 0 }, response_bytes: 0, duration_ms: 0 })
+  requests.push({ sequence: 73, id: "fixture-request-active", session_id: sessions[0]!.id, upstream: "openai", kind: "primary", started_at: new Date(now - 12_000).toISOString(), state: "running", status: 0, transfer: { hash: "", body_bytes: 0, chunks: 0, unique_chunks: 0, uploaded_chunks: 0, uploaded_chunk_bytes: 0, missing_chunk_bytes: 0, reused_body_bytes: 0, request_body_bytes_sent: 0, requests: 0, duration_ms: 0 }, response_bytes: 0, duration_ms: 0 })
   return {
     version: 1, collected_at: new Date(now).toISOString(),
     gateway: { started_at: new Date(now - 48 * 3_600_000).toISOString(), active: 1, concurrency: 8, pending_cancellations: 0 },
