@@ -23,6 +23,26 @@ The first generated dashboard port defaults to 8790; set
 Subsequent launches use the saved configuration. `DELTARELAY_PROFILE` selects a
 different already-configured profile.
 
+Codespace recovery requires a current GitHub CLI. Older distribution packages
+can fail inside `gh codespace ssh` with an internal-server timeout even when
+GitHub's API and ordinary internet access work. An optional `github_cli` absolute
+path inside the private `codespace` object selects a trusted, separately installed
+CLI for status, wake, and SSH recovery; the default is `gh` on `PATH`. For example:
+
+```json
+{
+  "codespace": {
+    "name": "your-existing-codespace",
+    "remote_directory": "~/.local/share/deltarelay/codespace-test",
+    "github_cli": "/absolute/private/path/to/gh"
+  }
+}
+```
+
+The launcher never downloads or upgrades the CLI. Tunnel component commands are
+configured separately. Restart only the supervisor after changing its private
+configuration; existing local services remain running.
+
 The controller adopts verified existing gateway, tunnel and Desktop processes.
 It upgrades a positively identified old **read-only dashboard** on startup, but
 does not restart a live gateway, remote relay, or OpenCode to apply new code.
@@ -91,6 +111,11 @@ reports an unrecognized occupied port rather than replacing its owner.
 - **Automatic reconnect** is on initially. Probes run every five seconds with a
   two-second network timeout. Three consecutive transient failures initiate
   recovery. A running-but-dead forward is rebuilt, not just an exited process.
+  Recovery allows up to five readiness probes per rebuilt link. If remote relay
+  startup was needed, it rebuilds the tunnel again (some forwarders exit on a
+  refused remote connection) and verifies authenticated relay health before
+  reporting success. Authentication, TLS, protocol, and identity errors at any
+  readiness check stop recovery without further service changes.
   Failed attempts back off from 2 to 30 seconds, observed on the probe schedule.
 - **Automatic Codespace wake** is off initially. Both settings persist privately
   per profile. Enabling auto-wake asks for billing confirmation; it can resume
@@ -110,6 +135,9 @@ reports an unrecognized occupied port rather than replacing its owner.
   successful check, safe failure codes, and the next scheduled retry. It remains
   useful when the gateway's statistics endpoint is unavailable. Sample-data mode
   disables all real service controls.
+  The last recovery failure remains visible during retry backoff instead of being
+  replaced by a generic reachability failure. A Codespace's **Available** state is
+  not proof that its SSH service or relay is reachable.
 - **VPS unreachable** and **no internet** are reported separately. When the relay
   probe fails with a network error, the supervisor checks an external HTTPS
   endpoint (`internet_check_url`, default `https://api.github.com/`) and shows

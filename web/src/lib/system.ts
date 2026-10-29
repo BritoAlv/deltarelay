@@ -45,6 +45,18 @@ export function connectionState(system: SystemStatus): ConnectionState {
   return "unknown"
 }
 
+export function recoveryStatus(system: SystemStatus): string {
+  if (system.error) return controlError(system.error)
+  if (system.recovery.busy) return `In progress: ${system.recovery.phase.replaceAll("_", " ")}`
+  const connection = connectionState(system)
+  if (connection === "no_internet") return controlError("no_internet")
+  const error = system.recovery.last_error
+  if (error && error !== "unreachable") return controlError(error)
+  if (connection === "vps_unreachable") return "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host."
+  if (error) return controlError(error)
+  return connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity."
+}
+
 export function countdown(deadline: string, now = Date.now()): string {
   const remaining = Date.parse(deadline) - now
   if (!Number.isFinite(remaining)) return "Unknown"
@@ -63,6 +75,11 @@ export function controlError(code: string): string {
     controls_not_configured: "Controls are not configured. Start with startup.sh, or configure a private supervisor socket.",
     supervisor_unavailable: "The local supervisor is unavailable. Run startup.sh to recover it; the gateway is not required for these controls.",
     codespace_stopped: "The Codespace is stopped. Use Wake Codespace, or enable automatic wake. Waking resumes GitHub billing.",
+    codespace_ssh_timeout: "Codespace SSH relay recovery timed out. The Codespace can report Available while its SSH service or relay is unreachable. Check the Codespace and VPN/tunnel.",
+    codespace_recovery_failed: "Codespace SSH/relay recovery failed. Available does not confirm relay health. Check the Codespace, deployment, and VPN/tunnel; no state was reset.",
+    command_failed: "A configured service command failed. Check the private supervisor/service logs.",
+    command_timeout: "A configured service command timed out. Check the private supervisor/service logs.",
+    operation_cancelled: "Recovery stopped because the supervisor is shutting down. Existing services and saved state were left intact.",
     operation_in_progress: "Another service operation is in progress. Wait for it to finish.",
     unrecognized_port_owner: "A required port has an unrecognized owner. No process was stopped or replaced.",
     identity_mismatch: "The remote relay identity changed. Automatic recovery is blocked; no state was reset.",

@@ -166,6 +166,10 @@ def validate(config):
     if codespace and (not re.fullmatch(r'[a-zA-Z0-9-]+', codespace.get('name', '')) or
                       not isinstance(codespace.get('remote_directory'), str)):
         raise ControlError('invalid_codespace')
+    if codespace and 'github_cli' in codespace:
+        command = codespace['github_cli']
+        if not isinstance(command, str) or '\0' in command or not Path(command).is_absolute():
+            raise ControlError('invalid_codespace')
 
 
 class Supervisor:
@@ -438,9 +442,10 @@ class Supervisor:
                     self.start_component('relay')
             return
         name = codespace['name']
+        github_cli = codespace.get('github_cli', 'gh')
 
         def state_of():
-            output = run_command(['gh', 'api', '--method', 'GET', '/user/codespaces/' + name,
+            output = run_command([github_cli, 'api', '--method', 'GET', '/user/codespaces/' + name,
                                   '--jq', '{state: .state}'])
             value = json.loads(output).get('state')
             if not isinstance(value, str):
@@ -453,7 +458,7 @@ class Supervisor:
             raise ControlError('codespace_stopped')
         if state == 'Shutdown':
             self.recovery['phase'] = 'waking_codespace'
-            run_command(['gh', 'api', '--method', 'POST', '/user/codespaces/' + name + '/start', '--silent'])
+            run_command([github_cli, 'api', '--method', 'POST', '/user/codespaces/' + name + '/start', '--silent'])
         deadline = time.monotonic() + 120
         while state != 'Available':
             if state not in ('Shutdown', 'Starting', 'Queued', 'Provisioning', 'ShuttingDown', 'Awaiting'):
@@ -469,16 +474,46 @@ class Supervisor:
         if restart:
             arguments.append('--restart')
         helper = Path(__file__).with_name('recover_relay.py').read_bytes()
-        result = run_command(['gh', 'codespace', 'ssh', '-c', name, '--', '-o', 'BatchMode=yes',
-                              '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=2',
-                              shlex.join(arguments)], timeout=60, input=helper)
+        try:
+            result = run_command([github_cli, 'codespace', 'ssh', '-c', name, '--', '-o', 'BatchMode=yes',
+                                  '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=2',
+                                  shlex.join(arguments)], timeout=60, input=helper)
+        except ControlError as error:
+            if str(error) == 'command_timeout':
+                raise ControlError('codespace_ssh_timeout') from None
+            if str(error) == 'command_failed':
+                raise ControlError('codespace_recovery_failed') from None
+            raise
         if json.loads(result).get('state_id') != expected:
             raise ControlError('identity_mismatch')
         self.states['relay'] = 'running'
 
+    def observe_relay(self):
+        state = self.probe()
+        self.relay_state = state
+        self.update_internet(state)
+        self.states['relay'] = 'running' if state == 'connected' else 'unknown'
+        if state == 'connected':
+            self.recovery.update(last_connected_at=stamp(), last_error='', next_retry_at=None)
+            self.failures, self.delay, self.next_attempt = 0, 2, 0
+        return state
+
+    def wait_for_relay(self):
+        # Port-forward setup can take longer than one probe. Keep the wait
+        # bounded, and never treat a permanent failure as permission to repair.
+        for attempt in range(5):
+            if self.stop.wait(1 if attempt else 0):
+                raise ControlError('operation_cancelled')
+            state = self.observe_relay()
+            if state == 'connected':
+                return True
+            if state != 'unreachable':
+                raise ControlError(state)
+        return False
+
     def recover(self, wake=False):
         self.recovery['phase'] = 'recovering_connection'
-        state = self.probe()
+        state = self.observe_relay()
         # Never repair authentication, TLS, integrity, or identity errors by
         # changing state, restarting a service, or weakening verification.
         if state not in ('connected', 'unreachable'):
@@ -486,13 +521,21 @@ class Supervisor:
         if state == 'unreachable':
             # Rebuild the local link first. A VPN failure is not evidence that
             # the remote daemon needs a restart.
+            connected = False
             if 'tunnel' in self.config['components']:
                 self.restart_component('tunnel')
-                if not self.stop.wait(2) and self.probe() == 'connected':
-                    return
-            self.remote(wake=wake)
+                connected = self.wait_for_relay()
+            if not connected:
+                self.remote(wake=wake)
+                # Some forwarders exit on a refused remote connection. The
+                # remote daemon is ready now; rebuild the link and verify it.
+                if 'tunnel' in self.config['components']:
+                    self.restart_component('tunnel')
+                if not self.wait_for_relay():
+                    raise ControlError('unreachable')
         if 'gateway' in self.config['components']:
             self.start_component('gateway')
+        self.recovery['phase'] = 'monitoring'
 
     def submit(self, value):
         if not isinstance(value, dict) or set(value) - {'component', 'action', 'confirmed'}:
@@ -578,30 +621,31 @@ class Supervisor:
                         self.states[name] = 'unknown'
             if self.dashboard_enabled and 'dashboard' in self.config['components'] and self.states['dashboard'] == 'stopped':
                 self.start_component('dashboard')
-            state = self.probe()
-            self.relay_state = state
-            self.update_internet(state)
+            previous = self.relay_state
+            state = self.observe_relay()
             if state == 'connected':
-                self.states['relay'] = 'running'
-                self.recovery.update(last_connected_at=stamp(), last_error='', phase='monitoring', next_retry_at=None)
-                self.failures, self.delay, self.next_attempt = 0, 2, 0
+                self.recovery['phase'] = 'monitoring'
                 if self.settings['auto_reconnect'] and 'gateway' in self.config['components'] and self.states['gateway'] == 'stopped':
                     self.start_component('gateway')
                 return
-            self.states['relay'] = 'unknown'
             self.failures += 1
-            self.recovery['last_error'] = state
+            # Preserve the last recovery failure during the same outage. A
+            # generic probe must not erase why SSH/service recovery failed.
+            if state != 'unreachable' or previous != state or not self.recovery['last_error']:
+                self.recovery['last_error'] = state
             if state != 'unreachable' or not self.settings['auto_reconnect']:
                 self.recovery['next_retry_at'] = None
                 return
             now = time.monotonic()
             if self.failures < 3 or now < self.next_attempt:
                 return
-            self.recovery.update(busy=True, phase='recovering_connection', attempts=self.recovery['attempts'] + 1)
+            self.recovery.update(busy=True, phase='recovering_connection', attempts=self.recovery['attempts'] + 1, next_retry_at=None)
             try:
                 self.recover(wake=self.settings['auto_wake'])
             except ControlError as error:
                 self.recovery['last_error'] = str(error)
+            if self.relay_state == 'connected':
+                return
             self.next_attempt = time.monotonic() + self.delay
             self.recovery['next_retry_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + self.delay))
             self.delay = min(30, self.delay * 2)
@@ -611,7 +655,7 @@ class Supervisor:
             # command output, credentials, request bodies, or full paths.
             print(f'{stamp()} supervisor tick failed: {type(error).__name__}', file=sys.stderr, flush=True)
         finally:
-            self.recovery['busy'] = False
+            self.recovery.update(busy=False, phase='monitoring')
             self.operation.release()
 
     def monitor(self):

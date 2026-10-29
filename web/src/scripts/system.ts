@@ -1,4 +1,4 @@
-import { connectionState, controlError, countdown, fetchSystem, sendControl, type SystemStatus } from "../lib/system.js"
+import { connectionState, countdown, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../lib/system.js"
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const text = (id: string, value: string) => { element(id).textContent = value }
@@ -38,7 +38,7 @@ function render() {
     element<HTMLInputElement>("auto-wake").checked = system.settings.auto_wake
     badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
     const internetDetail = system.internet_checked_at ? ` · checked ${new Date(system.internet_checked_at).toLocaleTimeString()}` : ""
-    text("recovery-status", system.error ? controlError(system.error) : system.recovery.busy ? `In progress: ${system.recovery.phase.replaceAll("_", " ")}` : connection === "no_internet" ? controlError("no_internet") : connection === "vps_unreachable" ? "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." : system.recovery.last_error ? controlError(system.recovery.last_error) : connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity.")
+    text("recovery-status", recoveryStatus(system))
     text("network-detail", connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
     text("recovery-detail", `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
     document.dispatchEvent(new CustomEvent("deltarelay:system", { detail: { connection } }))

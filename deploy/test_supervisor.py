@@ -137,10 +137,75 @@ class SupervisorTest(unittest.TestCase):
         subject = self.supervisor()
         with patch.object(subject, 'probe', side_effect=['unreachable', 'connected']), \
                 patch.object(subject, 'restart_component') as restart, \
+                patch.object(subject, 'start_component') as start, \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
                 patch.object(subject, 'remote') as remote, patch.object(subject.stop, 'wait', return_value=False):
             subject.recover()
         restart.assert_called_once_with('tunnel')
         remote.assert_not_called()
+        start.assert_called_once_with('gateway')
+        self.assertEqual(subject.relay_state, 'connected')
+        self.assertIsNotNone(subject.recovery['last_connected_at'])
+
+    def test_slow_tunnel_gets_time_to_connect_before_remote_recovery(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', side_effect=['unreachable'] * 3 + ['connected']), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component') as restart, \
+                patch.object(subject, 'remote') as remote, patch.object(subject.stop, 'wait', return_value=False):
+            subject.recover()
+        restart.assert_called_once_with('tunnel')
+        remote.assert_not_called()
+        self.assertEqual(subject.relay_state, 'connected')
+
+    def test_remote_recovery_reopens_tunnel_that_died_while_relay_was_down(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        remote_ready = False
+        restarts = []
+
+        def restart(name):
+            restarts.append((name, remote_ready))
+
+        def remote(wake=False):
+            nonlocal remote_ready
+            remote_ready = True
+
+        def probe():
+            return 'connected' if restarts and restarts[-1][1] else 'unreachable'
+
+        with patch.object(subject, 'probe', side_effect=probe), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component', side_effect=restart), \
+                patch.object(subject, 'remote', side_effect=remote), patch.object(subject.stop, 'wait', return_value=False):
+            subject.recover()
+        self.assertEqual(restarts, [('tunnel', False), ('tunnel', True)])
+        self.assertEqual(subject.relay_state, 'connected')
+
+    def test_remote_command_success_does_not_mean_connection_recovered(self):
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'remote') as remote, patch.object(subject.stop, 'wait', return_value=False):
+            with self.assertRaisesRegex(control.ControlError, '^unreachable$'):
+                subject.recover()
+        remote.assert_called_once_with(wake=False)
+        self.assertIsNone(subject.recovery['last_connected_at'])
+
+    def test_permanent_failure_after_tunnel_reconnect_blocks_remote_changes(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        for error in ('identity_mismatch', 'authentication_failed', 'protocol_mismatch', 'tls_verification_failed'):
+            with self.subTest(error=error), \
+                    patch.object(subject, 'probe', side_effect=['unreachable', error]), \
+                    patch.object(subject, 'internet_probe', return_value='connected'), \
+                    patch.object(subject, 'restart_component') as restart, \
+                    patch.object(subject, 'remote') as remote, patch.object(subject.stop, 'wait', return_value=False):
+                with self.assertRaisesRegex(control.ControlError, error):
+                    subject.recover()
+                restart.assert_called_once_with('tunnel')
+                remote.assert_not_called()
 
     def test_permanent_failures_never_trigger_automatic_restarts(self):
         subject = self.supervisor()
@@ -163,6 +228,66 @@ class SupervisorTest(unittest.TestCase):
             subject.update_settings({'auto_reconnect': False, 'auto_wake': True})
             subject.tick()
             self.assertEqual(recover.call_count, 1)
+
+    def test_recovery_error_survives_generic_probes_until_connection_returns(self):
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'recover', side_effect=control.ControlError('codespace_ssh_timeout')):
+            for _ in range(3): subject.tick()
+            self.assertEqual(subject.recovery['last_error'], 'codespace_ssh_timeout')
+            self.assertEqual(subject.recovery['phase'], 'monitoring')
+            subject.next_attempt = float('inf')
+            for _ in range(3): subject.tick()
+            self.assertEqual(subject.recovery['last_error'], 'codespace_ssh_timeout')
+        with patch.object(subject, 'probe', return_value='connected'):
+            subject.tick()
+        self.assertEqual(subject.recovery['last_error'], '')
+        self.assertIsNone(subject.recovery['next_retry_at'])
+
+    def test_successful_automatic_recovery_updates_status_without_backoff(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', side_effect=['unreachable'] * 4 + ['connected']), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, '_identity', return_value={'pid': 123}), \
+                patch.object(subject, 'restart_component'), patch.object(subject.stop, 'wait', return_value=False):
+            for _ in range(3): subject.tick()
+        status = subject.snapshot()
+        self.assertEqual(status['relay_state'], 'connected')
+        self.assertEqual(status['recovery']['attempts'], 1)
+        self.assertFalse(status['recovery']['busy'])
+        self.assertEqual(status['recovery']['phase'], 'monitoring')
+        self.assertIsNone(status['recovery']['next_retry_at'])
+        self.assertIsNotNone(status['recovery']['last_connected_at'])
+
+    def test_codespace_ssh_failures_have_safe_specific_error_codes(self):
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        subject = self.supervisor()
+        for error, want in [('command_failed', 'codespace_recovery_failed'), ('command_timeout', 'codespace_ssh_timeout')]:
+            with self.subTest(error=error), patch.object(control, 'run_command', side_effect=[
+                    b'{"state":"Available"}', control.ControlError(error)]):
+                with self.assertRaisesRegex(control.ControlError, '^' + want + '$'):
+                    subject.remote()
+
+    def test_private_codespace_cli_is_used_for_status_wake_and_ssh(self):
+        binary = str(self.root / 'tools/gh')
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay', 'github_cli': binary}
+        subject = self.supervisor()
+        with patch.object(control, 'run_command', side_effect=[b'{"state":"Shutdown"}', b'',
+                b'{"state":"Available"}', json.dumps({'state_id': 'a' * 64}).encode()]) as run, \
+                patch.object(subject.stop, 'wait', return_value=False):
+            subject.remote(wake=True)
+        self.assertEqual(len(run.call_args_list), 4)
+        self.assertTrue(all(call.args[0][0] == binary for call in run.call_args_list))
+
+    def test_codespace_cli_override_requires_an_absolute_executable_path(self):
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        for value in ('gh', '../gh', '', None, [], '/tmp/gh\0bad'):
+            with self.subTest(value=value):
+                self.config['codespace']['github_cli'] = value
+                with self.assertRaisesRegex(control.ControlError, 'invalid_codespace'):
+                    control.validate(self.config)
 
     def test_stopped_codespace_only_wakes_with_explicit_permission(self):
         self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}

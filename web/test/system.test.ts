@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { connectionState, countdown, isSystemStatus, fetchSystem, sendControl, type SystemStatus } from "../src/lib/system.js"
+import { connectionState, countdown, isSystemStatus, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../src/lib/system.js"
 
 const status: SystemStatus = {
   version: 1, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
@@ -34,6 +34,20 @@ test("connection state only blames the internet when the separate check also fai
   assert.equal(connectionState({ ...status, relay_state: "unreachable", internet_state: "unreachable" }), "no_internet")
   assert.equal(connectionState({ ...status, relay_state: "unreachable", internet_state: "unknown" }), "unknown")
   assert.equal(connectionState({ ...status, relay_state: "authentication_failed", internet_state: "connected" }), "unknown")
+})
+
+test("recovery status shows the actual failure instead of masking it as VPS unreachable", () => {
+  const failed = { ...status, recovery: { ...status.recovery, last_error: "codespace_ssh_timeout" } }
+  assert.match(recoveryStatus(failed), /SSH.*timed out/)
+  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "codespace_recovery_failed" } }), /SSH\/relay recovery failed/)
+  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "codespace_stopped" } }), /Wake Codespace/)
+  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "command_failed" } }), /service command failed/)
+  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, busy: true, phase: "recovering_remote_relay" } }), /In progress: recovering remote relay/)
+  assert.match(recoveryStatus({ ...failed, error: "supervisor_unavailable" }), /local supervisor is unavailable/)
+  assert.match(recoveryStatus({ ...failed, internet_state: "unreachable" }), /no internet connection/)
+  assert.match(recoveryStatus({ ...status, recovery: { ...status.recovery, last_error: "unreachable" } }), /Internet works, but/)
+  assert.match(recoveryStatus({ ...status, relay_state: "connected" }), /Authenticated relay is reachable/)
+  assert.doesNotMatch(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "untrusted diagnostic" } }), /untrusted diagnostic/)
 })
 
 test("control API uses same-origin POST with nonce, never credentials in URLs", async (t) => {
