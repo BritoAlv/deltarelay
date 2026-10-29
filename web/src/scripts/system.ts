@@ -32,14 +32,15 @@ function render() {
   const configuredCodespace = Boolean(system && system.codespace_state !== "not_configured")
   for (const id of ["recover-all", "restart-all", "auto-reconnect"]) element<HTMLButtonElement>(id).disabled = disabled
   for (const id of ["auto-wake", "wake-codespace"]) element<HTMLButtonElement>(id).disabled = disabled || !configuredCodespace
+  element<HTMLButtonElement>("stop-codespace").disabled = disabled || !configuredCodespace || system?.codespace_state === "Shutdown" && system.relay_state !== "connected"
   if (system) {
     const connection = connectionState(system)
     element<HTMLInputElement>("auto-reconnect").checked = system.settings.auto_reconnect
     element<HTMLInputElement>("auto-wake").checked = system.settings.auto_wake
-    badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
+    badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "codespace_stopped" ? "Stopped" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
     const internetDetail = system.internet_checked_at ? ` · checked ${new Date(system.internet_checked_at).toLocaleTimeString()}` : ""
     text("recovery-status", recoveryStatus(system))
-    text("network-detail", connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
+    text("network-detail", connection === "codespace_stopped" ? "Codespace shutdown confirmed. Automatic reconnect and wake are off." : connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
     text("recovery-detail", `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
     document.dispatchEvent(new CustomEvent("deltarelay:system", { detail: { connection } }))
     text("codespace-state", configuredCodespace ? `Codespace: ${system.codespace_state}` : "Regular VPS / no Codespace configured")
@@ -92,12 +93,13 @@ async function actionRequest(component: string, action: string) {
   if (!system || stale || pending || system.recovery.busy) return
   if (action === "restart" && !window.confirm(`Restart ${component === "all" ? "all configured services" : component}? Active requests may be interrupted; provider work may already be billed. Cache, tokens, sessions, and saved responses will NOT be erased.`)) return
   if (action === "wake" && !window.confirm("Wake the existing Codespace? GitHub compute usage/billing will resume.")) return
+  if (action === "stop" && !window.confirm("Stop the Codespace? Active requests will be interrupted; provider work may already be billed. Automatic reconnect and wake will be disabled until you re-enable them. Saved files, tokens, cached chunks, and saved responses will NOT be erased.")) return
   pending = true
   lastMessage = "Submitting service operation…"
   render()
   try {
-    await sendControl("action", { component, action, confirmed: action === "restart" }, system.csrf_token)
-    lastMessage = "Operation accepted. Progress is shown above; no model generation was submitted."
+    await sendControl("action", { component, action, confirmed: action === "restart" || action === "stop" }, system.csrf_token)
+    lastMessage = action === "stop" ? "Stop requested. Shutdown progress and recovery settings are shown above." : "Operation accepted. Progress is shown above; no model generation was submitted."
   } catch (error) {
     lastMessage = error instanceof Error ? error.message : "The action could not be confirmed. Refresh status before trying again."
   } finally {
@@ -127,6 +129,7 @@ async function settings() {
 element("recover-all").addEventListener("click", () => void actionRequest("all", "recover"))
 element("restart-all").addEventListener("click", () => void actionRequest("all", "restart"))
 element("wake-codespace").addEventListener("click", () => void actionRequest("codespace", "wake"))
+element("stop-codespace").addEventListener("click", () => void actionRequest("codespace", "stop"))
 element("auto-reconnect").addEventListener("change", () => void settings())
 element("auto-wake").addEventListener("change", () => void settings())
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh() })

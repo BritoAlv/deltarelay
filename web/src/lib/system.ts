@@ -34,10 +34,11 @@ export function isSystemStatus(v: unknown): v is SystemStatus {
   return typeof v.relay_state === "string" && typeof v.codespace_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && componentIDs.includes(String(c.id)) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
 }
 
-export type ConnectionState = "connected" | "no_internet" | "vps_unreachable" | "unknown"
+export type ConnectionState = "connected" | "codespace_stopped" | "no_internet" | "vps_unreachable" | "unknown"
 
 export function connectionState(system: SystemStatus): ConnectionState {
   if (system.relay_state === "connected") return "connected"
+  if (system.relay_state === "unreachable" && system.codespace_state === "Shutdown" && !system.settings.auto_reconnect && !system.settings.auto_wake) return "codespace_stopped"
   // Only claim "no internet" when the independent external check also failed.
   // An old or disabled supervisor leaves internet_state unknown.
   if (system.relay_state === "unreachable" && system.internet_state === "unreachable") return "no_internet"
@@ -49,6 +50,7 @@ export function recoveryStatus(system: SystemStatus): string {
   if (system.error) return controlError(system.error)
   if (system.recovery.busy) return `In progress: ${system.recovery.phase.replaceAll("_", " ")}`
   const connection = connectionState(system)
+  if (connection === "codespace_stopped") return "The Codespace is stopped. Automatic reconnect and wake are off. Use Wake Codespace to resume, then re-enable recovery settings as needed."
   if (connection === "no_internet") return controlError("no_internet")
   const error = system.recovery.last_error
   if (error && error !== "unreachable") return controlError(error)
@@ -75,6 +77,7 @@ export function controlError(code: string): string {
     controls_not_configured: "Controls are not configured. Start with startup.sh, or configure a private supervisor socket.",
     supervisor_unavailable: "The local supervisor is unavailable. Run startup.sh to recover it; the gateway is not required for these controls.",
     codespace_stopped: "The Codespace is stopped. Use Wake Codespace, or enable automatic wake. Waking resumes GitHub billing.",
+    codespace_stop_timeout: "Codespace shutdown was not confirmed before the timeout. Automatic reconnect and wake remain off. Check its state in GitHub before retrying.",
     codespace_ssh_timeout: "Codespace SSH relay recovery timed out. The Codespace can report Available while its SSH service or relay is unreachable. Check the Codespace and VPN/tunnel.",
     codespace_recovery_failed: "Codespace SSH/relay recovery failed. Available does not confirm relay health. Check the Codespace, deployment, and VPN/tunnel; no state was reset.",
     command_failed: "A configured service command failed. Check the private supervisor/service logs.",

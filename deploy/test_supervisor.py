@@ -308,6 +308,139 @@ class SupervisorTest(unittest.TestCase):
             subject.remote(wake=True)
             self.assertIn('/user/codespaces/test-codespace/start', run.call_args_list[1].args[0])
 
+    def test_codespace_stop_requires_confirmation_and_a_configured_codespace(self):
+        subject = self.supervisor()
+        with self.assertRaisesRegex(control.ControlError, '^invalid_action$'):
+            subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        subject = self.supervisor()
+        with patch.object(control, 'run_command') as run:
+            for confirmed in (None, False, 'true', 1):
+                with self.assertRaisesRegex(control.ControlError, '^confirmation_required$'):
+                    subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': confirmed})
+            for name in (*control.COMPONENTS, 'all'):
+                with self.assertRaisesRegex(control.ControlError, '^invalid_action$'):
+                    subject.submit({'component': name, 'action': 'stop', 'confirmed': True})
+            subject.operation.acquire()
+            try:
+                with self.assertRaisesRegex(control.ControlError, '^operation_in_progress$'):
+                    subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
+            finally:
+                subject.operation.release()
+            run.assert_not_called()
+        self.assertEqual(subject.settings, {'auto_reconnect': True, 'auto_wake': False})
+
+    def test_codespace_stop_persists_recovery_pause_and_waits_for_shutdown(self):
+        binary = str(self.root / 'tools/gh')
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay', 'github_cli': binary}
+        self.component('tunnel')
+        self.component('gateway')
+        subject = self.supervisor()
+        subject.update_settings({'auto_reconnect': True, 'auto_wake': True})
+        subject.relay_state = 'connected'
+        subject.recovery['next_retry_at'] = control.stamp()
+        outputs = iter([b'{"state":"Available"}', b'', b'{"state":"ShuttingDown"}', b'{"state":"Shutdown"}'])
+
+        def command(_):
+            self.assertEqual(control.private_json(subject.directory / 'settings.json'),
+                             {'auto_reconnect': False, 'auto_wake': False})
+            stopped.assert_called_once_with('tunnel')
+            self.assertTrue(subject.snapshot()['recovery']['busy'])
+            return next(outputs)
+
+        with patch.object(subject, 'stop_component') as stopped, \
+                patch.object(control, 'run_command', side_effect=command) as run, \
+                patch.object(subject.stop, 'wait', return_value=False), \
+                patch.object(subject, 'start_component') as start, patch.object(subject, 'recover') as recover:
+            subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
+            self.wait_job(subject)
+            self.assertEqual([call.args[0] for call in run.call_args_list], [
+                [binary, 'api', '--method', 'GET', '/user/codespaces/test-codespace', '--jq', '{state: .state}'],
+                [binary, 'api', '--method', 'POST', '/user/codespaces/test-codespace/stop', '--silent'],
+                [binary, 'api', '--method', 'GET', '/user/codespaces/test-codespace', '--jq', '{state: .state}'],
+                [binary, 'api', '--method', 'GET', '/user/codespaces/test-codespace', '--jq', '{state: .state}'],
+            ])
+            status = subject.snapshot()
+            self.assertEqual(status['codespace_state'], 'Shutdown')
+            self.assertEqual(status['relay_state'], 'unreachable')
+            self.assertEqual(subject.states['relay'], 'stopped')
+            self.assertEqual(status['recovery']['last_error'], 'codespace_stopped')
+            self.assertFalse(status['recovery']['busy'])
+            self.assertIsNone(status['recovery']['next_retry_at'])
+            self.assertEqual(self.supervisor().settings, {'auto_reconnect': False, 'auto_wake': False})
+            with patch.object(subject, 'probe', return_value='unreachable'), \
+                    patch.object(subject, 'internet_probe', return_value='connected'):
+                for _ in range(4): subject.tick()
+            recover.assert_not_called()
+            start.assert_not_called()
+            self.assertEqual(subject.states['relay'], 'stopped')
+            self.assertEqual(subject.recovery['last_error'], 'codespace_stopped')
+        # Manual wake remains available, but never silently restores the policies.
+        with patch.object(subject, 'remote') as remote, patch.object(subject, 'recover') as recover:
+            subject.submit({'component': 'codespace', 'action': 'wake'})
+            self.wait_job(subject)
+            remote.assert_called_once_with(wake=True)
+            recover.assert_called_once()
+        self.assertEqual(subject.settings, {'auto_reconnect': False, 'auto_wake': False})
+        self.assertEqual((self.root / 'identity.json').read_text(), json.dumps('a' * 64))
+        self.assertEqual((self.root / 'relay.token').read_text(), 'relay-secret')
+
+    def test_codespace_stop_is_idempotent_for_stopped_or_stopping_codespaces(self):
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        for state in ('Shutdown', 'ShuttingDown'):
+            with self.subTest(state=state):
+                subject = self.supervisor()
+                with patch.object(control, 'run_command', side_effect=[json.dumps({'state': state}).encode(),
+                        b'{"state":"Shutdown"}']) as run, patch.object(subject.stop, 'wait', return_value=False):
+                    subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
+                    self.wait_job(subject)
+                self.assertTrue(all(call.args[0][3] == 'GET' for call in run.call_args_list))
+                self.assertEqual(subject.codespace_state, 'Shutdown')
+
+    def test_failed_codespace_stop_keeps_recovery_disabled_and_does_not_claim_shutdown(self):
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        for error in ('command_failed', 'command_timeout'):
+            with self.subTest(error=error):
+                subject = self.supervisor()
+                subject.update_settings({'auto_reconnect': True, 'auto_wake': True})
+                with patch.object(control, 'run_command', side_effect=[b'{"state":"Available"}', control.ControlError(error)]):
+                    subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
+                    self.wait_job(subject)
+                self.assertEqual(subject.recovery['last_error'], error)
+                self.assertEqual(subject.codespace_state, 'Available')
+                self.assertFalse(subject.recovery['busy'])
+                self.assertEqual(self.supervisor().settings, {'auto_reconnect': False, 'auto_wake': False})
+
+    def test_codespace_stop_wait_is_bounded_and_cancellable(self):
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        for cancelled, want in ((False, 'codespace_stop_timeout'), (True, 'operation_cancelled')):
+            with self.subTest(cancelled=cancelled):
+                subject = self.supervisor()
+                with patch.object(control, 'run_command', return_value=b'{"state":"ShuttingDown"}') as run, \
+                        patch.object(subject.stop, 'wait', return_value=cancelled), \
+                        patch.object(control.time, 'monotonic', side_effect=[0, 121]):
+                    with self.assertRaisesRegex(control.ControlError, '^' + want + '$'):
+                        subject.stop_codespace()
+                run.assert_called_once()
+                self.assertEqual(subject.codespace_state, 'ShuttingDown')
+                self.assertEqual(subject.settings, {'auto_reconnect': False, 'auto_wake': False})
+
+    def test_codespace_stop_stops_owned_tunnel_without_stopping_other_local_services(self):
+        self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
+        self.component('tunnel')
+        self.component('gateway')
+        subject = self.supervisor()
+        for name in ('tunnel', 'gateway'):
+            subject.start_component(name)
+            self.addCleanup(self.cleanup_child, subject.children[name])
+        with patch.object(control, 'run_command', return_value=b'{"state":"Shutdown"}'):
+            subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
+            self.wait_job(subject)
+        self.assertIsNotNone(subject.children['tunnel'].poll())
+        self.assertIsNone(subject.children['gateway'].poll())
+        self.assertEqual(subject.states['tunnel'], 'stopped')
+        self.assertEqual(subject.codespace_state, 'Shutdown')
+
     def test_action_schema_confirmation_and_serialization(self):
         subject = self.supervisor()
         for value in ({'component': 'all', 'action': 'restart'}, {'component': 'tunnel', 'action': 'recover'},

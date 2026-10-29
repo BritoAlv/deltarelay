@@ -312,6 +312,13 @@ class Supervisor:
             run_command(spec['restart_command'], env=spec.get('env'))
             self.states[name] = 'started'
             return
+        self.stop_component(name)
+        self.start_component(name)
+
+    def stop_component(self, name):
+        spec = self.config['components'].get(name, {})
+        if 'command' not in spec:
+            raise ControlError('component_unmanaged')
         info = self._identity(name)
         if info:
             pid, birth = info['pid'], info['birth']
@@ -361,7 +368,7 @@ class Supervisor:
             except subprocess.TimeoutExpired:
                 pass
         self.identities.pop(name, None)
-        self.start_component(name)
+        self.states[name] = 'stopped'
 
     def probe(self):
         try:
@@ -432,6 +439,39 @@ class Supervisor:
         self.internet_checked_at = stamp()
         self.internet_next = 0.0
 
+    def codespace_status(self):
+        codespace = self.config['codespace']
+        output = run_command([codespace.get('github_cli', 'gh'), 'api', '--method', 'GET',
+                              '/user/codespaces/' + codespace['name'], '--jq', '{state: .state}'])
+        value = json.loads(output).get('state')
+        if not isinstance(value, str):
+            raise ControlError('codespace_unavailable')
+        self.codespace_state = value
+        return value
+
+    def stop_codespace(self):
+        # Persist the pause before touching the tunnel or GitHub. A failed or
+        # interrupted stop must not let recovery immediately wake the Codespace.
+        self.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        if 'command' in self.config['components'].get('tunnel', {}):
+            self.stop_component('tunnel')
+        codespace = self.config['codespace']
+        state = self.codespace_status()
+        if state not in ('Shutdown', 'ShuttingDown'):
+            run_command([codespace.get('github_cli', 'gh'), 'api', '--method', 'POST',
+                         '/user/codespaces/' + codespace['name'] + '/stop', '--silent'])
+            self.codespace_state = 'ShuttingDown'
+        deadline = time.monotonic() + 120
+        while self.codespace_state != 'Shutdown':
+            if self.stop.wait(3):
+                raise ControlError('operation_cancelled')
+            if time.monotonic() >= deadline:
+                raise ControlError('codespace_stop_timeout')
+            self.codespace_status()
+        self.relay_state = 'unreachable'
+        self.states['relay'] = 'stopped'
+        self.recovery['last_error'] = 'codespace_stopped'
+
     def remote(self, wake=False, restart=False):
         codespace = self.config.get('codespace')
         if not codespace:
@@ -444,16 +484,7 @@ class Supervisor:
         name = codespace['name']
         github_cli = codespace.get('github_cli', 'gh')
 
-        def state_of():
-            output = run_command([github_cli, 'api', '--method', 'GET', '/user/codespaces/' + name,
-                                  '--jq', '{state: .state}'])
-            value = json.loads(output).get('state')
-            if not isinstance(value, str):
-                raise ControlError('codespace_unavailable')
-            self.codespace_state = value
-            return value
-
-        state = state_of()
+        state = self.codespace_status()
         if state == 'Shutdown' and not wake:
             raise ControlError('codespace_stopped')
         if state == 'Shutdown':
@@ -465,7 +496,7 @@ class Supervisor:
                 raise ControlError('codespace_unavailable')
             if self.stop.wait(3) or time.monotonic() >= deadline:
                 raise ControlError('codespace_unavailable')
-            state = state_of()
+            state = self.codespace_status()
         self.recovery['phase'] = 'recovering_remote_relay'
         expected = private_json(Path(self.config['relay_state_file']), 4096)
         if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected):
@@ -492,7 +523,8 @@ class Supervisor:
         state = self.probe()
         self.relay_state = state
         self.update_internet(state)
-        self.states['relay'] = 'running' if state == 'connected' else 'unknown'
+        stopped = state == 'unreachable' and self.codespace_state == 'Shutdown'
+        self.states['relay'] = 'running' if state == 'connected' else 'stopped' if stopped else 'unknown'
         if state == 'connected':
             self.recovery.update(last_connected_at=stamp(), last_error='', next_retry_at=None)
             self.failures, self.delay, self.next_attempt = 0, 2, 0
@@ -541,13 +573,13 @@ class Supervisor:
         if not isinstance(value, dict) or set(value) - {'component', 'action', 'confirmed'}:
             raise ControlError('invalid_action')
         name, action = value.get('component'), value.get('action')
-        if name not in (*COMPONENTS, 'all', 'codespace') or action not in ('start', 'restart', 'recover', 'wake'):
+        if name not in (*COMPONENTS, 'all', 'codespace') or action not in ('start', 'restart', 'recover', 'wake', 'stop'):
             raise ControlError('invalid_action')
-        if action == 'restart' and value.get('confirmed') is not True:
+        if action in ('restart', 'stop') and value.get('confirmed') is not True:
             raise ControlError('confirmation_required')
-        if action == 'wake' and (name != 'codespace' or not self.config.get('codespace')):
+        if action in ('wake', 'stop') and (name != 'codespace' or not self.config.get('codespace')):
             raise ControlError('invalid_action')
-        if name == 'codespace' and action != 'wake' or action == 'recover' and name != 'all':
+        if name == 'codespace' and action not in ('wake', 'stop') or action == 'recover' and name != 'all':
             raise ControlError('invalid_action')
         if not self.operation.acquire(blocking=False):
             raise ControlError('operation_in_progress')
@@ -560,7 +592,9 @@ class Supervisor:
                     # Let the accepted response reach the browser before its
                     # dashboard connection is deliberately shut down.
                     self.stop.wait(0.5)
-                if action == 'wake':
+                if action == 'stop':
+                    self.stop_codespace()
+                elif action == 'wake':
                     self.remote(wake=True)
                     self.recover()
                 elif action == 'recover' or name == 'all' and action == 'start':

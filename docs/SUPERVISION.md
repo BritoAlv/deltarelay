@@ -27,7 +27,7 @@ Codespace recovery requires a current GitHub CLI. Older distribution packages
 can fail inside `gh codespace ssh` with an internal-server timeout even when
 GitHub's API and ordinary internet access work. An optional `github_cli` absolute
 path inside the private `codespace` object selects a trusted, separately installed
-CLI for status, wake, and SSH recovery; the default is `gh` on `PATH`. For example:
+CLI for status, wake, stop, and SSH recovery; the default is `gh` on `PATH`. For example:
 
 ```json
 {
@@ -123,6 +123,18 @@ reports an unrecognized occupied port rather than replacing its owner.
 - **Wake Codespace** is always displayed and is usable regardless of the
   auto-wake setting. It is disabled for non-Codespace profiles, stale status, or
   an operation already in progress. Manual wake also asks for billing confirmation.
+- **Stop Codespace…** asks for confirmation before stopping the existing
+  Codespace through GitHub. Active requests may be interrupted and provider work
+  may already be billed. Automatic reconnect and wake are both saved as **off**
+  before stopping the managed local tunnel and requesting shutdown, so recovery
+  cannot immediately wake it again, even after restarting the supervisor. These
+  settings remain off if shutdown fails or times out. Progress stays visible until
+  GitHub confirms **Shutdown** (up to two minutes); the Codespace is not deleted
+  and saved files, tokens, relay cache, and responses are preserved. The dashboard
+  and other local services stay running. Use **Wake Codespace** to resume and
+  re-enable recovery settings as needed; manual wake does not change them.
+  Stop is disabled for non-Codespace profiles, stale status, an operation in
+  progress, or a Codespace already confirmed stopped.
 - **Recover all** starts configured local services and repairs connectivity.
   It respects auto-wake; use the explicit Wake button if the Codespace is asleep.
 - Each configured component has **Start / Restart** controls, plus **Restart all**.

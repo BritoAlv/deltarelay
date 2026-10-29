@@ -50,6 +50,31 @@ test("recovery status shows the actual failure instead of masking it as VPS unre
   assert.doesNotMatch(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "untrusted diagnostic" } }), /untrusted diagnostic/)
 })
 
+test("intentional Codespace shutdown is shown as stopped, not a VPS fault", () => {
+  const stopped = { ...status, settings: { auto_reconnect: false, auto_wake: false } }
+  assert.equal(connectionState(stopped), "codespace_stopped")
+  assert.equal(connectionState({ ...stopped, relay_state: "connected" }), "connected")
+  assert.equal(connectionState({ ...stopped, relay_state: "identity_mismatch" }), "unknown")
+  assert.match(recoveryStatus(stopped), /Codespace is stopped.*reconnect and wake are off/)
+  assert.match(recoveryStatus({ ...stopped, relay_state: "connected" }), /Authenticated relay is reachable/)
+  assert.match(recoveryStatus({ ...stopped, internet_state: "unreachable" }), /Codespace is stopped/)
+  assert.match(recoveryStatus({ ...stopped, recovery: { ...stopped.recovery, busy: true, phase: "stop_codespace" } }), /In progress: stop codespace/)
+  assert.match(recoveryStatus({ ...status, codespace_state: "ShuttingDown", recovery: { ...status.recovery, last_error: "codespace_stop_timeout" } }), /shutdown was not confirmed.*reconnect and wake remain off/)
+})
+
+test("Codespace stop sends an explicitly confirmed action through the protected control API", async (t) => {
+  const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
+    assert.equal(input, "/api/system/action")
+    assert.equal(options?.method, "POST")
+    assert.equal(options?.credentials, "same-origin")
+    assert.deepEqual(options?.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
+    assert.deepEqual(JSON.parse(String(options?.body)), { component: "codespace", action: "stop", confirmed: true })
+    return Response.json({ accepted: true }, { status: 202 })
+  })
+  await sendControl("action", { component: "codespace", action: "stop", confirmed: true }, status.csrf_token)
+  assert.equal(mock.mock.callCount(), 1)
+})
+
 test("control API uses same-origin POST with nonce, never credentials in URLs", async (t) => {
   const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
     if (input === "/api/system") return Response.json(status)

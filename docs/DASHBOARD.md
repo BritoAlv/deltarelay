@@ -8,7 +8,7 @@ database, CDN, remote font, or paid health probe.
 ## What you can see
 
 For VPN/network recovery, service Start/Restart controls, selectable Codespace
-auto-wake/manual wake, and the ChatGPT access-token expiry countdown, see
+auto-wake, manual wake/stop, and the ChatGPT access-token expiry countdown, see
 **[Supervision and controls](SUPERVISION.md)**. Those APIs are independent of
 gateway statistics and remain available when the gateway is down. Controls are
 disabled unless the dashboard is explicitly connected to a private supervisor.
