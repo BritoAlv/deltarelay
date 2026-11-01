@@ -1,0 +1,8 @@
+{
+  "version": 1, "managed": true, "collected_at": "2026-11-01T12:00:00Z", "csrf_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "settings": {"auto_reconnect": false, "auto_wake": false},
+  "recovery": {"busy": false, "phase": "monitoring", "attempts": 2, "last_error": "unreachable", "last_connected_at": "2026-11-01T11:00:00Z", "next_retry_at": null},
+  "relay_state": "unreachable", "internet_state": "unknown", "internet_checked_at": null,
+  "remote": {"id": "codespaces", "label": "GitHub Codespaces", "host_state": "stopped", "capabilities": ["relay.ensure", "relay.restart", "host.wake", "host.stop"]},
+  "components": [], "auth": {"state": "not_configured", "stale": false}
+}

@@ -19,6 +19,7 @@ import (
 	"deltarelay/internal/client"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/telemetry"
+	"deltarelay/internal/transfer"
 	"deltarelay/internal/upstream"
 )
 
@@ -36,15 +37,15 @@ type Config struct {
 }
 
 type Result struct {
-	ID             string       `json:"request_id"`
-	Upstream       string       `json:"upstream"`
-	Status         int          `json:"status"`
-	Stats          client.Stats `json:"transfer"`
-	ResponseBytes  int64        `json:"response_bytes"`
-	DurationMillis int64        `json:"duration_ms"`
-	Failed         bool         `json:"failed"`
-	ErrorCode      string       `json:"error_code,omitempty"`
-	SessionID      string       `json:"session_id,omitempty"`
+	ID             string         `json:"request_id"`
+	Upstream       string         `json:"upstream"`
+	Status         int            `json:"status"`
+	Stats          transfer.Stats `json:"transfer"`
+	ResponseBytes  int64          `json:"response_bytes"`
+	DurationMillis int64          `json:"duration_ms"`
+	Failed         bool           `json:"failed"`
+	ErrorCode      string         `json:"error_code,omitempty"`
+	SessionID      string         `json:"session_id,omitempty"`
 }
 
 type Gateway struct {
@@ -160,7 +161,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		}
 		id = hex.EncodeToString(random[:])
 	}
-	if !upstream.ValidRequestID(id) {
+	if !protocol.ValidRequestID(id) {
 		result.Status = http.StatusBadRequest
 		gatewayError(w, result.Status, "invalid request ID")
 		return

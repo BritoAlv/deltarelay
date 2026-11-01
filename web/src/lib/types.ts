@@ -83,7 +83,7 @@ export interface Snapshot {
     last_seen?: string
   }[]
   history: {
-    version: number
+    version: 1
     since: string
     totals: Totals
     sessions: Session[]

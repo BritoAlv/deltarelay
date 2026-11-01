@@ -72,7 +72,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, protocol.MaxManifestBytes, &input) {
 		return
 	}
-	if input.Version != protocol.RelayVersion || !upstream.ValidRequestID(id) || input.ID != id || input.Method != http.MethodPost {
+	if input.Version != protocol.RelayVersion || !protocol.ValidRequestID(id) || input.ID != id || input.Method != http.MethodPost {
 		writeError(w, 400, "invalid version, request ID or method")
 		return
 	}
@@ -255,7 +255,7 @@ func (s *Server) runJob(ctx context.Context, input protocol.ForwardRequest, body
 }
 
 func (s *Server) requestStatus(w http.ResponseWriter, r *http.Request) {
-	if !upstream.ValidRequestID(r.PathValue("id")) {
+	if !protocol.ValidRequestID(r.PathValue("id")) {
 		writeError(w, 400, "invalid request ID")
 		return
 	}
@@ -284,7 +284,7 @@ func (s *Server) requestStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) requestResponse(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !upstream.ValidRequestID(id) {
+	if !protocol.ValidRequestID(id) {
 		writeError(w, 400, "invalid request ID")
 		return
 	}
@@ -325,7 +325,7 @@ func (s *Server) requestResponse(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) acknowledge(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !upstream.ValidRequestID(id) {
+	if !protocol.ValidRequestID(id) {
 		writeError(w, 400, "invalid request ID")
 		return
 	}
@@ -343,7 +343,7 @@ func (s *Server) acknowledge(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) cancelRequest(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !s.policy.Enabled() || !upstream.ValidRequestID(id) {
+	if !s.policy.Enabled() || !protocol.ValidRequestID(id) {
 		writeError(w, 400, "forwarding disabled or invalid request ID")
 		return
 	}

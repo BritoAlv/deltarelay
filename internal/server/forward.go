@@ -47,7 +47,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "expected one forwarding object")
 		return
 	}
-	if input.Version != protocol.Version || input.Method != http.MethodPost || !upstream.ValidRequestID(input.ID) {
+	if input.Version != protocol.Version || input.Method != http.MethodPost || !protocol.ValidRequestID(input.ID) {
 		writeError(w, http.StatusBadRequest, "invalid version, method, or request ID")
 		return
 	}

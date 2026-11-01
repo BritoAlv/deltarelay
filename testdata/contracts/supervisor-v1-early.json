@@ -1,0 +1,6 @@
+{
+  "version": 1, "managed": true, "collected_at": "2026-11-01T12:00:00Z",
+  "settings": {"auto_reconnect": false, "auto_wake": false},
+  "recovery": {"busy": false, "phase": "monitoring", "attempts": 2, "last_error": "unreachable", "last_connected_at": "2026-11-01T11:00:00Z", "next_retry_at": null},
+  "relay_state": "unreachable", "codespace_state": "Shutdown", "components": []
+}

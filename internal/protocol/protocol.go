@@ -140,6 +140,20 @@ func ValidHash(hash string) bool {
 	return true
 }
 
+// ValidRequestID validates the opaque ID shared by legacy forwarding, durable
+// submissions, receipts, and cancellation records. Telemetry labels are distinct.
+func ValidRequestID(id string) bool {
+	if len(id) < 16 || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func (m Manifest) Validate(maxBodySize int64, maxChunks int) error {
 	if m.Version != Version {
 		return fmt.Errorf("unsupported protocol version %d", m.Version)

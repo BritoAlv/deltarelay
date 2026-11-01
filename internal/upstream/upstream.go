@@ -63,18 +63,6 @@ func (p *Policy) Match(target string) (Rule, error) {
 	return Rule{}, errors.New("upstream URL is not allowlisted")
 }
 
-func ValidRequestID(id string) bool {
-	if len(id) < 16 || len(id) > 128 {
-		return false
-	}
-	for _, c := range id {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
-			return false
-		}
-	}
-	return true
-}
-
 func ValidateHeaders(headers http.Header) error {
 	var size, values int
 	if len(headers) > 256 {

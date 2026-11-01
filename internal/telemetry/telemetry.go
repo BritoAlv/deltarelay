@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"deltarelay/internal/client"
+	"deltarelay/internal/transfer"
 )
 
 const (
@@ -46,19 +46,19 @@ type Session struct {
 }
 
 type Request struct {
-	Sequence       uint64       `json:"sequence"`
-	ID             string       `json:"id"`
-	SessionID      string       `json:"session_id"`
-	Upstream       string       `json:"upstream"`
-	Kind           string       `json:"kind"`
-	StartedAt      time.Time    `json:"started_at"`
-	FinishedAt     *time.Time   `json:"finished_at,omitempty"`
-	State          string       `json:"state"`
-	Status         int          `json:"status"`
-	ErrorCode      string       `json:"error_code,omitempty"`
-	Transfer       client.Stats `json:"transfer"`
-	ResponseBytes  int64        `json:"response_bytes"`
-	DurationMillis int64        `json:"duration_ms"`
+	Sequence       uint64         `json:"sequence"`
+	ID             string         `json:"id"`
+	SessionID      string         `json:"session_id"`
+	Upstream       string         `json:"upstream"`
+	Kind           string         `json:"kind"`
+	StartedAt      time.Time      `json:"started_at"`
+	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
+	State          string         `json:"state"`
+	Status         int            `json:"status"`
+	ErrorCode      string         `json:"error_code,omitempty"`
+	Transfer       transfer.Stats `json:"transfer"`
+	ResponseBytes  int64          `json:"response_bytes"`
+	DurationMillis int64          `json:"duration_ms"`
 }
 
 type Snapshot struct {
@@ -285,7 +285,7 @@ func (r *Recorder) Begin(id, sessionID, upstream, kind string) uint64 {
 	return r.sequence
 }
 
-func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string, stats client.Stats, responseBytes, duration int64) {
+func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string, stats transfer.Stats, responseBytes, duration int64) {
 	if sequence == 0 {
 		return
 	}
@@ -315,7 +315,7 @@ func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string,
 	}
 }
 
-func addResult(t *Totals, failed bool, stats client.Stats, responseBytes, duration int64) {
+func addResult(t *Totals, failed bool, stats transfer.Stats, responseBytes, duration int64) {
 	t.Active--
 	if failed {
 		t.Failed++

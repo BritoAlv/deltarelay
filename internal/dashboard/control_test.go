@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"deltarelay/testdata/contracts"
 )
 
 func unixServer(t *testing.T, handler http.Handler) string {
@@ -36,13 +38,14 @@ func unixServer(t *testing.T, handler http.Handler) string {
 
 func TestSystemControlsSurviveGatewayOutageAndRejectCrossSiteWrites(t *testing.T) {
 	var actions atomic.Int32
+	fixture := contracts.Read(t, "supervisor-v1.json")
 	socket := unixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" || r.Header.Get("X-DeltaRelay-Control") != "" || r.URL.RawQuery != "" {
 			t.Error("browser headers, credentials, or query reached supervisor")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/status" {
-			_, _ = io.WriteString(w, `{"version":1,"managed":true,"collected_at":"2026-10-28T00:00:00Z","codespace_state":"Shutdown","relay_state":"unreachable","internet_state":"connected","internet_checked_at":null,"components":[]}`)
+			_, _ = w.Write(fixture)
 			return
 		}
 		actions.Add(1)
@@ -130,8 +133,24 @@ func TestRemoteProviderStatusAndLegacyUpgrade(t *testing.T) {
 		{"future-version", `{"version":3,"managed":true,"components":[]}`, "configured", "unknown", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Use complete legacy/current status shapes; the case only overrides
+			// fields relevant to remote normalization and metadata filtering.
+			var base, changes map[string]any
+			if err := json.Unmarshal(contracts.Read(t, "supervisor-v2.json"), &base); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(tc.snapshot), &changes); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range changes {
+				base[key] = value
+			}
+			fixture, err := json.Marshal(base)
+			if err != nil {
+				t.Fatal(err)
+			}
 			socket := unixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = io.WriteString(w, tc.snapshot)
+				_, _ = w.Write(fixture)
 			}))
 			h, err := New(Config{GatewayURL: "http://127.0.0.1:1", LocalToken: "private-token", ControlSocket: socket})
 			if err != nil {

@@ -1,3 +1,5 @@
+import { counters, nullableTimestamp, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
+
 export interface AuthStatus {
   state: string
   expires_at?: string
@@ -26,8 +28,6 @@ export interface SystemStatus {
   auth: AuthStatus
 }
 
-const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v)
-const timestamp = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v))
 const componentIDs = ["dashboard", "gateway", "tunnel", "relay", "opencode", "desktop"]
 export type RemoteCapability = "relay.ensure" | "relay.restart" | "host.wake" | "host.stop"
 const remoteCapabilities = ["relay.ensure", "relay.restart", "host.wake", "host.stop"]
@@ -42,15 +42,15 @@ export function remoteActionTarget(system: SystemStatus): "remote" | "codespace"
 }
 
 export function isSystemStatus(v: unknown): v is SystemStatus {
-  if (!object(v) || ![1, 2].includes(Number(v.version)) || typeof v.version !== "number" || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token)) return false
-  if (typeof v.internet_state !== "string" || v.internet_checked_at !== null && !timestamp(v.internet_checked_at)) return false
-  if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || v.auth.expires_at !== undefined && !timestamp(v.auth.expires_at) || v.auth.checked_at !== undefined && !timestamp(v.auth.checked_at)) return false
+  if (!object(v) || (v.version !== 1 && v.version !== 2) || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token) || !optionalString(v.error)) return false
+  if (typeof v.internet_state !== "string" || !nullableTimestamp(v.internet_checked_at)) return false
+  if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || !optionalTimestamp(v.auth.expires_at) || !optionalTimestamp(v.auth.checked_at)) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
-  if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || typeof v.recovery.attempts !== "number" || !Number.isFinite(v.recovery.attempts) || v.recovery.attempts < 0 || v.recovery.next_retry_at !== null && !timestamp(v.recovery.next_retry_at) || v.recovery.last_connected_at !== null && !timestamp(v.recovery.last_connected_at)) return false
+  if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || !counters(v.recovery, ["attempts"]) || !nullableTimestamp(v.recovery.next_retry_at) || !nullableTimestamp(v.recovery.last_connected_at)) return false
   const remote = v.remote
   if (!object(remote) || typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(remote.id) || typeof remote.label !== "string" || !remote.label.length || [...remote.label].length > 80 || /[\x00-\x1f\x7f-\x9f]/.test(remote.label)) return false
   if (typeof remote.host_state !== "string" || !["running", "stopped", "starting", "stopping", "unknown"].includes(remote.host_state) || !Array.isArray(remote.capabilities) || remote.capabilities.length > 4 || new Set(remote.capabilities).size !== remote.capabilities.length || !remote.capabilities.every((c) => typeof c === "string" && remoteCapabilities.includes(c))) return false
-  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && componentIDs.includes(String(c.id)) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
+  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && typeof c.id === "string" && componentIDs.includes(c.id) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
 }
 
 export type ConnectionState = "connected" | "remote_stopped" | "no_internet" | "vps_unreachable" | "unknown"

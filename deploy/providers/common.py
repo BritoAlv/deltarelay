@@ -26,7 +26,8 @@ def main(factory):
             request_id = request['id']
         if type(request['protocol_version']) is not int or request['protocol_version'] != VERSION:
             raise ProviderError('provider_version_mismatch')
-        if not request_id or not isinstance(request['config_file'], str) or not Path(request['config_file']).is_absolute():
+        if (not request_id or not isinstance(request['config_file'], str) or '\0' in request['config_file'] or
+                not Path(request['config_file']).is_absolute()):
             raise ProviderError('invalid_request')
         method, params = request['method'], request['params']
         validate_params(method, params)

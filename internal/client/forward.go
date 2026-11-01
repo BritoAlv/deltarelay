@@ -37,7 +37,7 @@ func (e *RequestError) Error() string {
 // Body and keep ctx alive. Successful streaming does NOT acknowledge durable
 // local storage: responses remain on the VPS until explicit ACK or expiry.
 func (c *Client) Forward(ctx context.Context, request Request, body io.Reader) (*http.Response, Stats, error) {
-	if !upstream.ValidRequestID(request.ID) || request.Method != http.MethodPost {
+	if !protocol.ValidRequestID(request.ID) || request.Method != http.MethodPost {
 		return nil, Stats{}, errors.New("invalid forwarding request ID or method")
 	}
 	if err := upstream.ValidateHeaders(request.Headers); err != nil {
@@ -115,7 +115,7 @@ func (c *Client) Status(ctx context.Context, id string) (protocol.RequestStatus,
 }
 func (c *Client) status(ctx context.Context, id string, wait bool) (protocol.RequestStatus, error) {
 	var record protocol.RequestStatus
-	if !upstream.ValidRequestID(id) {
+	if !protocol.ValidRequestID(id) {
 		return record, errors.New("invalid request ID")
 	}
 	if err := c.ensureState(ctx); err != nil {
@@ -275,7 +275,7 @@ func (b *resumableBody) Close() error {
 }
 
 func (c *Client) Ack(ctx context.Context, id string, receipt protocol.Receipt) error {
-	if !upstream.ValidRequestID(id) || !protocol.ValidHash(receipt.Hash) || receipt.Size < 0 {
+	if !protocol.ValidRequestID(id) || !protocol.ValidHash(receipt.Hash) || receipt.Size < 0 {
 		return errors.New("invalid request ID or receipt")
 	}
 	if err := c.ensureState(ctx); err != nil {

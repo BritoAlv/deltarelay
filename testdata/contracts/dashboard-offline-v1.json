@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "collected_at": "2026-11-01T12:00:00Z",
+  "gateway": {"started_at": "2026-11-01T11:00:00Z", "active": 0, "concurrency": 8, "pending_cancellations": 0},
+  "relay": {"reachable": false, "latency_ms": 0, "health": {"version": 0, "state_id": "", "forwarding": false, "cache_bytes": 0, "max_cache_bytes": 0, "response_storage_bytes": 0, "max_response_storage_bytes": 0, "pending_cancellations": 0}},
+  "providers": [{"name": "example", "active": 0, "last_status": 0}],
+  "history": {
+    "version": 1, "since": "2026-11-01T11:00:00Z",
+    "totals": {"requests": 0, "active": 0, "failed": 0, "body_bytes": 0, "uploaded_chunk_bytes": 0, "encoded_upload_bytes": 0, "reused_body_bytes": 0, "response_bytes": 0, "duration_ms": 0},
+    "sessions": [], "recent_requests": [], "session_limit": 256, "request_limit": 1000, "evicted_sessions": 0, "dropped_requests": 0, "persistent": false, "persistence_error": false
+  }
+}

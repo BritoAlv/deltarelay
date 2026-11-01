@@ -1,0 +1,4 @@
+{
+  "protocol_version": 1, "id": "contract-provider-0001",
+  "result": {"id": "example", "label": "Example host", "capabilities": ["relay.ensure", "relay.restart", "host.wake", "host.stop"]}
+}

@@ -122,13 +122,9 @@ func (h *Handler) system(w http.ResponseWriter, r *http.Request) {
 		response, err := h.control.Do(request)
 		if err == nil {
 			defer response.Body.Close()
-			var state SystemStatus
-			if response.StatusCode == 200 && json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&state) == nil && (state.Version == 1 || state.Version == 2) && state.Managed && len(state.Components) <= 6 {
-				if state.Version == 1 {
-					state.Remote = legacyRemote(state.CodespaceState)
-				}
-				state.CodespaceState = ""
-				if validRemote(state.Remote) {
+			data, readErr := io.ReadAll(io.LimitReader(response.Body, 65537))
+			if response.StatusCode == 200 && readErr == nil && len(data) <= 65536 {
+				if state, ok := decodeSupervisorStatus(data); ok {
 					result = state
 				}
 			}

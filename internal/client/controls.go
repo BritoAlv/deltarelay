@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"deltarelay/internal/protocol"
-	"deltarelay/internal/upstream"
 )
 
 type pendingCancel struct {
@@ -135,7 +134,7 @@ func (c *Client) openControls() error {
 			return err
 		}
 		var op pendingCancel
-		if json.Unmarshal(data, &op) != nil || !upstream.ValidRequestID(op.ID) || !protocol.ValidHash(op.StateID) || protocol.Sum([]byte(op.ID))+".cancel.json" != f.Name() {
+		if json.Unmarshal(data, &op) != nil || !protocol.ValidRequestID(op.ID) || !protocol.ValidHash(op.StateID) || protocol.Sum([]byte(op.ID))+".cancel.json" != f.Name() {
 			cancel()
 			return errors.New("invalid pending cancellation checkpoint")
 		}
@@ -180,7 +179,7 @@ func (c *Client) savePin(id string) error {
 // QueueCancel durably records an explicit cancellation before attempting it.
 // A network disconnect alone must never call this method.
 func (c *Client) QueueCancel(id string) error {
-	if !upstream.ValidRequestID(id) {
+	if !protocol.ValidRequestID(id) {
 		return errors.New("invalid request ID")
 	}
 	c.stateMu.Lock()
@@ -236,7 +235,7 @@ func (c *Client) controlLoop() {
 					}
 					data, err := privateRead(filepath.Join(c.config.ControlDir, f.Name()), 4096)
 					var op pendingCancel
-					if err != nil || json.Unmarshal(data, &op) != nil || !upstream.ValidRequestID(op.ID) || !protocol.ValidHash(op.StateID) || protocol.Sum([]byte(op.ID))+".cancel.json" != f.Name() {
+					if err != nil || json.Unmarshal(data, &op) != nil || !protocol.ValidRequestID(op.ID) || !protocol.ValidHash(op.StateID) || protocol.Sum([]byte(op.ID))+".cancel.json" != f.Name() {
 						if !errors.Is(err, os.ErrNotExist) {
 							ctl.lastError = "invalid_cancellation_checkpoint"
 						}

@@ -23,6 +23,7 @@ import (
 
 	"deltarelay/internal/chunker"
 	"deltarelay/internal/protocol"
+	"deltarelay/internal/transfer"
 )
 
 type Config struct {
@@ -62,19 +63,8 @@ type Client struct {
 var ErrUploadBudget = errors.New("upload budget exceeded")
 var ErrBodyLimit = errors.New("input exceeds configured body or chunk-count limit")
 
-type Stats struct {
-	Hash                 string `json:"hash"`
-	BodyBytes            int64  `json:"body_bytes"`
-	Chunks               int    `json:"chunks"`
-	UniqueChunks         int    `json:"unique_chunks"`
-	UploadedChunks       int    `json:"uploaded_chunks"`
-	UploadedChunkBytes   int64  `json:"uploaded_chunk_bytes"`
-	MissingChunkBytes    int64  `json:"missing_chunk_bytes"`
-	ReusedBodyBytes      int64  `json:"reused_body_bytes"`
-	RequestBodyBytesSent int64  `json:"request_body_bytes_sent"`
-	Requests             int64  `json:"requests"`
-	DurationMillis       int64  `json:"duration_ms"`
-}
+// Stats is a compatibility alias while callers migrate to the semantic owner.
+type Stats = transfer.Stats
 
 type HTTPError struct {
 	Status     int

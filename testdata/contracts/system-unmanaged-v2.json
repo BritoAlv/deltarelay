@@ -1,0 +1,8 @@
+{
+  "version": 2, "managed": false, "collected_at": "2026-11-01T12:00:00Z", "csrf_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "error": "controls_not_configured",
+  "settings": {"auto_reconnect": false, "auto_wake": false},
+  "recovery": {"busy": false, "phase": "", "attempts": 0, "last_error": "", "last_connected_at": null, "next_retry_at": null},
+  "relay_state": "", "internet_state": "", "internet_checked_at": null,
+  "remote": {"id": "configured", "label": "Remote host", "host_state": "unknown", "capabilities": []},
+  "components": [], "auth": {"state": "not_configured", "stale": false}
+}

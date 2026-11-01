@@ -1,4 +1,4 @@
-.PHONY: build test race vet benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test
+.PHONY: build test race vet benchmark baseline-benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test
 
 build:
 	go build -trimpath -o bin/deltarelay ./cmd/deltarelay
@@ -14,6 +14,9 @@ vet:
 
 benchmark:
 	go test ./internal/chunker -run '^$$' -bench BenchmarkSplit -benchmem
+
+baseline-benchmark:
+	go test ./internal/server -run '^$$' -bench '^BenchmarkGatewayRequestStartup$$' -benchtime=50x -count=3 -cpu=2 -benchmem
 
 plugin-test:
 	node --test integration/opencode/*.test.mjs

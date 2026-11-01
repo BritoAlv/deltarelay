@@ -16,7 +16,6 @@ import (
 	"syscall"
 
 	"deltarelay/internal/protocol"
-	"deltarelay/internal/upstream"
 )
 
 type downloadCheckpoint struct{ Kind, Key, Output, StateID string }
@@ -174,7 +173,7 @@ func (c *Client) Fetch(ctx context.Context, hash, output string) error {
 // verified durable file. Retrieval interruption never cancels generation.
 // With acknowledge=true, ACK occurs only after local fsync and publication.
 func (c *Client) FetchResponse(ctx context.Context, id, output string, acknowledge bool) (protocol.Receipt, error) {
-	if !upstream.ValidRequestID(id) { return protocol.Receipt{},errors.New("invalid request ID") }
+	if !protocol.ValidRequestID(id) { return protocol.Receipt{},errors.New("invalid request ID") }
 	d, err := c.openDownload(ctx, "response", id, output)
 	if err != nil {
 		return protocol.Receipt{}, err

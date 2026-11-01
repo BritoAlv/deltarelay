@@ -1,0 +1,16 @@
+[
+  {
+    "name": "cleaned-headers-and-escaped-target",
+    "body": "contract body\n",
+    "target": "https://api.example.test/v1/responses?mode=a&text=<value>",
+    "headers": {"authorization":["Bearer synthetic-contract-token"],"content-type":["application/json"],"content-encoding":["identity"],"Connection":["X-Remove, Keep-Alive"],"X-Remove":["discarded"],"Keep-Alive":["timeout=5"],"Proxy-Authorization":["synthetic-discarded"],"Host":["discarded.example.test"],"Content-Length":["999"],"X-DeltaRelay-Local-Token":["synthetic-discarded"],"x-list":["first","second"],"X-Empty":[]},
+    "representation": "{\"Target\":\"https://api.example.test/v1/responses?mode=a\\u0026text=\\u003cvalue\\u003e\",\"Headers\":{\"Authorization\":[\"Bearer synthetic-contract-token\"],\"Content-Type\":[\"application/json\"],\"X-Empty\":null,\"X-List\":[\"first\",\"second\"]},\"Hash\":\"9ead163876ab5b53b74f1a096e52d8dc27f58b9f38050770ab0a88ebe6720c32\",\"Size\":14}",
+    "digest": "2f3dc24a0fd13559815205ea80eda586ce239e39a57b87ff0f0b10adeefaab0d"
+  },
+  {
+    "name": "empty-body-and-headers",
+    "body": "", "target": "https://api.example.test/v1/responses", "headers": null,
+    "representation": "{\"Target\":\"https://api.example.test/v1/responses\",\"Headers\":{},\"Hash\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\",\"Size\":0}",
+    "digest": "7a3b60ced6a6e4fe1c97ad1bed34117fbe165fea6aca2f423d0a4ea877cd9315"
+  }
+]

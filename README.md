@@ -37,6 +37,8 @@ your own VPS, and generate the OpenCode plugin entry for this checkout.
 - [Relay protocol and recovery contract](docs/PROTOCOL_V2.md)
 - [Remote-host plugins: contract, SSH/HTTPS/Codespaces providers, and examples](docs/REMOTE_PROVIDERS.md)
 - [Sanitized implementation and testing history](docs/SESSION_LOG.md)
+- [Refactor Phase 0: compatibility, regression, and performance baseline](docs/REFACTOR_BASELINE.md)
+- [Refactor Phase 1: shared contracts and semantic ownership](docs/REFACTOR_PHASE1.md)
 - [Optional recovery for an existing private Codespace profile](docs/CODESPACE_RECOVERY.md)
 
 Private configuration, tokens, logs, conversation exports, and relay state are

@@ -1,0 +1,4 @@
+{
+  "protocol_version": 1, "id": "contract-provider-0001",
+  "result": {"relay_url": "http://127.0.0.1:8787", "tunnel": {"command": ["/usr/bin/ssh", "-N", "synthetic-host"], "port": 8787}}
+}
