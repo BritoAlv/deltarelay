@@ -1,0 +1,14 @@
+---
+import Icon from "./Icon.astro"
+import { defaultTheme, themes } from "../lib/themes"
+---
+<div class="theme-picker">
+  <label for="dashboard-theme"><Icon name="palette" size={16} />Theme</label>
+  <select id="dashboard-theme" aria-describedby="theme-status" disabled>
+    {(["dark", "light"] as const).map((mode) => <optgroup label={mode === "dark" ? "Dark themes" : "Light themes"}>
+      {themes.filter((theme) => theme.mode === mode).map((theme) => <option value={theme.id} selected={theme.id === defaultTheme.id}>{theme.name}</option>)}
+    </optgroup>)}
+  </select>
+  <span id="theme-status" class="sr-only" role="status">Theme preference is saved on this browser only.</span>
+</div>
+<script src="../scripts/theme.ts"></script>

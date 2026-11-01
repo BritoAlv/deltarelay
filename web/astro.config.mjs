@@ -6,6 +6,9 @@ export default defineConfig({
   output: "static",
   devToolbar: { enabled: false },
   vite: {
+    // The Go dashboard allows only same-origin external scripts. Astro would
+    // otherwise inline small bundles (including the theme picker) by default.
+    build: { assetsInlineLimit: 0 },
     server: {
       proxy: {
         "/api/dashboard": "http://127.0.0.1:8790",

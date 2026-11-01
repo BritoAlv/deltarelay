@@ -34,6 +34,27 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
 - Session search, state filters, pagination, CSV export, manual refresh, and
   pause/resume. Automatic refresh is every ten seconds while the tab is visible.
   A failed refresh keeps the last live snapshot and explicitly marks it stale.
+- A **Theme** picker above Overview offers Graphite + Blue (the default),
+  Porcelain + Teal, Midnight + Violet, Sand + Terracotta, and the original
+  Forest + Green. Light and dark palettes cover the whole dashboard, including
+  charts, health states, and the session inspector.
+
+## Themes and personal preferences
+
+Theme changes apply immediately without a reload or service operation. The
+selected theme ID is the only appearance data saved, under
+`deltarelay.dashboard.theme` in this browser's local storage. Other dashboard tabs
+on the same origin stay in sync; other browsers/users keep their own choice.
+No credentials, conversation data, or theme preferences are sent to the gateway.
+If storage is blocked, switching still works for the current page. Unknown or
+removed theme IDs fall back to Graphite + Blue. A same-origin external startup
+script restores saved colors before first paint without weakening the script CSP.
+
+To add a palette, add one entry to **`web/src/lib/themes.ts`**, with a unique ID,
+name, light/dark mode, and all semantic color tokens. The picker, generated
+`themes.css`, and preference validation use that single registry; no component
+or chart changes are needed. Use the existing tokens in component styles rather
+than hardcoded colors. `pnpm test` checks palette completeness and text contrast.
 
 ## Build entirely offline
 
