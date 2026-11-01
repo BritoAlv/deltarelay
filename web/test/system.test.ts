@@ -1,10 +1,11 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../src/lib/system.js"
+import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, remoteActionTarget, sendControl, supportsRemote, type SystemStatus } from "../src/lib/system.js"
 
 const status: SystemStatus = {
-  version: 1, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
-  settings: { auto_reconnect: true, auto_wake: false }, relay_state: "unreachable", internet_state: "connected", internet_checked_at: null, codespace_state: "Shutdown",
+  version: 2, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
+  settings: { auto_reconnect: true, auto_wake: false }, relay_state: "unreachable", internet_state: "connected", internet_checked_at: null,
+  remote: { id: "example", label: "Example host", host_state: "stopped", capabilities: ["host.wake", "host.stop"] },
   recovery: { busy: false, attempts: 0, phase: "monitoring", last_error: "", next_retry_at: null, last_connected_at: null },
   components: [{ id: "gateway", label: "Gateway", state: "stopped", can_start: true, can_restart: true }],
   auth: { state: "valid", stale: false, expires_at: "2026-10-28T13:00:00Z" },
@@ -23,7 +24,7 @@ test("countdown is absolute, clamps expired tokens, and handles long lifetimes",
 test("control snapshots validate schemas, components, timestamps, and ephemeral nonces", () => {
   assert.equal(isSystemStatus(status), true)
   assert.equal(isSystemStatus({ ...status, managed: false, components: [] }), true)
-  for (const change of [{ version: 2 }, { csrf_token: "" }, { internet_state: 1 }, { internet_checked_at: "bad" }, { auth: { state: "valid", stale: false, expires_at: "bad" } }, { settings: { auto_reconnect: "true", auto_wake: false } }, { components: [{ ...status.components[0], id: "arbitrary-command" }] }, { recovery: { ...status.recovery, attempts: NaN } }]) {
+  for (const change of [{ version: 3 }, { csrf_token: "" }, { internet_state: 1 }, { internet_checked_at: "bad" }, { auth: { state: "valid", stale: false, expires_at: "bad" } }, { settings: { auto_reconnect: "true", auto_wake: false } }, { components: [{ ...status.components[0], id: "arbitrary-command" }] }, { recovery: { ...status.recovery, attempts: NaN } }]) {
     assert.equal(isSystemStatus({ ...status, ...change }), false)
   }
 })
@@ -50,28 +51,28 @@ test("recovery status shows the actual failure instead of masking it as VPS unre
   assert.doesNotMatch(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "untrusted diagnostic" } }), /untrusted diagnostic/)
 })
 
-test("intentional Codespace shutdown is shown as stopped, not a VPS fault", () => {
+test("intentional remote shutdown is shown as stopped, not a VPS fault", () => {
   const stopped = { ...status, settings: { auto_reconnect: false, auto_wake: false } }
-  assert.equal(connectionState(stopped), "codespace_stopped")
+  assert.equal(connectionState(stopped), "remote_stopped")
   assert.equal(connectionState({ ...stopped, relay_state: "connected" }), "connected")
   assert.equal(connectionState({ ...stopped, relay_state: "identity_mismatch" }), "unknown")
-  assert.match(recoveryStatus(stopped), /Codespace is stopped.*reconnect and wake are off/)
+  assert.match(recoveryStatus(stopped), /remote host is stopped.*reconnect and wake are off/)
   assert.match(recoveryStatus({ ...stopped, relay_state: "connected" }), /Authenticated relay is reachable/)
-  assert.match(recoveryStatus({ ...stopped, internet_state: "unreachable" }), /Codespace is stopped/)
-  assert.match(recoveryStatus({ ...stopped, recovery: { ...stopped.recovery, busy: true, phase: "stop_codespace" } }), /In progress: stop codespace/)
-  assert.match(recoveryStatus({ ...status, codespace_state: "ShuttingDown", recovery: { ...status.recovery, last_error: "codespace_stop_timeout" } }), /shutdown was not confirmed.*reconnect and wake remain off/)
+  assert.match(recoveryStatus({ ...stopped, internet_state: "unreachable" }), /remote host is stopped/)
+  assert.match(recoveryStatus({ ...stopped, recovery: { ...stopped.recovery, busy: true, phase: "stop_remote" } }), /In progress: stop remote/)
+  assert.match(recoveryStatus({ ...status, remote: { ...status.remote, host_state: "stopping" }, recovery: { ...status.recovery, last_error: "host_stop_timeout" } }), /shutdown was not confirmed.*reconnect and wake remain off/)
 })
 
-test("Codespace stop sends an explicitly confirmed action through the protected control API", async (t) => {
+test("remote stop sends an explicitly confirmed action through the protected control API", async (t) => {
   const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
     assert.equal(input, "/api/system/action")
     assert.equal(options?.method, "POST")
     assert.equal(options?.credentials, "same-origin")
     assert.deepEqual(options?.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
-    assert.deepEqual(JSON.parse(String(options?.body)), { component: "codespace", action: "stop", confirmed: true })
+    assert.deepEqual(JSON.parse(String(options?.body)), { component: "remote", action: "stop", confirmed: true })
     return Response.json({ accepted: true }, { status: 202 })
   })
-  await sendControl("action", { component: "codespace", action: "stop", confirmed: true }, status.csrf_token)
+  await sendControl("action", { component: "remote", action: "stop", confirmed: true }, status.csrf_token)
   assert.equal(mock.mock.callCount(), 1)
 })
 
@@ -123,10 +124,25 @@ test("control API uses same-origin POST with nonce, never credentials in URLs", 
     assert.deepEqual(JSON.parse(String(options?.body)), { component: "tunnel", action: "start" })
     return Response.json({ accepted: true }, { status: 202 })
   })
-  assert.equal((await fetchSystem(new AbortController().signal)).codespace_state, "Shutdown")
+  assert.equal((await fetchSystem(new AbortController().signal)).remote.host_state, "stopped")
   await sendControl("action", { component: "tunnel", action: "start" }, status.csrf_token)
   mock.mock.mockImplementation(async () => Response.json({ error: "codespace_stopped" }, { status: 409 }))
   await assert.rejects(sendControl("action", {}, status.csrf_token), /Wake Codespace/)
   mock.mock.mockImplementation(async () => Response.json({ version: 999 }))
   await assert.rejects(fetchSystem(new AbortController().signal), /incompatible/)
+})
+
+test("remote capabilities are vendor-independent and old supervisor action targets remain usable", () => {
+  assert.equal(supportsRemote(status, "host.wake"), true)
+  assert.equal(supportsRemote(status, "relay.restart"), false)
+  assert.equal(supportsRemote(null, "host.stop"), false)
+  assert.equal(supportsRemote({ ...status, remote: { ...status.remote, capabilities: [] } }, "host.wake"), false)
+  assert.equal(remoteActionTarget(status), "remote")
+  assert.equal(remoteActionTarget({ ...status, version: 1 }), "codespace")
+  for (const remote of [null, { ...status.remote, id: "bad id" }, { ...status.remote, host_state: "Available" },
+    { ...status.remote, label: "secret\nline" }, { ...status.remote, capabilities: ["execute"] },
+    { ...status.remote, capabilities: ["host.wake", "host.wake"] }]) {
+    assert.equal(isSystemStatus({ ...status, remote }), false)
+  }
+  assert.match(recoveryStatus({ ...status, settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, capabilities: [] } }), /hosting provider/)
 })

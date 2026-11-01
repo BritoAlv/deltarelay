@@ -1,4 +1,4 @@
-import { connectionState, controlError, countdown, desktopLaunchState, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../lib/system.js"
+import { connectionState, controlError, countdown, desktopLaunchState, fetchSystem, recoveryStatus, remoteActionTarget, sendControl, supportsRemote, type SystemStatus } from "../lib/system.js"
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const text = (id: string, value: string) => { element(id).textContent = value }
@@ -40,21 +40,26 @@ function render() {
   }
   const desktopDetail = !desktop.disabled && desktopError ? desktopError : desktop.detail
   text("desktop-status", desktopRequested && !stale ? "Opening OpenCode Desktop…" : desktopDetail)
-  const configuredCodespace = Boolean(system && system.codespace_state !== "not_configured")
   for (const id of ["recover-all", "restart-all", "auto-reconnect"]) element<HTMLButtonElement>(id).disabled = disabled
-  for (const id of ["auto-wake", "wake-codespace"]) element<HTMLButtonElement>(id).disabled = disabled || !configuredCodespace
-  element<HTMLButtonElement>("stop-codespace").disabled = disabled || !configuredCodespace || system?.codespace_state === "Shutdown" && system.relay_state !== "connected"
+  const canWake = supportsRemote(system, "host.wake"), canStop = supportsRemote(system, "host.stop")
+  element("auto-wake-setting").hidden = !canWake
+  element("remote-power-notice").hidden = !canWake && !canStop
+  element<HTMLButtonElement>("auto-wake").disabled = disabled || !canWake
+  element<HTMLButtonElement>("wake-remote").hidden = !canWake
+  element<HTMLButtonElement>("wake-remote").disabled = disabled || !canWake
+  element<HTMLButtonElement>("stop-remote").hidden = !canStop
+  element<HTMLButtonElement>("stop-remote").disabled = disabled || !canStop || system?.remote.host_state === "stopped" && system.relay_state !== "connected"
   if (system) {
     const connection = connectionState(system)
     element<HTMLInputElement>("auto-reconnect").checked = system.settings.auto_reconnect
     element<HTMLInputElement>("auto-wake").checked = system.settings.auto_wake
-    badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "codespace_stopped" ? "Stopped" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
+    badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "remote_stopped" ? "Stopped" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
     const internetDetail = system.internet_checked_at ? ` · checked ${new Date(system.internet_checked_at).toLocaleTimeString()}` : ""
     text("recovery-status", recoveryStatus(system))
-    text("network-detail", connection === "codespace_stopped" ? "Codespace shutdown confirmed. Automatic reconnect and wake are off." : connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
+    text("network-detail", connection === "remote_stopped" ? "Remote shutdown confirmed. Automatic reconnect and wake are off." : connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
     text("recovery-detail", `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
     document.dispatchEvent(new CustomEvent("deltarelay:system", { detail: { connection } }))
-    text("codespace-state", configuredCodespace ? `Codespace: ${system.codespace_state}` : "Regular VPS / no Codespace configured")
+    text("remote-state", `${system.remote.label}: ${system.remote.host_state}${!canWake && !canStop ? " · power management unavailable" : ""}`)
     const container = element("service-controls")
     container.replaceChildren()
     for (const service of system.components) {
@@ -105,8 +110,8 @@ async function actionRequest(component: string, action: string) {
   const openingDesktop = component === "desktop" && action === "start"
   if (openingDesktop && desktopLaunchState(system, stale, pending).disabled) return
   if (action === "restart" && !window.confirm(`Restart ${component === "all" ? "all configured services" : component}? Active requests may be interrupted; provider work may already be billed. Cache, tokens, sessions, and saved responses will NOT be erased.`)) return
-  if (action === "wake" && !window.confirm("Wake the existing Codespace? GitHub compute usage/billing will resume.")) return
-  if (action === "stop" && !window.confirm("Stop the Codespace? Active requests will be interrupted; provider work may already be billed. Automatic reconnect and wake will be disabled until you re-enable them. Saved files, tokens, cached chunks, and saved responses will NOT be erased.")) return
+  if (action === "wake" && (!supportsRemote(system, "host.wake") || !window.confirm("Wake the existing remote host? Compute usage/billing may resume."))) return
+  if (action === "stop" && (!supportsRemote(system, "host.stop") || !window.confirm("Stop the remote host? Active requests will be interrupted; provider work may already be billed. Automatic reconnect and wake will be disabled until you re-enable them. Saved files, tokens, cached chunks, and saved responses will NOT be erased."))) return
   pending = true
   if (openingDesktop) {
     desktopRequested = true
@@ -115,7 +120,7 @@ async function actionRequest(component: string, action: string) {
   lastMessage = "Submitting service operation…"
   render()
   try {
-    await sendControl("action", { component, action, confirmed: action === "restart" || action === "stop" }, system.csrf_token)
+    await sendControl("action", { component: component === "remote" ? remoteActionTarget(system) : component, action, confirmed: ["restart", "stop", "wake"].includes(action) }, system.csrf_token)
     lastMessage = action === "stop" ? "Stop requested. Shutdown progress and recovery settings are shown above." : "Operation accepted. Progress is shown above; no model generation was submitted."
   } catch (error) {
     lastMessage = error instanceof Error ? error.message : "The action could not be confirmed. Refresh status before trying again."
@@ -131,8 +136,8 @@ async function actionRequest(component: string, action: string) {
 
 async function settings() {
   if (!system || stale || pending) return
-  const autoWake = element<HTMLInputElement>("auto-wake").checked
-  if (autoWake && !system.settings.auto_wake && !window.confirm("Allow automatic wake of a stopped Codespace? GitHub compute usage/billing will resume whenever recovery wakes it, even with this tab closed.")) { render(); return }
+  const autoWake = supportsRemote(system, "host.wake") && element<HTMLInputElement>("auto-wake").checked
+  if (autoWake && !system.settings.auto_wake && !window.confirm("Allow automatic wake of a stopped remote host? Compute usage/billing may resume whenever recovery wakes it, even with this tab closed.")) { render(); return }
   const next = { auto_reconnect: element<HTMLInputElement>("auto-reconnect").checked, auto_wake: autoWake }
   pending = true
   render()
@@ -150,8 +155,8 @@ async function settings() {
 element("recover-all").addEventListener("click", () => void actionRequest("all", "recover"))
 element("open-desktop").addEventListener("click", () => void actionRequest("desktop", "start"))
 element("restart-all").addEventListener("click", () => void actionRequest("all", "restart"))
-element("wake-codespace").addEventListener("click", () => void actionRequest("codespace", "wake"))
-element("stop-codespace").addEventListener("click", () => void actionRequest("codespace", "stop"))
+element("wake-remote").addEventListener("click", () => void actionRequest("remote", "wake"))
+element("stop-remote").addEventListener("click", () => void actionRequest("remote", "stop"))
 element("auto-reconnect").addEventListener("change", () => void settings())
 element("auto-wake").addEventListener("change", () => void settings())
 document.addEventListener("visibilitychange", () => { if (!document.hidden) void refresh() })

@@ -1,0 +1,8 @@
+{
+  "host": "YOUR_USER@YOUR_VPS",
+  "relay_url": "http://127.0.0.1:8787",
+  "remote_port": 8787,
+  "relay_state_file": "/home/YOU/.local/share/deltarelay/data/mailbox/identity.json",
+  "start_command": ["systemctl", "--user", "start", "deltarelay-server.service"],
+  "restart_command": ["systemctl", "--user", "restart", "deltarelay-server.service"]
+}

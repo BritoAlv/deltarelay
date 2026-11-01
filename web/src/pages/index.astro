@@ -65,10 +65,10 @@ import "../styles/dashboard.css"
               <p id="recovery-detail" class="control-detail"></p>
               <div class="control-settings">
                 <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic reconnect</label>
-                <label><input id="auto-wake" type="checkbox" disabled /> Automatic Codespace wake</label>
+                <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" disabled /> Automatic remote-host wake</label>
               </div>
-              <div class="control-wake"><span id="codespace-state">Codespace state unknown</span><div class="codespace-actions"><button id="wake-codespace" class="button" type="button" disabled>Wake Codespace</button><button id="stop-codespace" class="button button-danger" type="button" disabled>Stop Codespace…</button></div></div>
-              <p class="control-detail">Waking a Codespace resumes GitHub compute usage/billing. Manual wake works with auto-wake on or off.</p>
+              <div class="control-wake"><span id="remote-state">Remote host state unknown</span><div class="remote-actions"><button id="wake-remote" class="button" type="button" disabled hidden>Wake remote host</button><button id="stop-remote" class="button button-danger" type="button" disabled hidden>Stop remote host…</button></div></div>
+              <p id="remote-power-notice" class="control-detail" hidden>Power controls depend on provider capabilities. Waking a remote host may resume compute billing; manual wake works with auto-wake on or off.</p>
               <p class="control-detail">Stopping interrupts active requests and disables automatic reconnect and wake until you re-enable them. Saved files and relay state are preserved.</p>
             </article>
             <article class="panel control-panel">

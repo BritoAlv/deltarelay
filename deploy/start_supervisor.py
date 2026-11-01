@@ -84,7 +84,7 @@ def control_request(path, method, endpoint, body=None):
 
 def controller_status(path):
     status, value = control_request(path, 'GET', '/status')
-    return value if status == 200 and isinstance(value, dict) and value.get('version') == 1 else None
+    return value if status == 200 and isinstance(value, dict) and value.get('version') in (1, 2) else None
 
 
 def start(project, profile=None, config_file=None, port=8790, no_dashboard=False, no_desktop=False):
@@ -134,7 +134,7 @@ def start(project, profile=None, config_file=None, port=8790, no_dashboard=False
     dashboard = config['components'].get('dashboard', {})
     if dashboard.get('port'):
         print(f'Dashboard: http://127.0.0.1:{dashboard["port"]}')
-    print('Automatic Codespace wake is controlled in the dashboard; manual Wake is always available.')
+    print('Remote-host controls depend on provider capabilities. Automatic wake is off by default.')
     return config
 
 
@@ -142,7 +142,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, required=True)
     parser.add_argument('--profile', type=Path)
-    parser.add_argument('--config', type=Path, help='private configuration for an existing SSH/HTTPS VPS or Codespace')
+    parser.add_argument('--config', type=Path, help='private configuration for an existing remote host and optional provider plugin')
     parser.add_argument('--port', type=int, default=8790)
     parser.add_argument('--no-desktop', action='store_true')
     parser.add_argument('--no-dashboard', action='store_true')

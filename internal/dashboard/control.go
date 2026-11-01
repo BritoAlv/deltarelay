@@ -8,7 +8,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type ComponentStatus struct {
@@ -17,6 +20,13 @@ type ComponentStatus struct {
 	State      string `json:"state"`
 	CanStart   bool   `json:"can_start"`
 	CanRestart bool   `json:"can_restart"`
+}
+
+type RemoteStatus struct {
+	ID           string   `json:"id"`
+	Label        string   `json:"label"`
+	HostState    string   `json:"host_state"`
+	Capabilities []string `json:"capabilities"`
 }
 
 type SystemStatus struct {
@@ -40,9 +50,61 @@ type SystemStatus struct {
 	RelayState        string            `json:"relay_state"`
 	InternetState     string            `json:"internet_state"`
 	InternetCheckedAt *string           `json:"internet_checked_at"`
-	CodespaceState    string            `json:"codespace_state"`
+	Remote            RemoteStatus      `json:"remote"`
+	CodespaceState    string            `json:"codespace_state,omitempty"` // Decode old supervisors only.
 	Components        []ComponentStatus `json:"components"`
 	Auth              AuthStatus        `json:"auth"`
+}
+
+var remoteID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
+func validRemote(remote RemoteStatus) bool {
+	if !remoteID.MatchString(remote.ID) || utf8.RuneCountInString(remote.Label) == 0 || utf8.RuneCountInString(remote.Label) > 80 || len(remote.Capabilities) > 4 || remote.Capabilities == nil {
+		return false
+	}
+	for _, r := range remote.Label {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	switch remote.HostState {
+	case "running", "stopped", "starting", "stopping", "unknown":
+	default:
+		return false
+	}
+	seen := map[string]bool{}
+	for _, capability := range remote.Capabilities {
+		switch capability {
+		case "relay.ensure", "relay.restart", "host.wake", "host.stop":
+		default:
+			return false
+		}
+		if seen[capability] {
+			return false
+		}
+		seen[capability] = true
+	}
+	return true
+}
+
+func legacyRemote(state string) RemoteStatus {
+	remote := RemoteStatus{ID: "configured", Label: "Remote host", HostState: "unknown", Capabilities: []string{}}
+	if state == "" || state == "not_configured" {
+		return remote
+	}
+	remote.ID, remote.Label = "codespaces", "GitHub Codespaces"
+	remote.Capabilities = []string{"relay.ensure", "relay.restart", "host.wake", "host.stop"}
+	switch state {
+	case "Available":
+		remote.HostState = "running"
+	case "Shutdown":
+		remote.HostState = "stopped"
+	case "ShuttingDown":
+		remote.HostState = "stopping"
+	case "Starting", "Queued", "Provisioning", "Awaiting":
+		remote.HostState = "starting"
+	}
+	return remote
 }
 
 func controlClient(socket string) *http.Client {
@@ -53,7 +115,7 @@ func controlClient(socket string) *http.Client {
 }
 
 func (h *Handler) system(w http.ResponseWriter, r *http.Request) {
-	result := SystemStatus{Version: 1, CollectedAt: time.Now().UTC().Format(time.RFC3339), Components: []ComponentStatus{}, Error: "controls_not_configured", CodespaceState: "not_configured"}
+	result := SystemStatus{Version: 2, CollectedAt: time.Now().UTC().Format(time.RFC3339), Components: []ComponentStatus{}, Error: "controls_not_configured", Remote: legacyRemote("")}
 	if h.control != nil {
 		result.Error = "supervisor_unavailable"
 		request, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://supervisor/status", nil)
@@ -61,8 +123,14 @@ func (h *Handler) system(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			defer response.Body.Close()
 			var state SystemStatus
-			if response.StatusCode == 200 && json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&state) == nil && state.Version == 1 && state.Managed && len(state.Components) <= 6 {
-				result = state
+			if response.StatusCode == 200 && json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(&state) == nil && (state.Version == 1 || state.Version == 2) && state.Managed && len(state.Components) <= 6 {
+				if state.Version == 1 {
+					state.Remote = legacyRemote(state.CodespaceState)
+				}
+				state.CodespaceState = ""
+				if validRemote(state.Remote) {
+					result = state
+				}
 			}
 		}
 	}

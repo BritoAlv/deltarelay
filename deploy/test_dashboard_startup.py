@@ -178,6 +178,26 @@ class StartupScriptTest(unittest.TestCase):
         self.assertIn('/private configuration/vps.local.json', event)
         self.assertNotIn('--profile', event)
 
+    def test_default_uses_xdg_configuration_without_a_codespace_profile(self):
+        self.environment.pop('DELTARELAY_PROFILE')
+        config_home = self.root / 'config'
+        self.environment['XDG_CONFIG_HOME'] = str(config_home)
+        config = config_home / 'deltarelay/supervisor.json'
+        config.parent.mkdir(parents=True)
+        config.write_text('{}')
+        result = self.startup('--no-desktop')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(str(config), self.events.read_text())
+        self.assertNotIn('--profile', self.events.read_text())
+
+    def test_no_default_configuration_explains_setup_without_provisioning(self):
+        self.environment.pop('DELTARELAY_PROFILE')
+        self.environment['XDG_CONFIG_HOME'] = str(self.root / 'missing-config')
+        result = self.startup('--no-desktop')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('docs/REMOTE_PROVIDERS.md', result.stderr)
+        self.assertFalse(self.events.exists())
+
     def test_unknown_argument_fails_before_starting_anything(self):
         result = self.startup('--unknown')
         self.assertNotEqual(result.returncode, 0)

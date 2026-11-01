@@ -47,7 +47,7 @@ class ProfileTest(FixtureTest):
             'recover_relay.py', '--root', '~', '--expected-state-id', IDENTITY,
         ]):
             self.assertEqual(remote.main(), 0)
-        ensure.assert_called_once_with(self.root, IDENTITY)
+        ensure.assert_called_once_with(self.root, IDENTITY, 18787)
 
     @patch.object(local, 'recover')
     def test_local_default_remote_root_does_not_assume_a_username(self, recover):

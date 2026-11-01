@@ -2,13 +2,13 @@
 """Private, single-user service supervisor. No inference, shell API, or public listener."""
 
 import argparse
+import copy
 import fcntl
 import http.server
 import json
 import os
 from pathlib import Path
 import re
-import shlex
 import signal
 import socket
 import socketserver
@@ -20,33 +20,22 @@ import tempfile
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from recover_relay import NoRedirect, private_text
+from remote_provider import (PERMANENT, ProviderError as ControlError, environment,
+                             origin, plugin_environment, private_json, run_command, validate_spec)
+from providers.legacy import load_provider, normalize_component, validate_legacy
 
 
 COMPONENTS = ('dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop')
 LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Local gateway', 'VPS connection', 'Remote relay', 'OpenCode service', 'Isolated Desktop')))
-DEFAULT_INTERNET_CHECK_URL = 'https://api.github.com/'
+DEFAULT_INTERNET_CHECK_URL = 'https://example.com/'
 INTERNET_CHECK_INTERVAL = 15
-
-
-class ControlError(Exception):
-    """Only fixed, nonsecret error codes may cross the control API."""
 
 
 def stamp():
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-
-
-def private_json(path, limit=262144):
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd) as file:
-        info = os.fstat(file.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_size > limit:
-            raise ControlError('unsafe_private_file')
-        return json.load(file)
 
 
 def save_json(path, value):
@@ -85,63 +74,15 @@ def matches(info, expected):
 
 
 def loopback_origin(value, https=False):
-    u = urllib.parse.urlsplit(value)
-    if u.username or u.password or u.query or u.fragment or u.path not in ('', '/') or not u.netloc:
-        return False
-    if https and u.scheme == 'https':
-        return True
-    return u.scheme == 'http' and u.hostname in ('localhost', '127.0.0.1', '::1')
+    return origin(value) and (https or value.startswith('http://'))
 
 
 def internet_check_origin(value):
-    u = urllib.parse.urlsplit(value)
-    if u.username or u.password or u.query or u.fragment or u.path not in ('', '/') or not u.netloc:
-        return False
-    return u.scheme == 'https' or loopback_origin(value)
-
-
-def environment(overrides=None, allow_gh=False):
-    # Do not inherit this agent's server selectors or provider credentials.
-    # `gh` commands may need an explicitly exported GitHub token; managed
-    # services never inherit it. Tokens are never placed in argv or logs.
-    keep_gh = {'GH_TOKEN', 'GITHUB_TOKEN'} if allow_gh else set()
-    result = {k: v for k, v in os.environ.items()
-              if k in keep_gh or (not k.startswith('OPENCODE_') and
-                                  not any(word in k for word in ('TOKEN', 'SECRET', 'PASSWORD', 'API_KEY')))}
-    result.update(overrides or {})
-    return result
-
-
-def run_command(command, timeout=30, env=None, input=None):
-    # All argv comes from a private, owner-controlled config, never the browser.
-    child = subprocess.Popen(command, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
-                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             start_new_session=True, env=environment(env, allow_gh=True))
-    try:
-        output, _ = child.communicate(input=input, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(child.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            child.communicate(timeout=2)
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            child.communicate()
-        raise ControlError('command_timeout') from None
-    if child.returncode:
-        raise ControlError('command_failed')
-    if len(output) > 262144:
-        raise ControlError('invalid_command_response')
-    return output
+    return origin(value)
 
 
 def validate(config):
-    if config.get('version') != 1 or not isinstance(config.get('components'), dict):
+    if not isinstance(config, dict) or config.get('version') != 1 or not isinstance(config.get('components'), dict):
         raise ControlError('invalid_configuration')
     for key in ('profile', 'relay_token_file', 'relay_state_file', 'local_token_file'):
         if not isinstance(config.get(key), str) or not Path(config[key]).is_absolute():
@@ -162,20 +103,17 @@ def validate(config):
             raise ControlError('absolute_pid_file_required')
         if 'port' in spec and (type(spec['port']) is not int or not 0 < spec['port'] < 65536):
             raise ControlError('invalid_port')
-    codespace = config.get('codespace')
-    if codespace and (not re.fullmatch(r'[a-zA-Z0-9-]+', codespace.get('name', '')) or
-                      not isinstance(codespace.get('remote_directory'), str)):
-        raise ControlError('invalid_codespace')
-    if codespace and 'github_cli' in codespace:
-        command = codespace['github_cli']
-        if not isinstance(command, str) or '\0' in command or not Path(command).is_absolute():
-            raise ControlError('invalid_codespace')
+    if 'remote' in config:
+        validate_spec(config['remote'])
+        if config.get('codespace') or any(name in config['components'] for name in ('tunnel', 'relay')):
+            raise ControlError('ambiguous_remote_configuration')
+    validate_legacy(config)
 
 
 class Supervisor:
     def __init__(self, config):
         validate(config)
-        self.config = config
+        self.config = copy.deepcopy(config)
         self.root = Path(config['profile'])
         self.directory = self.root / 'control'
         self.directory.mkdir(mode=0o700, exist_ok=True)
@@ -195,12 +133,19 @@ class Supervisor:
         self.children = {}
         self.identities = {}
         self.states = {name: 'unknown' if name in config['components'] else 'unmanaged' for name in COMPONENTS}
-        if config.get('codespace'):
-            self.states['relay'] = 'unknown'
         self.recovery = {'busy': False, 'phase': 'starting', 'attempts': 0, 'last_error': '',
                          'last_connected_at': None, 'next_retry_at': None}
         self.relay_state = 'unknown'
-        self.codespace_state = 'unknown' if config.get('codespace') else 'not_configured'
+        self.host_state = 'unknown'
+        self.provider_blocked = ''
+        self.provider_next = 0.0
+        self.provider_delay = 2
+        self.provider_error = ''
+        self.host_status_next = 0.0
+        self.provider = load_provider(self.config, lambda *args, **kwargs: run_command(*args, cancel=self.stop, **kwargs),
+                                      self.stop, self.start_component, self.restart_component)
+        if 'relay.ensure' in self.provider.metadata['capabilities']:
+            self.states['relay'] = 'unknown'
         self.internet_state = 'unknown'
         self.internet_checked_at = None
         self.internet_next = 0.0
@@ -215,18 +160,41 @@ class Supervisor:
             components = []
             for name in COMPONENTS:
                 spec = self.config['components'].get(name, {})
-                builtin = name == 'relay' and bool(self.config.get('codespace'))
                 components.append({'id': name, 'label': LABELS[name], 'state': self.states[name],
-                                   'can_start': bool(spec.get('command') or spec.get('start_command') or builtin),
-                                   'can_restart': bool(spec.get('command') or spec.get('restart_command') or builtin)})
-            return {'version': 1, 'managed': True, 'collected_at': stamp(), 'settings': dict(self.settings),
+                                   'can_start': bool(spec.get('command') or spec.get('start_command') or name == 'relay' and self.supports('relay.ensure')),
+                                   'can_restart': bool(spec.get('command') or spec.get('restart_command') or name == 'relay' and self.supports('relay.restart'))})
+            return {'version': 2, 'managed': True, 'collected_at': stamp(), 'settings': dict(self.settings),
                     'recovery': dict(self.recovery), 'relay_state': self.relay_state,
                     'internet_state': self.internet_state, 'internet_checked_at': self.internet_checked_at,
-                    'codespace_state': self.codespace_state, 'components': components}
+                    'remote': {**self.provider.metadata, 'host_state': self.host_state}, 'components': components}
+
+    def supports(self, method):
+        return method in self.provider.metadata['capabilities']
+
+    def prepare_provider(self):
+        connection = self.provider.prepare()
+        tunnel = connection.get('tunnel')
+        if tunnel and 'tunnel' not in self.config['components']:
+            env = dict(self.provider.spec.get('env', {}))
+            env.update({key: os.environ[key] for key in self.provider.spec.get('pass_env', []) if key in os.environ})
+            self.config['components']['tunnel'] = {**tunnel, 'pid_file': str(self.directory / 'provider-tunnel.pid'),
+                                                  'env': env}
+            self.states['tunnel'] = 'unknown'
+
+    def expected_identity(self):
+        try:
+            expected = private_json(Path(self.config['relay_state_file']), 4096)
+        except (OSError, ValueError, ControlError):
+            raise ControlError('identity_unavailable') from None
+        if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected):
+            raise ControlError('identity_unavailable')
+        return expected
 
     def update_settings(self, value):
         if not isinstance(value, dict) or set(value) != set(self.settings) or any(type(v) is not bool for v in value.values()):
             raise ControlError('invalid_settings')
+        if value['auto_wake'] and 'remote' in self.config and not self.supports('host.wake'):
+            raise ControlError('unsupported_operation')
         with self.lock:
             save_json(self.directory / 'settings.json', value)
             self.settings = dict(value)
@@ -259,14 +227,20 @@ class Supervisor:
         return None
 
     def start_component(self, name):
+        if self.stop.is_set():
+            raise ControlError('operation_cancelled')
         spec = self.config['components'].get(name)
         if not spec:
             raise ControlError('component_unmanaged')
+        if name == 'tunnel' and self.supports('host.wake'):
+            self.host_state = self.provider.call('status')['host_state']
+            if self.host_state in ('stopped', 'stopping'):
+                raise ControlError('host_stopped')
         if 'command' not in spec:
             command = spec.get('start_command')
             if not command:
                 raise ControlError('component_unmanaged')
-            run_command(command, env=spec.get('env'))
+            run_command(command, env=spec.get('env'), cancel=self.stop)
             self.states[name] = 'started'
             return
         if self._identity(name):
@@ -286,8 +260,9 @@ class Supervisor:
         with os.fdopen(fd, 'ab') as output:
             if os.fstat(output.fileno()).st_mode & 0o077:
                 raise ControlError('unsafe_log_file')
+            env = plugin_environment(self.config['remote']) if name == 'tunnel' and 'remote' in self.config else environment(spec.get('env'))
             child = subprocess.Popen(spec['command'], stdin=subprocess.DEVNULL, stdout=output, stderr=output,
-                                     start_new_session=True, cwd=spec.get('directory', self.root), env=environment(spec.get('env')))
+                                     start_new_session=True, cwd=spec.get('directory', self.root), env=env)
         self.children[name] = child
         info = process(child.pid)
         if info:
@@ -309,7 +284,7 @@ class Supervisor:
         if 'command' not in spec:
             if not spec.get('restart_command'):
                 raise ControlError('component_unmanaged')
-            run_command(spec['restart_command'], env=spec.get('env'))
+            run_command(spec['restart_command'], env=spec.get('env'), cancel=self.stop)
             self.states[name] = 'started'
             return
         self.stop_component(name)
@@ -395,7 +370,7 @@ class Supervisor:
             return 'unreachable'
         except TimeoutError:
             return 'unreachable'
-        except (OSError, ValueError):
+        except (OSError, ValueError, ControlError):
             return 'configuration_error'
 
     def internet_probe(self):
@@ -439,91 +414,62 @@ class Supervisor:
         self.internet_checked_at = stamp()
         self.internet_next = 0.0
 
-    def codespace_status(self):
-        codespace = self.config['codespace']
-        output = run_command([codespace.get('github_cli', 'gh'), 'api', '--method', 'GET',
-                              '/user/codespaces/' + codespace['name'], '--jq', '{state: .state}'])
-        value = json.loads(output).get('state')
-        if not isinstance(value, str):
-            raise ControlError('codespace_unavailable')
-        self.codespace_state = value
-        return value
-
-    def stop_codespace(self):
-        # Persist the pause before touching the tunnel or GitHub. A failed or
-        # interrupted stop must not let recovery immediately wake the Codespace.
-        self.update_settings({'auto_reconnect': False, 'auto_wake': False})
-        if 'command' in self.config['components'].get('tunnel', {}):
-            self.stop_component('tunnel')
-        codespace = self.config['codespace']
-        state = self.codespace_status()
-        if state not in ('Shutdown', 'ShuttingDown'):
-            run_command([codespace.get('github_cli', 'gh'), 'api', '--method', 'POST',
-                         '/user/codespaces/' + codespace['name'] + '/stop', '--silent'])
-            self.codespace_state = 'ShuttingDown'
+    def wait_for_host(self, wanted, result):
         deadline = time.monotonic() + 120
-        while self.codespace_state != 'Shutdown':
+        self.host_state = result['host_state']
+        while self.host_state != wanted:
             if self.stop.wait(3):
                 raise ControlError('operation_cancelled')
             if time.monotonic() >= deadline:
-                raise ControlError('codespace_stop_timeout')
-            self.codespace_status()
+                raise ControlError('host_stop_timeout' if wanted == 'stopped' else 'host_unavailable')
+            self.host_state = self.provider.call('status')['host_state']
+
+    def stop_host(self):
+        # Persist suppression before any tunnel/provider operation, including a
+        # failed shutdown. Neither a retry nor a supervisor restart may wake it.
+        self.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        if 'command' in self.config['components'].get('tunnel', {}):
+            self.stop_component('tunnel')
+        self.wait_for_host('stopped', self.provider.call('host.stop'))
         self.relay_state = 'unreachable'
         self.states['relay'] = 'stopped'
-        self.recovery['last_error'] = 'codespace_stopped'
+        self.recovery['last_error'] = 'host_stopped'
 
     def remote(self, wake=False, restart=False):
-        codespace = self.config.get('codespace')
-        if not codespace:
-            if 'relay' in self.config['components']:
-                if restart:
-                    self.restart_component('relay')
-                else:
-                    self.start_component('relay')
-            return
-        name = codespace['name']
-        github_cli = codespace.get('github_cli', 'gh')
-
-        state = self.codespace_status()
-        if state == 'Shutdown' and not wake:
-            raise ControlError('codespace_stopped')
-        if state == 'Shutdown':
-            self.recovery['phase'] = 'waking_codespace'
-            run_command([github_cli, 'api', '--method', 'POST', '/user/codespaces/' + name + '/start', '--silent'])
-        deadline = time.monotonic() + 120
-        while state != 'Available':
-            if state not in ('Shutdown', 'Starting', 'Queued', 'Provisioning', 'ShuttingDown', 'Awaiting'):
-                raise ControlError('codespace_unavailable')
-            if self.stop.wait(3) or time.monotonic() >= deadline:
-                raise ControlError('codespace_unavailable')
-            state = self.codespace_status()
-        self.recovery['phase'] = 'recovering_remote_relay'
-        expected = private_json(Path(self.config['relay_state_file']), 4096)
-        if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected):
-            raise ControlError('identity_unavailable')
-        arguments = ['python3', '-', '--root', codespace['remote_directory'], '--expected-state-id', expected]
-        if restart:
-            arguments.append('--restart')
-        helper = Path(__file__).with_name('recover_relay.py').read_bytes()
-        try:
-            result = run_command([github_cli, 'codespace', 'ssh', '-c', name, '--', '-o', 'BatchMode=yes',
-                                  '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=2',
-                                  shlex.join(arguments)], timeout=60, input=helper)
-        except ControlError as error:
-            if str(error) == 'command_timeout':
-                raise ControlError('codespace_ssh_timeout') from None
-            if str(error) == 'command_failed':
-                raise ControlError('codespace_recovery_failed') from None
-            raise
-        if json.loads(result).get('state_id') != expected:
-            raise ControlError('identity_mismatch')
-        self.states['relay'] = 'running'
+        if self.provider_blocked:
+            raise ControlError(self.provider_blocked)
+        self.prepare_provider()
+        state = self.probe()
+        if state not in ('connected', 'unreachable'):
+            raise ControlError(state)
+        expected = self.expected_identity()
+        if wake and self.supports('host.wake'):
+            self.recovery['phase'] = 'waking_remote_host'
+            self.wait_for_host('running', self.provider.call('host.wake'))
+        method = 'relay.restart' if restart else 'relay.ensure'
+        if self.supports(method):
+            self.recovery['phase'] = 'recovering_remote_relay'
+            try:
+                result = self.provider.call(method, {'expected_state_id': expected})
+            except ControlError as error:
+                if str(error) == 'host_stopped':
+                    self.host_state = 'stopped'
+                raise
+            if result['state_id'] != expected:
+                raise ControlError('identity_mismatch')
+            self.states['relay'] = 'starting'
+        else:
+            self.host_state = self.provider.call('status')['host_state']
+            if self.host_state == 'stopped':
+                raise ControlError('host_stopped')
 
     def observe_relay(self):
         state = self.probe()
         self.relay_state = state
         self.update_internet(state)
-        stopped = state == 'unreachable' and self.codespace_state == 'Shutdown'
+        if state in PERMANENT:
+            self.provider_blocked = state
+        stopped = state == 'unreachable' and self.host_state == 'stopped'
         self.states['relay'] = 'running' if state == 'connected' else 'stopped' if stopped else 'unknown'
         if state == 'connected':
             self.recovery.update(last_connected_at=stamp(), last_error='', next_retry_at=None)
@@ -544,6 +490,9 @@ class Supervisor:
         return False
 
     def recover(self, wake=False):
+        if self.provider_blocked:
+            raise ControlError(self.provider_blocked)
+        self.prepare_provider()
         self.recovery['phase'] = 'recovering_connection'
         state = self.observe_relay()
         # Never repair authentication, TLS, integrity, or identity errors by
@@ -551,6 +500,13 @@ class Supervisor:
         if state not in ('connected', 'unreachable'):
             raise ControlError(state)
         if state == 'unreachable':
+            # A vendor tunnel command must not accidentally resume stopped
+            # compute before the supervisor has applied the wake policy.
+            self.host_state = self.provider.call('status')['host_state']
+            if self.host_state in ('stopped', 'stopping'):
+                if not wake:
+                    raise ControlError('host_stopped')
+                self.remote(wake=True)
             # Rebuild the local link first. A VPN failure is not evidence that
             # the remote daemon needs a restart.
             connected = False
@@ -572,15 +528,19 @@ class Supervisor:
     def submit(self, value):
         if not isinstance(value, dict) or set(value) - {'component', 'action', 'confirmed'}:
             raise ControlError('invalid_action')
-        name, action = value.get('component'), value.get('action')
-        if name not in (*COMPONENTS, 'all', 'codespace') or action not in ('start', 'restart', 'recover', 'wake', 'stop'):
+        if self.stop.is_set():
+            raise ControlError('operation_cancelled')
+        name, action = normalize_component(self.config, value.get('component')), value.get('action')
+        if name not in (*COMPONENTS, 'all', 'remote') or action not in ('start', 'restart', 'recover', 'wake', 'stop'):
             raise ControlError('invalid_action')
-        if action in ('restart', 'stop') and value.get('confirmed') is not True:
+        if action in ('restart', 'stop', 'wake') and value.get('confirmed') is not True:
             raise ControlError('confirmation_required')
-        if action in ('wake', 'stop') and (name != 'codespace' or not self.config.get('codespace')):
+        if action in ('wake', 'stop') and (name != 'remote' or not self.supports('host.' + action)):
             raise ControlError('invalid_action')
-        if name == 'codespace' and action not in ('wake', 'stop') or action == 'recover' and name != 'all':
+        if name == 'remote' and action not in ('wake', 'stop') or action == 'recover' and name != 'all':
             raise ControlError('invalid_action')
+        if name == 'relay' and not self.supports('relay.restart' if action == 'restart' else 'relay.ensure'):
+            raise ControlError('unsupported_operation')
         if not self.operation.acquire(blocking=False):
             raise ControlError('operation_in_progress')
         with self.lock:
@@ -593,7 +553,7 @@ class Supervisor:
                     # dashboard connection is deliberately shut down.
                     self.stop.wait(0.5)
                 if action == 'stop':
-                    self.stop_codespace()
+                    self.stop_host()
                 elif action == 'wake':
                     self.remote(wake=True)
                     self.recover()
@@ -616,14 +576,22 @@ class Supervisor:
                         spec = self.config['components'].get(component, {})
                         if spec.get('command') or spec.get('restart_command'):
                             self.restart_component(component)
-                elif name == 'relay' and self.config.get('codespace'):
+                    if not self.wait_for_relay():
+                        raise ControlError('unreachable')
+                elif name == 'relay':
                     self.remote(wake=self.settings['auto_wake'], restart=action == 'restart')
+                    if 'tunnel' in self.config['components']:
+                        self.restart_component('tunnel')
+                    if not self.wait_for_relay():
+                        raise ControlError('unreachable')
                 elif action == 'restart':
                     self.restart_component(name)
                 else:
                     self.start_component(name)
             except ControlError as error:
                 self.recovery['last_error'] = str(error)
+                if str(error) in PERMANENT:
+                    self.provider_blocked = str(error)
             except Exception as error:
                 self.recovery['last_error'] = 'operation_failed'
                 print(f'{stamp()} supervisor operation failed: {type(error).__name__}', file=sys.stderr, flush=True)
@@ -649,14 +617,36 @@ class Supervisor:
                         self.states[name] = 'unknown'
                 elif spec.get('status_command'):
                     try:
-                        run_command(spec['status_command'], timeout=3, env=spec.get('env'))
+                        run_command(spec['status_command'], timeout=3, env=spec.get('env'), cancel=self.stop)
                         self.states[name] = 'running'
                     except ControlError:
                         self.states[name] = 'unknown'
             if self.dashboard_enabled and 'dashboard' in self.config['components'] and self.states['dashboard'] == 'stopped':
                 self.start_component('dashboard')
+            # Plugin failures must not prevent independent relay health checks or
+            # local controls. Bound plugin retries separately from network retries.
+            now = time.monotonic()
+            if not self.provider_blocked and now >= self.provider_next:
+                try:
+                    self.prepare_provider()
+                    if now >= self.host_status_next:
+                        self.host_state = self.provider.call('status')['host_state']
+                        self.host_status_next = time.monotonic() + 15
+                    self.provider_error = ''
+                    self.provider_delay = 2
+                except ControlError as error:
+                    self.provider_error = str(error)
+                    if str(error) in PERMANENT:
+                        self.provider_blocked = str(error)
+                    self.provider_next = time.monotonic() + self.provider_delay
+                    self.provider_delay = min(30, self.provider_delay * 2)
             previous = self.relay_state
             state = self.observe_relay()
+            if self.provider_error or self.provider_blocked:
+                self.recovery['last_error'] = self.provider_blocked or self.provider_error
+                self.recovery['next_retry_at'] = None if self.provider_blocked else time.strftime(
+                    '%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + max(0, self.provider_next - time.monotonic())))
+                return
             if state == 'connected':
                 self.recovery['phase'] = 'monitoring'
                 if self.settings['auto_reconnect'] and 'gateway' in self.config['components'] and self.states['gateway'] == 'stopped':
@@ -667,7 +657,7 @@ class Supervisor:
             # generic probe must not erase why SSH/service recovery failed.
             if state != 'unreachable' or previous != state or not self.recovery['last_error']:
                 self.recovery['last_error'] = state
-            if state != 'unreachable' or not self.settings['auto_reconnect']:
+            if state != 'unreachable' or not self.settings['auto_reconnect'] or self.provider_blocked:
                 self.recovery['next_retry_at'] = None
                 return
             now = time.monotonic()
@@ -678,11 +668,17 @@ class Supervisor:
                 self.recover(wake=self.settings['auto_wake'])
             except ControlError as error:
                 self.recovery['last_error'] = str(error)
+                if str(error) in PERMANENT:
+                    self.provider_blocked = str(error)
             if self.relay_state == 'connected':
                 return
             self.next_attempt = time.monotonic() + self.delay
             self.recovery['next_retry_at'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + self.delay))
             self.delay = min(30, self.delay * 2)
+        except ControlError as error:
+            self.recovery['last_error'] = str(error)
+            if str(error) in PERMANENT:
+                self.provider_blocked = str(error)
         except Exception as error:
             self.recovery['last_error'] = 'operation_failed'
             # The private controller log gets only the exception type; never
@@ -781,6 +777,11 @@ def main():
         worker.start()
         while not supervisor.stop.is_set():
             server.handle_request()
+        # Do not let Python tear down daemon threads while a provider process
+        # group is still being cancelled. Managed long-lived services stay up.
+        worker.join(timeout=15)
+        if supervisor.operation.acquire(timeout=15):
+            supervisor.operation.release()
     path.unlink(missing_ok=True)
     # Adopted services remain running when the controller itself stops.
 

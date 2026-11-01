@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeltaRelay remote-host provider contract v1",
+  "description": "One UTF-8 request or response per invocation, at most 65536 bytes. Runtime also verifies private files, safe origins/ports and profile URL agreement.",
+  "oneOf": [{ "$ref": "#/$defs/request" }, { "$ref": "#/$defs/response" }],
+  "$defs": {
+    "identity": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "request_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "capability": { "enum": ["relay.ensure", "relay.restart", "host.wake", "host.stop"] },
+    "host_state": { "enum": ["running", "stopped", "starting", "stopping", "unknown"] },
+    "empty": { "type": "object", "additionalProperties": false },
+    "relay_params": {
+      "type": "object", "additionalProperties": false, "required": ["expected_state_id"],
+      "properties": { "expected_state_id": { "$ref": "#/$defs/identity" } }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocol_version", "id", "method", "config_file", "params"],
+      "properties": {
+        "protocol_version": { "const": 1, "type": "integer" },
+        "id": { "$ref": "#/$defs/request_id" },
+        "method": { "enum": ["describe", "connection", "status", "relay.ensure", "relay.restart", "host.wake", "host.stop"] },
+        "config_file": { "type": "string", "pattern": "^/[^\u0000]*$" },
+        "params": { "type": "object" }
+      },
+      "if": { "properties": { "method": { "enum": ["relay.ensure", "relay.restart"] } } },
+      "then": { "properties": { "params": { "$ref": "#/$defs/relay_params" } } },
+      "else": { "properties": { "params": { "$ref": "#/$defs/empty" } } }
+    },
+    "describe": {
+      "type": "object", "additionalProperties": false, "required": ["id", "label", "capabilities"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[^\u0000-\u001f\u007f-\u009f]+$" },
+        "capabilities": { "type": "array", "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/capability" } }
+      }
+    },
+    "argv": {
+      "type": "array", "minItems": 1, "maxItems": 128,
+      "prefixItems": [{ "type": "string", "pattern": "^/[^\u0000]*$", "maxLength": 8192 }],
+      "items": { "type": "string", "minLength": 1, "maxLength": 8192, "pattern": "^[^\u0000]+$" }
+    },
+    "connection": {
+      "type": "object", "additionalProperties": false, "required": ["relay_url"],
+      "properties": {
+        "relay_url": {
+          "type": "string", "format": "uri",
+          "pattern": "^(https://[^/?#@\\s]+|http://(127\\.0\\.0\\.1|localhost|\\[::1\\])(:[0-9]+)?)/?$"
+        },
+        "tunnel": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object", "additionalProperties": false, "required": ["command", "port"],
+              "properties": {
+                "command": { "$ref": "#/$defs/argv" },
+                "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "status": {
+      "type": "object", "additionalProperties": false, "required": ["host_state"],
+      "properties": { "host_state": { "$ref": "#/$defs/host_state" } }
+    },
+    "relay": {
+      "type": "object", "additionalProperties": false, "required": ["state_id"],
+      "properties": { "state_id": { "$ref": "#/$defs/identity" } }
+    },
+    "transient_code": {
+      "enum": ["unreachable", "command_timeout", "command_failed", "provider_timeout", "provider_failed", "host_unavailable", "host_stop_timeout", "relay_ssh_timeout", "relay_recovery_failed"]
+    },
+    "nontransient_code": {
+      "enum": ["authentication_failed", "tls_verification_failed", "protocol_mismatch", "identity_mismatch", "identity_unavailable", "configuration_error", "forwarding_disabled", "invalid_provider_response", "provider_version_mismatch", "invalid_configuration", "unsafe_private_file", "invalid_request", "unsupported_operation", "host_stopped", "operation_cancelled"]
+    },
+    "error": {
+      "type": "object", "additionalProperties": false, "required": ["code", "retryable"],
+      "properties": { "code": { "type": "string" }, "retryable": { "type": "boolean" } },
+      "oneOf": [
+        { "properties": { "code": { "$ref": "#/$defs/transient_code" }, "retryable": { "const": true } } },
+        { "properties": { "code": { "$ref": "#/$defs/nontransient_code" }, "retryable": { "const": false } } }
+      ]
+    },
+    "response": {
+      "type": "object", "additionalProperties": false, "required": ["protocol_version", "id"],
+      "properties": {
+        "protocol_version": { "const": 1, "type": "integer" },
+        "id": { "$ref": "#/$defs/request_id" },
+        "result": {
+          "oneOf": [{ "$ref": "#/$defs/describe" }, { "$ref": "#/$defs/connection" }, { "$ref": "#/$defs/status" }, { "$ref": "#/$defs/relay" }]
+        },
+        "error": { "$ref": "#/$defs/error" }
+      },
+      "oneOf": [{ "required": ["result"], "not": { "required": ["error"] } }, { "required": ["error"], "not": { "required": ["result"] } }]
+    }
+  }
+}

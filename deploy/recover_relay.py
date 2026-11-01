@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sent over SSH by recover_codespace.py; never creates a new relay store."""
+"""Recover an existing relay over SSH; never creates a new relay store."""
 
 import argparse
 import fcntl
@@ -145,13 +145,13 @@ def ensure_relay(root, expected, port=18787):
     raise LinkError('Existing relay did not become ready; no process was killed')
 
 
-def restart_relay(root, expected):
+def restart_relay(root, expected, port=18787):
     """Explicit dashboard restart only; preserve the store and require its owner."""
     data = saved_store(root, expected)
     # Validate authentication and identity before signaling any process.
-    info = relay_info(18787, private_text(root / 'relay.token'), expected)
+    info = relay_info(port, private_text(root / 'relay.token'), expected)
     if info is None:
-        return ensure_relay(root, expected)
+        return ensure_relay(root, expected, port)
     binary = root / 'deltarelay-linux-amd64'
     pid = owned_pid(root / 'server.pid', [str(binary), 'serve', '--data', str(data)])
     if pid is None:
@@ -187,22 +187,25 @@ def restart_relay(root, expected):
                     raise RecoveryError('Relay did not stop after a verified forced kill')
         except FileNotFoundError:
             pass
-    return ensure_relay(root, expected)
+    return ensure_relay(root, expected, port)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--expected-state-id', required=True)
+    parser.add_argument('--port', type=int, default=18787)
     parser.add_argument('--restart', action='store_true', help='explicit disruptive restart; never reset the existing store')
     args = parser.parse_args()
+    if not 0 < args.port < 65536:
+        parser.error('port must be between 1 and 65535')
     try:
         root = args.root.expanduser().resolve(strict=True)
         fd = os.open(root / '.recovery.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'r+') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             operation = restart_relay if args.restart else ensure_relay
-            print(json.dumps(operation(root, args.expected_state_id)))
+            print(json.dumps(operation(root, args.expected_state_id, args.port)))
     except LinkError as error:
         print(json.dumps({'error': str(error)}))
         return 74

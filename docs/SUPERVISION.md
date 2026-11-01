@@ -5,6 +5,11 @@
 stop supervision. Nothing is installed at login, no VPN settings are changed,
 and no inference or automatic direct-provider fallback is introduced.
 
+Remote hosting is extensible through the versioned, language-independent
+[remote-host provider contract](REMOTE_PROVIDERS.md). The bundled SSH, direct
+HTTPS, and Codespaces providers manage existing deployments only. The dashboard
+uses provider capabilities, not a hardcoded hosting vendor, for power controls.
+
 ## Existing private Codespace profile
 
 ```sh
@@ -64,13 +69,15 @@ pin; a missing pin is an error, never permission to silently adopt a new store.
 
 Copy `deploy/supervisor.example.json` into a **private, untracked** file, replace
 every placeholder, and make it mode 600. Create the configured `profile` directory
-privately (mode 700). Then:
+privately (mode 700). The sample now uses the SSH provider: also copy and configure
+`deploy/providers/ssh.example.json` as its private `remote.config_file`. See
+[provider configuration](REMOTE_PROVIDERS.md#configure-an-existing-host). Then:
 
 ```sh
 ./startup.sh --config /absolute/path/to/vps.local.json --no-desktop
 ```
 
-All paths in the configuration are absolute. `profile` stores only private
+All local paths in the configuration are absolute. `profile` stores only private
 controller metadata/logs and the configured state; the example intentionally uses
 the same identity/state directory as the gateway. Each component can use:
 
@@ -82,18 +89,20 @@ the same identity/state directory as the gateway. Each component can use:
   or `adopt_match` for a known legacy launcher. Do not use broad process matches.
 
 Commands are trusted local configuration, **not browser inputs**. Never put
-tokens/passwords in command arguments. The sample remote commands assume an
-already-installed **user** unit. Change them to your existing service and
+tokens/passwords in command arguments. The SSH provider's example remote commands
+assume an already-installed **user** unit. Change them to your existing service and
 authorized noninteractive management method; the root service example in
 `deploy/deltarelay-server.service` is not a user unit. No sudo permissions,
 services, or SSH keys are installed automatically. Service-manager start commands
 must be idempotent and must never create/reset the relay's store.
 
-For direct HTTPS, change `relay_url` and the gateway's `--server` to the HTTPS
-origin and omit `tunnel`. Certificate verification remains mandatory. To manage
-the remote relay, retain explicit authenticated SSH/service-manager commands;
-there is no new public relay administration endpoint. Without those commands,
-remote management is shown as **Not configured**.
+For direct HTTPS, select `deploy/providers/direct_https.py`, configure its private
+file with the HTTPS `relay_url`, and set the supervisor URL and gateway's `--server`
+to that same origin. Certificate verification remains mandatory; this provider
+does not advertise service/power management. A custom provider can add explicit
+authenticated management without a new public relay administration endpoint.
+Existing configurations without `remote` still support legacy `tunnel` and
+SSH/service-manager component commands; do not combine both ownership models.
 
 Omit OpenCode/Desktop components to leave them unmanaged, or configure only the
 specific isolated profile you want controlled. In particular, do not accidentally
@@ -124,26 +133,25 @@ reports an unrecognized occupied port rather than replacing its owner.
   reporting success. Authentication, TLS, protocol, and identity errors at any
   readiness check stop recovery without further service changes.
   Failed attempts back off from 2 to 30 seconds, observed on the probe schedule.
-- **Automatic Codespace wake** is off initially. Both settings persist privately
-  per profile. Enabling auto-wake asks for billing confirmation; it can resume
-  GitHub compute even with the browser closed.
-- **Wake Codespace** is always displayed and is usable regardless of the
-  auto-wake setting. It is disabled for non-Codespace profiles, stale status, or
-  an operation already in progress. Manual wake also asks for billing confirmation.
-- **Stop Codespace…** asks for confirmation before stopping the existing
-  Codespace through GitHub. Active requests may be interrupted and provider work
+- **Automatic remote-host wake** is off initially and appears only when the
+  provider supports wake. Both settings persist privately per profile. Enabling
+  auto-wake asks for billing confirmation; it can resume compute with the browser closed.
+- **Wake remote host** appears only for a wake-capable provider and works regardless
+  of auto-wake. It is disabled for stale status or an operation already in progress.
+  Manual wake requires explicit billing confirmation in the UI and control API.
+- **Stop remote host…** appears only for a stop-capable provider and asks for
+  confirmation before stopping the existing machine. Active requests may be interrupted and provider work
   may already be billed. Automatic reconnect and wake are both saved as **off**
   before stopping the managed local tunnel and requesting shutdown, so recovery
   cannot immediately wake it again, even after restarting the supervisor. These
   settings remain off if shutdown fails or times out. Progress stays visible until
-  GitHub confirms **Shutdown** (up to two minutes); the Codespace is not deleted
+  the provider confirms **stopped** (up to two minutes); the machine is not deleted
   and saved files, tokens, relay cache, and responses are preserved. The dashboard
-  and other local services stay running. Use **Wake Codespace** to resume and
+  and other local services stay running. Use **Wake remote host** to resume and
   re-enable recovery settings as needed; manual wake does not change them.
-  Stop is disabled for non-Codespace profiles, stale status, an operation in
-  progress, or a Codespace already confirmed stopped.
+  Stop is disabled for stale status, an operation in progress, or a machine already confirmed stopped.
 - **Recover all** starts configured local services and repairs connectivity.
-  It respects auto-wake; use the explicit Wake button if the Codespace is asleep.
+  It respects auto-wake; use the explicit Wake button if the remote host is asleep.
 - Each configured component has **Start / Restart** controls, plus **Restart all**.
   Starts are idempotent; restarts always require explicit confirmation. Dashboard
   restart is performed by the independent supervisor, so it can come back itself.
@@ -159,7 +167,7 @@ reports an unrecognized occupied port rather than replacing its owner.
   not proof that its SSH service or relay is reachable.
 - **VPS unreachable** and **no internet** are reported separately. When the relay
   probe fails with a network error, the supervisor checks an external HTTPS
-  endpoint (`internet_check_url`, default `https://api.github.com/`) and shows
+  endpoint (`internet_check_url`, default `https://example.com/`) and shows
   either **No internet** (Wi-Fi, Ethernet, VPN, or default route) or **VPS
   unreachable** (local internet works, but the relay/tunnel/remote host did not
   respond). The check runs only during a relay outage, at most every 15 seconds,

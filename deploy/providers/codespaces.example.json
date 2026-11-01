@@ -1,0 +1,6 @@
+{
+  "name": "YOUR_EXISTING_CODESPACE",
+  "relay_url": "http://127.0.0.1:18787",
+  "remote_port": 18787,
+  "remote_directory": "~/.local/share/deltarelay/codespace-test"
+}

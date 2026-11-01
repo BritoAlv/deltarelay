@@ -35,6 +35,7 @@ your own VPS, and generate the OpenCode plugin entry for this checkout.
 
 - [OpenCode Desktop and VPS setup](docs/SETUP.md)
 - [Relay protocol and recovery contract](docs/PROTOCOL_V2.md)
+- [Remote-host plugins: contract, SSH/HTTPS/Codespaces providers, and examples](docs/REMOTE_PROVIDERS.md)
 - [Sanitized implementation and testing history](docs/SESSION_LOG.md)
 - [Optional recovery for an existing private Codespace profile](docs/CODESPACE_RECOVERY.md)
 
@@ -45,12 +46,15 @@ Private configuration, tokens, logs, conversation exports, and relay state are
 ignored files. On another computer, regenerate credentials for a new deployment
 or transfer the existing relay token securely if intentionally using the same VPS.
 
-`./startup.sh` starts persistent recovery for an **already configured** private
-Codespace profile, its local dashboard, and isolated Desktop. Controls come up
-before network recovery; Codespace auto-wake is selectable in the dashboard.
-`--config` also supports existing SSH/HTTPS VPS deployments. Its private wrappers,
-credentials, and Desktop profile are not included in a clone. Use the setup
-guide, not that script, to provision a new VPS. See [supervision and controls](docs/SUPERVISION.md).
+`./startup.sh --config /private/supervisor.json` starts persistent recovery for an
+**already configured** remote host, its local dashboard, and optional isolated
+Desktop. [Remote-host providers](docs/REMOTE_PROVIDERS.md) support SSH computers,
+HTTPS VPS deployments, Codespaces, or your own executable plugin in any language.
+Controls come up before remote recovery; wake/stop appear only when supported,
+and automatic wake starts off. Default startup reads your XDG configuration or
+an existing private Codespace profile for compatibility. Private credentials and
+Desktop profiles are not included in a clone. Use the setup guide, not that
+script, to provision a new VPS. See [supervision and controls](docs/SUPERVISION.md).
 
 ## Build and test
 
@@ -85,8 +89,8 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/deltarelay-linux
 The optional **Astro + TypeScript** dashboard shows per-session bandwidth savings,
 active and recent requests, cache reuse, VPS/storage/mailbox health, pending
 cancellations, and observed provider results. Optional supervisor integration adds
-service Start/Restart controls, automatic network recovery, a Codespace wake
-toggle, manual wake/stop buttons, and a ChatGPT access-token expiry countdown.
+service Start/Restart controls, automatic network recovery, capability-based remote
+host wake/stop controls, and a ChatGPT access-token expiry countdown.
 It distinguishes **no internet** from an **unreachable VPS**. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.

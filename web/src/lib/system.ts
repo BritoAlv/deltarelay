@@ -6,7 +6,7 @@ export interface AuthStatus {
 }
 
 export interface SystemStatus {
-  version: 1
+  version: 1 | 2
   managed: boolean
   collected_at: string
   csrf_token: string
@@ -16,7 +16,12 @@ export interface SystemStatus {
   relay_state: string
   internet_state: string
   internet_checked_at: string | null
-  codespace_state: string
+  remote: {
+    id: string
+    label: string
+    host_state: "running" | "stopped" | "starting" | "stopping" | "unknown"
+    capabilities: RemoteCapability[]
+  }
   components: { id: string; label: string; state: string; can_start: boolean; can_restart: boolean }[]
   auth: AuthStatus
 }
@@ -24,21 +29,35 @@ export interface SystemStatus {
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v)
 const timestamp = (v: unknown) => typeof v === "string" && Number.isFinite(Date.parse(v))
 const componentIDs = ["dashboard", "gateway", "tunnel", "relay", "opencode", "desktop"]
+export type RemoteCapability = "relay.ensure" | "relay.restart" | "host.wake" | "host.stop"
+const remoteCapabilities = ["relay.ensure", "relay.restart", "host.wake", "host.stop"]
+
+export function supportsRemote(system: SystemStatus | null, capability: RemoteCapability): boolean {
+  return Boolean(system?.remote.capabilities.includes(capability))
+}
+
+export function remoteActionTarget(system: SystemStatus): "remote" | "codespace" {
+  // The Go dashboard normalizes v1 snapshots while an old supervisor is running.
+  return system.version === 1 ? "codespace" : "remote"
+}
 
 export function isSystemStatus(v: unknown): v is SystemStatus {
-  if (!object(v) || v.version !== 1 || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token)) return false
+  if (!object(v) || ![1, 2].includes(Number(v.version)) || typeof v.version !== "number" || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token)) return false
   if (typeof v.internet_state !== "string" || v.internet_checked_at !== null && !timestamp(v.internet_checked_at)) return false
   if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || v.auth.expires_at !== undefined && !timestamp(v.auth.expires_at) || v.auth.checked_at !== undefined && !timestamp(v.auth.checked_at)) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
   if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || typeof v.recovery.attempts !== "number" || !Number.isFinite(v.recovery.attempts) || v.recovery.attempts < 0 || v.recovery.next_retry_at !== null && !timestamp(v.recovery.next_retry_at) || v.recovery.last_connected_at !== null && !timestamp(v.recovery.last_connected_at)) return false
-  return typeof v.relay_state === "string" && typeof v.codespace_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && componentIDs.includes(String(c.id)) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
+  const remote = v.remote
+  if (!object(remote) || typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(remote.id) || typeof remote.label !== "string" || !remote.label.length || [...remote.label].length > 80 || /[\x00-\x1f\x7f-\x9f]/.test(remote.label)) return false
+  if (typeof remote.host_state !== "string" || !["running", "stopped", "starting", "stopping", "unknown"].includes(remote.host_state) || !Array.isArray(remote.capabilities) || remote.capabilities.length > 4 || new Set(remote.capabilities).size !== remote.capabilities.length || !remote.capabilities.every((c) => typeof c === "string" && remoteCapabilities.includes(c))) return false
+  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && componentIDs.includes(String(c.id)) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
 }
 
-export type ConnectionState = "connected" | "codespace_stopped" | "no_internet" | "vps_unreachable" | "unknown"
+export type ConnectionState = "connected" | "remote_stopped" | "no_internet" | "vps_unreachable" | "unknown"
 
 export function connectionState(system: SystemStatus): ConnectionState {
   if (system.relay_state === "connected") return "connected"
-  if (system.relay_state === "unreachable" && system.codespace_state === "Shutdown" && !system.settings.auto_reconnect && !system.settings.auto_wake) return "codespace_stopped"
+  if (system.relay_state === "unreachable" && system.remote.host_state === "stopped" && !system.settings.auto_reconnect && !system.settings.auto_wake) return "remote_stopped"
   // Only claim "no internet" when the independent external check also failed.
   // An old or disabled supervisor leaves internet_state unknown.
   if (system.relay_state === "unreachable" && system.internet_state === "unreachable") return "no_internet"
@@ -50,7 +69,7 @@ export function recoveryStatus(system: SystemStatus): string {
   if (system.error) return controlError(system.error)
   if (system.recovery.busy) return `In progress: ${system.recovery.phase.replaceAll("_", " ")}`
   const connection = connectionState(system)
-  if (connection === "codespace_stopped") return "The Codespace is stopped. Automatic reconnect and wake are off. Use Wake Codespace to resume, then re-enable recovery settings as needed."
+  if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake remote host to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
   if (connection === "no_internet") return controlError("no_internet")
   const error = system.recovery.last_error
   if (error && error !== "unreachable") return controlError(error)
@@ -87,6 +106,16 @@ export function controlError(code: string): string {
   const messages: Record<string, string> = {
     controls_not_configured: "Controls are not configured. Start with startup.sh, or configure a private supervisor socket.",
     supervisor_unavailable: "The local supervisor is unavailable. Run startup.sh to recover it; the gateway is not required for these controls.",
+    host_stopped: "The remote host is stopped. Wake it manually, or enable automatic wake if supported. Compute billing may resume.",
+    host_unavailable: "The remote host could not be confirmed ready. Check your hosting provider and network connection.",
+    host_stop_timeout: "Remote shutdown was not confirmed before the timeout. Automatic reconnect and wake remain off. Check your hosting provider before retrying.",
+    relay_ssh_timeout: "Remote SSH relay recovery timed out. A running machine does not confirm SSH or relay health. Check the deployment, VPN, and tunnel.",
+    relay_recovery_failed: "Remote SSH/relay recovery failed. Check the existing deployment, VPN, and tunnel; no state was reset.",
+    provider_timeout: "The remote-host plugin timed out. Check its private configuration and dependencies.",
+    provider_failed: "The remote-host plugin could not run successfully. Check its executable and private configuration.",
+    invalid_provider_response: "The remote-host plugin returned an invalid response. Automatic recovery is blocked.",
+    provider_version_mismatch: "The remote-host plugin contract version is incompatible. Automatic recovery is blocked.",
+    unsupported_operation: "This remote-host provider does not support that operation.",
     codespace_stopped: "The Codespace is stopped. Use Wake Codespace, or enable automatic wake. Waking resumes GitHub billing.",
     codespace_stop_timeout: "Codespace shutdown was not confirmed before the timeout. Automatic reconnect and wake remain off. Check its state in GitHub before retrying.",
     codespace_ssh_timeout: "Codespace SSH relay recovery timed out. The Codespace can report Available while its SSH service or relay is unreachable. Check the Codespace and VPN/tunnel.",
