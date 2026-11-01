@@ -464,6 +464,36 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual([call.args[0] for call in start.call_args_list], ['dashboard', 'gateway', 'opencode', 'desktop'])
         self.assertEqual(subject.recovery['last_error'], 'codespace_stopped')
 
+    def test_desktop_start_launches_once_without_restarting_or_recovering_other_services(self):
+        self.component('desktop')
+        subject = self.supervisor()
+        with patch.dict(os.environ, {'DISPLAY': ':test'}), \
+                patch.object(subject, 'restart_component') as restart, patch.object(subject, 'recover') as recover, \
+                patch.object(subject, 'remote') as remote:
+            subject.submit({'component': 'desktop', 'action': 'start'})
+            self.wait_job(subject)
+            self.assertEqual(subject.recovery['last_error'], '')
+            first = subject.children['desktop']
+            self.addCleanup(self.cleanup_child, first)
+            subject.submit({'component': 'desktop', 'action': 'start'})
+            self.wait_job(subject)
+            self.assertIs(subject.children['desktop'], first)
+            self.assertIsNone(first.poll())
+            self.assertEqual(subject.states['desktop'], 'running')
+            self.assertEqual(list(subject.children), ['desktop'])
+            restart.assert_not_called()
+            recover.assert_not_called()
+            remote.assert_not_called()
+
+    def test_desktop_start_without_a_graphical_session_reports_a_safe_error(self):
+        self.component('desktop')
+        subject = self.supervisor()
+        with patch.dict(os.environ, {'DISPLAY': '', 'WAYLAND_DISPLAY': ''}):
+            subject.submit({'component': 'desktop', 'action': 'start'})
+            self.wait_job(subject)
+        self.assertEqual(subject.recovery['last_error'], 'graphical_session_required')
+        self.assertFalse(subject.children)
+
     def test_real_owned_process_is_adopted_and_restarted_without_signaling_unrelated_process(self):
         self.component('tunnel')
         subject = self.supervisor()

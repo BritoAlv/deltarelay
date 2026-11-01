@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { connectionState, countdown, isSystemStatus, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../src/lib/system.js"
+import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../src/lib/system.js"
 
 const status: SystemStatus = {
   version: 1, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
@@ -72,6 +72,43 @@ test("Codespace stop sends an explicitly confirmed action through the protected 
     return Response.json({ accepted: true }, { status: 202 })
   })
   await sendControl("action", { component: "codespace", action: "stop", confirmed: true }, status.csrf_token)
+  assert.equal(mock.mock.callCount(), 1)
+})
+
+test("Desktop launch requires fresh managed status and a configured launcher, not a reachable VPS", () => {
+  const configured = { ...status, components: [{ id: "desktop", label: "Isolated Desktop", state: "stopped", can_start: true, can_restart: true }] }
+  assert.equal(desktopLaunchState(configured).disabled, false)
+  assert.equal(desktopLaunchState({ ...configured, internet_state: "unreachable" }).disabled, false)
+  for (const unavailable of [null, status, { ...configured, managed: false }, { ...configured, components: [{ ...configured.components[0]!, can_start: false }] }]) {
+    assert.equal(desktopLaunchState(unavailable).disabled, true)
+  }
+  assert.equal(desktopLaunchState(configured, true).disabled, true)
+  assert.equal(desktopLaunchState(configured, false, true).disabled, true)
+  assert.equal(desktopLaunchState({ ...configured, recovery: { ...status.recovery, busy: true } }).disabled, true)
+  assert.match(desktopLaunchState(status).detail, /private supervisor configuration/)
+  assert.match(desktopLaunchState({ ...configured, managed: false, error: "supervisor_unavailable" }).detail, /supervisor is unavailable/)
+})
+
+test("Desktop launch prevents duplicate instances while starting or running", () => {
+  for (const state of ["starting", "started", "running"]) {
+    const configured = { ...status, components: [{ id: "desktop", label: "Isolated Desktop", state, can_start: true, can_restart: true }] }
+    const launch = desktopLaunchState(configured)
+    assert.equal(launch.disabled, true)
+    assert.match(launch.detail, /already running|is starting/)
+  }
+})
+
+test("Desktop launch uses the existing protected start action, never restart or remote recovery", async (t) => {
+  const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
+    assert.equal(input, "/api/system/action")
+    assert.equal(options?.method, "POST")
+    assert.equal(options?.credentials, "same-origin")
+    assert.equal(options?.redirect, "error")
+    assert.deepEqual(options?.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
+    assert.deepEqual(JSON.parse(String(options?.body)), { component: "desktop", action: "start" })
+    return Response.json({ accepted: true }, { status: 202 })
+  })
+  await sendControl("action", { component: "desktop", action: "start" }, status.csrf_token)
   assert.equal(mock.mock.callCount(), 1)
 })
 

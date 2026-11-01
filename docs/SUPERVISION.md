@@ -108,6 +108,13 @@ reports an unrecognized occupied port rather than replacing its owner.
 
 ## Dashboard behavior
 
+- **Open OpenCode Desktop**, beside Refresh, starts the configured isolated Desktop
+  launcher without restarting other services, recovering the VPS, or waking a
+  Codespace. It is available after `--no-desktop` startup and works without a
+  reachable VPS. It is disabled when Desktop is already running/starting, its
+  launcher is not configured, status is stale, or another service operation is
+  in progress. The supervisor must inherit a graphical session; launch failures
+  are shown beside the button. Existing sessions and credentials are preserved.
 - **Automatic reconnect** is on initially. Probes run every five seconds with a
   two-second network timeout. Three consecutive transient failures initiate
   recovery. A running-but-dead forward is rebuilt, not just an exited process.

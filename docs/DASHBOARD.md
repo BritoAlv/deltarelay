@@ -13,6 +13,9 @@ auto-wake, manual wake/stop, and the ChatGPT access-token expiry countdown, see
 gateway statistics and remain available when the gateway is down. Controls are
 disabled unless the dashboard is explicitly connected to a private supervisor.
 
+- **Open OpenCode Desktop** beside Refresh launches the configured isolated
+  Desktop instance without restarting other services. The button explains when
+  its launcher is unavailable or Desktop is already running.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed attempts and negative savings.
 - Cache reuse versus raw uploaded chunks; hourly traffic over 24 hours or 7 days.

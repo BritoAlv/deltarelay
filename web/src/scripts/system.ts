@@ -1,4 +1,4 @@
-import { connectionState, countdown, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../lib/system.js"
+import { connectionState, controlError, countdown, desktopLaunchState, fetchSystem, recoveryStatus, sendControl, type SystemStatus } from "../lib/system.js"
 
 const element = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
 const text = (id: string, value: string) => { element(id).textContent = value }
@@ -8,6 +8,8 @@ let pending = false
 let polling = false
 let lastMessage = ""
 let receivedAt = 0
+let desktopRequested = false
+let desktopError = ""
 
 function badge(id: string, value: string, good: boolean) {
   text(id, value)
@@ -29,6 +31,15 @@ function renderAuth() {
 
 function render() {
   const disabled = stale || pending || !system?.managed || Boolean(system?.recovery.busy)
+  const desktop = desktopLaunchState(system, stale, pending)
+  element<HTMLButtonElement>("open-desktop").disabled = desktop.disabled
+  element("open-desktop").title = desktop.detail
+  if (desktopRequested && !stale && !pending && system && !system.recovery.busy) {
+    desktopRequested = false
+    desktopError = system.recovery.last_error ? controlError(system.recovery.last_error) : ""
+  }
+  const desktopDetail = !desktop.disabled && desktopError ? desktopError : desktop.detail
+  text("desktop-status", desktopRequested && !stale ? "Opening OpenCode Desktop…" : desktopDetail)
   const configuredCodespace = Boolean(system && system.codespace_state !== "not_configured")
   for (const id of ["recover-all", "restart-all", "auto-reconnect"]) element<HTMLButtonElement>(id).disabled = disabled
   for (const id of ["auto-wake", "wake-codespace"]) element<HTMLButtonElement>(id).disabled = disabled || !configuredCodespace
@@ -91,10 +102,16 @@ async function refresh() {
 
 async function actionRequest(component: string, action: string) {
   if (!system || stale || pending || system.recovery.busy) return
+  const openingDesktop = component === "desktop" && action === "start"
+  if (openingDesktop && desktopLaunchState(system, stale, pending).disabled) return
   if (action === "restart" && !window.confirm(`Restart ${component === "all" ? "all configured services" : component}? Active requests may be interrupted; provider work may already be billed. Cache, tokens, sessions, and saved responses will NOT be erased.`)) return
   if (action === "wake" && !window.confirm("Wake the existing Codespace? GitHub compute usage/billing will resume.")) return
   if (action === "stop" && !window.confirm("Stop the Codespace? Active requests will be interrupted; provider work may already be billed. Automatic reconnect and wake will be disabled until you re-enable them. Saved files, tokens, cached chunks, and saved responses will NOT be erased.")) return
   pending = true
+  if (openingDesktop) {
+    desktopRequested = true
+    desktopError = ""
+  }
   lastMessage = "Submitting service operation…"
   render()
   try {
@@ -102,6 +119,10 @@ async function actionRequest(component: string, action: string) {
     lastMessage = action === "stop" ? "Stop requested. Shutdown progress and recovery settings are shown above." : "Operation accepted. Progress is shown above; no model generation was submitted."
   } catch (error) {
     lastMessage = error instanceof Error ? error.message : "The action could not be confirmed. Refresh status before trying again."
+    if (openingDesktop) {
+      desktopRequested = false
+      desktopError = lastMessage
+    }
   } finally {
     pending = false
     await refresh()
@@ -127,6 +148,7 @@ async function settings() {
 }
 
 element("recover-all").addEventListener("click", () => void actionRequest("all", "recover"))
+element("open-desktop").addEventListener("click", () => void actionRequest("desktop", "start"))
 element("restart-all").addEventListener("click", () => void actionRequest("all", "restart"))
 element("wake-codespace").addEventListener("click", () => void actionRequest("codespace", "wake"))
 element("stop-codespace").addEventListener("click", () => void actionRequest("codespace", "stop"))

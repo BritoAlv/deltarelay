@@ -59,6 +59,17 @@ export function recoveryStatus(system: SystemStatus): string {
   return connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity."
 }
 
+export function desktopLaunchState(system: SystemStatus | null, stale = false, pending = false): { disabled: boolean; detail: string } {
+  if (!system || stale) return { disabled: true, detail: "Waiting for fresh local supervisor status before launching Desktop." }
+  if (!system.managed) return { disabled: true, detail: controlError(system.error ?? "controls_not_configured") }
+  const desktop = system.components.find((component) => component.id === "desktop")
+  if (!desktop?.can_start) return { disabled: true, detail: "Configure the isolated Desktop launcher in your private supervisor configuration to enable this button." }
+  if (pending || system.recovery.busy) return { disabled: true, detail: "A service operation is in progress. Wait for it to finish before launching Desktop." }
+  if (desktop.state === "running") return { disabled: true, detail: "The isolated OpenCode Desktop instance is already running. No second instance will be launched." }
+  if (desktop.state === "starting" || desktop.state === "started") return { disabled: true, detail: "OpenCode Desktop is starting. Its window may take a moment to appear." }
+  return { disabled: false, detail: "Launch the configured isolated OpenCode Desktop on this computer without restarting other services." }
+}
+
 export function countdown(deadline: string, now = Date.now()): string {
   const remaining = Date.parse(deadline) - now
   if (!Number.isFinite(remaining)) return "Unknown"
