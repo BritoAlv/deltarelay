@@ -2,13 +2,17 @@ package telemetry
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"deltarelay/internal/fsx"
 	transferstats "deltarelay/internal/transfer"
 )
 
@@ -22,6 +26,41 @@ func recorder(t *testing.T, path string) *Recorder {
 	}
 	t.Cleanup(r.Close)
 	return r
+}
+
+func recorderWith(t *testing.T, path string, write func(string, any) error, flushAfter, shutdown time.Duration) *Recorder {
+	t.Helper()
+	r, err := openRecorder(path, write, flushAfter, shutdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.Close)
+	return r
+}
+
+func waitFor(t *testing.T, description string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", description)
+}
+
+func readSnapshot(t *testing.T, path string) Snapshot {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot Snapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
 }
 
 func TestAggregationAndConcurrentRequests(t *testing.T) {
@@ -159,7 +198,7 @@ func TestRefusesUnsafeOrCorruptHistory(t *testing.T) {
 func TestPersistenceFailureDoesNotLoseLiveStatistics(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "history.json")
-	r := recorder(t, path)
+	r := recorderWith(t, path, fsx.WriteJSON, 2*time.Millisecond, time.Second)
 	// Moving the parent makes new atomic temporary files impossible. Do not
 	// chmod: tests can also run as root, where permission failures differ.
 	moved := directory + "-moved"
@@ -169,7 +208,163 @@ func TestPersistenceFailureDoesNotLoseLiveStatistics(t *testing.T) {
 	t.Cleanup(func() { _ = os.Rename(moved, directory) })
 	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
 	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
-	if s := r.Snapshot(); !s.PersistenceError || s.Totals.Requests != 1 || s.Totals.BodyBytes != sampleTransfer.BodyBytes {
+	waitFor(t, "persistence failure to be reported", func() bool { return r.Snapshot().PersistenceError })
+	if s := r.Snapshot(); s.Totals.Requests != 1 || s.Totals.BodyBytes != sampleTransfer.BodyBytes {
 		t.Fatalf("save failure broke live history: %+v", s)
+	}
+}
+
+func TestSlowPersistenceDoesNotDelayAccounting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	var block atomic.Bool
+	blocked := make(chan struct{}, 1)
+	release := make(chan struct{})
+	write := func(p string, value any) error {
+		if block.Load() {
+			select {
+			case blocked <- struct{}{}:
+			default:
+			}
+			<-release
+		}
+		return fsx.WriteJSON(p, value)
+	}
+	r := recorderWith(t, path, write, time.Millisecond, time.Second)
+	block.Store(true)
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	select {
+	case <-blocked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background writer never started")
+	}
+	started := time.Now()
+	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
+	_ = r.Snapshot()
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("accounting waited for slow persistence: %s", elapsed)
+	}
+	close(release)
+}
+
+func TestPersistenceFailureIsRetriedWithTheNewestSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	var fail atomic.Bool
+	write := func(p string, value any) error {
+		if fail.Load() {
+			return errors.New("injected persistence failure")
+		}
+		return fsx.WriteJSON(p, value)
+	}
+	r := recorderWith(t, path, write, 2*time.Millisecond, time.Second)
+	fail.Store(true)
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	waitFor(t, "injected persistence failure", func() bool { return r.Snapshot().PersistenceError })
+	fail.Store(false)
+	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
+	waitFor(t, "successful retry", func() bool { return !r.Snapshot().PersistenceError })
+	waitFor(t, "newest snapshot to reach disk", func() bool {
+		snapshot := readSnapshot(t, path)
+		return snapshot.Totals.Requests == 1 && snapshot.Totals.BodyBytes == sampleTransfer.BodyBytes
+	})
+}
+
+func TestOlderSnapshotsCannotOverwriteNewerOnes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	var block atomic.Bool
+	blocked := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var requests []int64
+	write := func(p string, value any) error {
+		snapshot := value.(Snapshot)
+		if block.Load() {
+			select {
+			case blocked <- struct{}{}:
+			default:
+			}
+			<-release
+		}
+		mu.Lock()
+		requests = append(requests, snapshot.Totals.Requests)
+		mu.Unlock()
+		return fsx.WriteJSON(p, snapshot)
+	}
+	r := recorderWith(t, path, write, time.Millisecond, 2*time.Second)
+	block.Store(true)
+	r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	select {
+	case <-blocked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("background writer never started")
+	}
+	// These updates arrive while an older snapshot is still being written.
+	r.Begin("request-00000000002", "ses_1", "mock", "primary")
+	r.Begin("request-00000000003", "ses_1", "mock", "primary")
+	close(release)
+	waitFor(t, "coalesced write of the newest snapshot", func() bool {
+		return readSnapshot(t, path).Totals.Requests == 3
+	})
+	r.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	for i := 1; i < len(requests); i++ {
+		if requests[i] < requests[i-1] {
+			t.Fatalf("persisted an older snapshot after a newer one: %v", requests)
+		}
+	}
+	if len(requests) == 0 || requests[len(requests)-1] != 3 {
+		t.Fatalf("newest snapshot was not persisted last: %v", requests)
+	}
+}
+
+func TestCloseFlushesFinalSnapshotAndIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	r := recorder(t, path)
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
+	r.Close()
+	r.Close()
+	if snapshot := readSnapshot(t, path); snapshot.Totals.Requests != 1 || snapshot.Totals.BodyBytes != sampleTransfer.BodyBytes {
+		t.Fatalf("final flush did not persist the last snapshot: %+v", snapshot.Totals)
+	}
+	if r.Begin("request-00000000002", "ses_1", "mock", "primary") != 0 {
+		t.Fatal("recorder accepted work after Close")
+	}
+}
+
+func TestFinalFlushFailureDoesNotHangClose(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	var slow atomic.Bool
+	write := func(p string, value any) error {
+		if slow.Load() {
+			time.Sleep(250 * time.Millisecond)
+			return errors.New("injected final flush failure")
+		}
+		return fsx.WriteJSON(p, value)
+	}
+	r := recorderWith(t, path, write, time.Hour, 20*time.Millisecond)
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
+	slow.Store(true)
+	started := time.Now()
+	r.Close()
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Close waited for a hung final flush: %s", elapsed)
+	}
+	// The worker still owns the lock until its bounded write returns.
+	<-r.done
+	if !r.Snapshot().PersistenceError {
+		t.Fatal("final flush failure was not reported")
+	}
+}
+
+func TestMemoryRecorderIgnoresPersistenceAndClosesRepeatedly(t *testing.T) {
+	r := recorder(t, "")
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
+	r.Close()
+	r.Close()
+	if s := r.Snapshot(); s.Persistent || s.PersistenceError || s.Totals.Requests != 1 {
+		t.Fatalf("memory-only recorder changed semantics: %+v", s)
 	}
 }

@@ -1,5 +1,12 @@
 // Package telemetry keeps bounded, metadata-only gateway statistics. It never
 // reads model bodies, provider credentials, response content, or target URLs.
+//
+// In-memory accounting is synchronous: Begin and Finish return as soon as the
+// retained snapshot has been updated. Optional history-file persistence runs on
+// one background worker that coalesces dirty snapshots, so a slow or failing
+// disk never delays provider forwarding. Statistics are optional observability,
+// unlike the response mailbox and dispatch journal, which remain durable on the
+// request path.
 package telemetry
 
 import (
@@ -21,6 +28,15 @@ const (
 	SessionLimit = 256
 	RequestLimit = 1000
 	maxFileBytes = 8 << 20
+
+	// defaultFlushInterval bounds both how often the worker rewrites the
+	// statistics file and how long a completed accounting update can remain
+	// memory-only under normal operation.
+	defaultFlushInterval = time.Second
+
+	// shutdownFlushTimeout bounds how long Close waits for the worker's final
+	// flush. A hung filesystem must not stall gateway shutdown indefinitely.
+	shutdownFlushTimeout = 5 * time.Second
 )
 
 type Totals struct {
@@ -76,19 +92,54 @@ type Snapshot struct {
 	PersistenceError bool      `json:"persistence_error"`
 }
 
+// Recorder owns one in-memory history and, optionally, one background writer
+// for its private statistics file. After startup validation, the writer is the
+// only goroutine that replaces that file, so snapshots are written in revision
+// order and an older observation can never overwrite a newer one.
 type Recorder struct {
 	mu       sync.Mutex
 	path     string
 	data     Snapshot
 	sequence uint64
+	written  uint64 // highest revision successfully persisted
 	lock     *os.File
 	closed   bool
+
+	revision   uint64
+	write      func(string, any) error
+	flushAfter time.Duration
+	shutdown   time.Duration
+
+	wake chan struct{}
+	stop chan struct{}
+	done chan struct{}
+
+	closeOnce sync.Once
 }
 
 // Open refuses malformed, oversized, non-private, or symlinked history files.
 // An empty path keeps the same bounded history in memory only.
-func Open(path string) (_ *Recorder, openErr error) {
-	r := &Recorder{path: path, data: Snapshot{Version: 1, Since: time.Now().UTC(), Sessions: []Session{}, RecentRequests: []Request{}}}
+func Open(path string) (*Recorder, error) {
+	return openRecorder(path, fsx.WriteJSON, defaultFlushInterval, shutdownFlushTimeout)
+}
+
+// openRecorder injects the metadata writer and timings for tests. Production
+// callers use Open; the injected writer only changes optional statistics
+// persistence, never in-memory accounting or validation.
+func openRecorder(path string, write func(string, any) error, flushAfter, shutdown time.Duration) (_ *Recorder, openErr error) {
+	if write == nil || flushAfter <= 0 || shutdown <= 0 {
+		return nil, errors.New("statistics writer and timings must be positive")
+	}
+	r := &Recorder{
+		path:       path,
+		data:       Snapshot{Version: 1, Since: time.Now().UTC(), Sessions: []Session{}, RecentRequests: []Request{}},
+		write:      write,
+		flushAfter: flushAfter,
+		shutdown:   shutdown,
+		wake:       make(chan struct{}, 1),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+	}
 	if path == "" {
 		return r, nil
 	}
@@ -110,9 +161,10 @@ func Open(path string) (_ *Recorder, openErr error) {
 	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := r.persist(); err != nil {
+		if err := write(path, r.data); err != nil {
 			return nil, err
 		}
+		r.startWorker()
 		return r, nil
 	}
 	if err != nil {
@@ -188,7 +240,16 @@ func Open(path string) (_ *Recorder, openErr error) {
 	if running != active {
 		return nil, errors.New("inconsistent active statistics")
 	}
-	r.save()
+	// Persist the normalized restart state synchronously: this happens before
+	// the gateway serves requests and is not on a request path.
+	r.revision++
+	if err := write(path, r.data); err != nil {
+		r.data.PersistenceError = true
+	} else {
+		r.data.PersistenceError = false
+		r.written = r.revision
+	}
+	r.startWorker()
 	return r, nil
 }
 
@@ -196,14 +257,29 @@ func validTotals(t Totals) bool {
 	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Active+t.Failed <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
 }
 
+// Close marks the recorder closed and, for a persistent recorder, requests the
+// worker's final flush and waits at most the shutdown timeout for it. Close is
+// idempotent. Begin returns no sequence after Close; Finish for a request that
+// began earlier still updates the retained in-memory snapshot but cannot
+// schedule another file write. The writer releases the single-owner lock after
+// its final flush; on timeout the process exits with the lock still held only
+// until that write returns.
 func (r *Recorder) Close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.closed = true
-	if r.lock != nil {
-		_ = r.lock.Close()
-		r.lock = nil
-	}
+	r.closeOnce.Do(func() {
+		r.mu.Lock()
+		r.closed = true
+		r.mu.Unlock()
+		if r.path == "" {
+			return
+		}
+		close(r.stop)
+		timeout := time.NewTimer(r.shutdown)
+		defer timeout.Stop()
+		select {
+		case <-r.done:
+		case <-timeout.C:
+		}
+	})
 }
 
 // ValidLabel deliberately accepts only short opaque identifiers, not titles,
@@ -280,9 +356,10 @@ func (r *Recorder) Begin(id, sessionID, upstream, kind string) uint64 {
 			}
 		}
 	}
+	r.revision++
 	r.sequence++
 	r.data.RecentRequests = append(r.data.RecentRequests, Request{Sequence: r.sequence, ID: id, SessionID: sessionID, Upstream: upstream, Kind: kind, StartedAt: now, State: "running"})
-	r.save()
+	r.markDirty()
 	return r.sequence
 }
 
@@ -311,7 +388,8 @@ func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string,
 		s.UpdatedAt, s.LastStatus, s.LastError = now, status, code
 		addResult(&s.Totals, failed, stats, responseBytes, duration)
 		addResult(&r.data.Totals, failed, stats, responseBytes, duration)
-		r.save()
+		r.revision++
+		r.markDirty()
 		return
 	}
 }
@@ -349,16 +427,89 @@ func (r *Recorder) Snapshot() Snapshot {
 	return copy
 }
 
-func (r *Recorder) save() { r.data.PersistenceError = r.persist() != nil }
+// markDirty reports that the retained snapshot changed. It never waits for the
+// disk: a buffered signal wakes the single worker and all intermediate updates
+// coalesce into one later write of the newest revision.
+func (r *Recorder) markDirty() {
+	if r.path == "" || r.closed {
+		return
+	}
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
 
-// Persistence failures are visible in diagnostics but never break a model call.
-// One gateway process must own a history file, just like its control directory.
-func (r *Recorder) persist() error {
-	if r.path == "" {
-		return nil
+func (r *Recorder) startWorker() {
+	go r.run()
+}
+
+func (r *Recorder) run() {
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+		r.flush(true)
+		r.mu.Lock()
+		if r.lock != nil {
+			_ = r.lock.Close()
+			r.lock = nil
+		}
+		r.mu.Unlock()
+		close(r.done)
+	}()
+	for {
+		select {
+		case <-r.stop:
+			return
+		default:
+		}
+		select {
+		case <-r.wake:
+			// Debounce: the first dirty update after a quiet period schedules
+			// one write; later updates in the same window are coalesced.
+			if timerC == nil {
+				timer = time.NewTimer(r.flushAfter)
+				timerC = timer.C
+			}
+		case <-timerC:
+			r.flush(false)
+			timerC = nil
+		case <-r.stop:
+			return
+		}
 	}
-	if r.closed {
-		return errors.New("statistics recorder is closed")
+}
+
+// flush writes the newest retained snapshot if it has not already been
+// persisted. Only the worker calls it, except for the synchronous startup
+// write performed by Open before the worker exists. Persistence failures stay
+// visible in Snapshot and are retried on the next interval.
+func (r *Recorder) flush(final bool) {
+	r.mu.Lock()
+	if r.path == "" || (r.closed && !final) || r.revision == r.written {
+		r.mu.Unlock()
+		return
 	}
-	return fsx.WriteJSON(r.path, r.data)
+	snapshot := r.data
+	snapshot.Sessions = append([]Session{}, r.data.Sessions...)
+	snapshot.RecentRequests = append([]Request{}, r.data.RecentRequests...)
+	revision := r.revision
+	path, write := r.path, r.write
+	r.mu.Unlock()
+
+	err := write(path, snapshot)
+
+	r.mu.Lock()
+	if err != nil {
+		r.data.PersistenceError = true
+	} else {
+		r.data.PersistenceError = false
+		if revision > r.written {
+			r.written = revision
+		}
+	}
+	r.mu.Unlock()
 }

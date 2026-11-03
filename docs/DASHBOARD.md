@@ -192,6 +192,15 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
 - Runtime history-write failures are reported without breaking provider calls.
   Such new statistics may not survive a restart. Invalid, unsafe, or incompatible
   history files fail gateway startup rather than being overwritten silently.
+- History persistence runs on one background worker, at most about once per
+  second, so disk latency never delays provider forwarding. In-memory totals and
+  recent requests update synchronously. An abrupt crash can lose roughly the
+  last second of retained statistics; provider responses and dispatch claims are
+  separate durable data and are not affected.
+- A failed write is retried on the next interval with the newest snapshot and
+  sets the visible `persistence_error` status. Gateway shutdown performs one
+  final flush, waiting at most five seconds, and then releases the single-writer
+  lock.
 - One gateway owns each statistics file. Keep different deployments' histories
   separate. Back up/rename an existing history while its gateway is stopped if
   intentionally starting a new history; do not edit it while the gateway runs.
