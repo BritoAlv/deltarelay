@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+const DefaultAuthIntegration = "openai"
+
 type Config struct {
 	GatewayURL          string
 	LocalToken          string
@@ -60,7 +62,7 @@ func New(config Config) (*Handler, error) {
 	}
 	h.nonce = hex.EncodeToString(nonce[:])
 	if config.AuthIntegration == "" {
-		h.config.AuthIntegration = "openai"
+		h.config.AuthIntegration = DefaultAuthIntegration
 	}
 	if config.ControlSocket != "" {
 		if !filepath.IsAbs(config.ControlSocket) {

@@ -34,6 +34,7 @@ then follow [the setup guide](docs/SETUP.md) to generate fresh credentials, conf
 your own VPS, and generate the OpenCode plugin entry for this checkout.
 
 - [OpenCode Desktop and VPS setup](docs/SETUP.md)
+- [Architecture, ownership, and compatibility boundaries](docs/ARCHITECTURE.md)
 - [Relay protocol and recovery contract](docs/PROTOCOL_V2.md)
 - [Remote-host plugins: contract, SSH/HTTPS/Codespaces providers, and examples](docs/REMOTE_PROVIDERS.md)
 - [Sanitized implementation and testing history](docs/SESSION_LOG.md)
@@ -45,6 +46,7 @@ your own VPS, and generate the OpenCode plugin entry for this checkout.
 - [Refactor Phase 5: shared filesystem primitives](docs/REFACTOR_PHASE5.md)
 - [Refactor Phase 6: nonblocking telemetry persistence](docs/REFACTOR_PHASE6.md)
 - [Refactor Phase 7: feature-oriented dashboard and browser regressions](docs/REFACTOR_PHASE7.md)
+- [Refactor Phase 8: thin CLI, aligned defaults, and architecture guide](docs/REFACTOR_PHASE8.md)
 - [Optional recovery for an existing private Codespace profile](docs/CODESPACE_RECOVERY.md)
 
 Private configuration, tokens, logs, conversation exports, and relay state are
@@ -85,6 +87,21 @@ plugin has no npm dependencies, so no `npm install` is needed. The optional
 installed-OpenCode test additionally requires OpenCode V2 on `PATH`. Python 3
 is only needed for optional supervision/recovery helpers and their offline tests
 (`make recovery-test`).
+
+Run the complete offline matrix, including shared contract fixtures, Python
+supervision tests, dashboard type/library tests, the static build, and browser
+smoke tests, with one command:
+
+```sh
+make verify
+```
+
+It performs the offline pnpm install from the documented package store as its
+first dashboard step. The matrix uses temporary local services and mocked
+providers only; it never requires a real model account, a private runtime
+profile, or a live deployment. The installed-OpenCode integration
+(`make opencode-test`) and performance comparisons (`make baseline-benchmark`)
+remain explicit opt-ins.
 
 For a different Linux VPS architecture, cross-compile, for example:
 
@@ -162,7 +179,7 @@ cmp request.json reconstructed.json
 is a diagnostic operation, not part of the regular upload protocol.
 
 Use `--input -` (the default) to read from stdin. Run a subcommand with `-h` for
-its flags. The whole-operation timeout defaults to 30 minutes and is adjustable
+its flags. The whole-operation timeout defaults to four hours and is adjustable
 with, for example, `--timeout 1h`.
 
 ## PC to VPS
@@ -233,7 +250,7 @@ retried by the transport layer; see [PROTOCOL_V2.md](docs/PROTOCOL_V2.md).
    length, and ordered chunk hashes/lengths. The VPS verifies cache contents
    before reporting which unique chunks are missing.
 3. The PC uploads only those chunks using `POST /v1/chunks`. Binary framing
-   avoids base64 expansion. Default 2 MiB batches and four concurrent workers
+   avoids base64 expansion. Default 256 KiB batches and four concurrent workers
    avoid a network round trip per chunk and reuse HTTP connections.
 4. Both manifests and batches use gzip at its fastest level **only when it makes
    the payload smaller**. `--no-compression` disables this. Hashes identify the
@@ -346,11 +363,12 @@ ignored. Corrupt cached chunks are treated as missing and can be repaired.
 ## Tests
 
 ```sh
-go test -race ./...
+make verify
 go test -v ./internal/client -run TestDeltaRoundTripAndRestart
 go test ./internal/chunker -run '^$' -bench BenchmarkSplit -benchmem
 go test ./internal/chunker -run '^$' -fuzz FuzzRoundTrip -fuzztime 10s
 node --test integration/opencode/*.test.mjs
+pnpm test:browser
 DELTARELAY_TEST_OPENCODE=1 go test -v ./internal/gateway -run TestInstalledOpenCodePlugin -count=1
 ```
 

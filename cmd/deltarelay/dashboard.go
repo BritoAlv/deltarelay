@@ -16,13 +16,13 @@ import (
 func dashboardCommand(ctx context.Context, args []string, stderr io.Writer) error {
 	flags := flag.NewFlagSet("dashboard", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	listen := flags.String("listen", "127.0.0.1:8790", "loopback dashboard listen address")
-	endpoint := flags.String("gateway", "http://127.0.0.1:8788", "loopback gateway HTTP origin")
-	assets := flags.String("assets", "web/dist", "Astro build directory; empty serves only the development API")
+	listen := flags.String("listen", defaultDashboardListen, "loopback dashboard listen address")
+	endpoint := flags.String("gateway", defaultGatewayOrigin, "loopback gateway HTTP origin")
+	assets := flags.String("assets", defaultAssets, "Astro build directory; empty serves only the development API")
 	localFile := flags.String("local-token-file", defaultEnv("DELTARELAY_LOCAL_TOKEN_FILE", ""), "private local gateway token file; otherwise DELTARELAY_LOCAL_TOKEN")
 	controlSocket := flags.String("control-socket", "", "optional private supervisor Unix socket; omission keeps controls disabled")
 	serviceFile := flags.String("opencode-service-file", "", "optional private OpenCode V2 service registration for read-only OAuth expiry metadata")
-	authIntegration := flags.String("auth-integration", "openai", "OpenCode integration whose active OAuth expiry is displayed")
+	authIntegration := flags.String("auth-integration", dashboard.DefaultAuthIntegration, "OpenCode integration whose active OAuth expiry is displayed")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -44,25 +44,6 @@ func dashboardCommand(ctx context.Context, args []string, stderr io.Writer) erro
 	}
 	defer handler.Close()
 	srv := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 16 << 10, BaseContext: func(net.Listener) context.Context { return ctx }}
-	done, shutdownDone := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(shutdownDone)
-		select {
-		case <-ctx.Done():
-			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if srv.Shutdown(shutdown) != nil {
-				_ = srv.Close()
-			}
-		case <-done:
-		}
-	}()
 	fmt.Fprintf(stderr, "DeltaRelay dashboard: http://%s (local access only; controls require a configured supervisor)\n", *listen)
-	err = srv.ListenAndServe()
-	close(done)
-	<-shutdownDone
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
+	return runHTTPServer(ctx, srv, 5*time.Second, srv.ListenAndServe)
 }

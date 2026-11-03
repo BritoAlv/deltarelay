@@ -26,6 +26,16 @@ import (
 	"deltarelay/internal/upstream"
 )
 
+// Defaults are owned by the server because they define its execution limits.
+// The CLI and constructor normalization share these values.
+const (
+	DefaultMaxConcurrent     = 8
+	DefaultHeaderTimeout     = 5 * time.Minute
+	DefaultIdleTimeout       = 15 * time.Minute
+	DefaultMaxJournalRecords = 100000
+	DefaultMaxRuntime        = 2 * time.Hour
+)
+
 type Config struct {
 	Store                   *store.Store
 	Token                   string
@@ -67,7 +77,7 @@ func New(config Config) (*Server, error) {
 		return nil, errors.New("maximum body size must be between 1 and 256 MiB")
 	}
 	if config.MaxConcurrent == 0 {
-		config.MaxConcurrent = 8
+		config.MaxConcurrent = DefaultMaxConcurrent
 	}
 	if config.MaxConcurrent < 1 || config.MaxConcurrent > 64 {
 		return nil, errors.New("maximum concurrency must be between 1 and 64")
@@ -77,22 +87,31 @@ func New(config Config) (*Server, error) {
 		return nil, err
 	}
 	if config.HeaderTimeout == 0 {
-		config.HeaderTimeout = 5 * time.Minute
+		config.HeaderTimeout = DefaultHeaderTimeout
 	}
 	if config.IdleTimeout == 0 {
-		config.IdleTimeout = 15 * time.Minute
+		config.IdleTimeout = DefaultIdleTimeout
 	}
 	if config.HeaderTimeout < 0 || config.IdleTimeout < 0 {
 		return nil, errors.New("timeouts must be positive")
 	}
 	if config.MaxJournalRecords == 0 {
-		config.MaxJournalRecords = 100000
+		config.MaxJournalRecords = DefaultMaxJournalRecords
 	}
 	if config.MaxRuntime == 0 {
-		config.MaxRuntime = 2 * time.Hour
+		config.MaxRuntime = DefaultMaxRuntime
 	}
 	if config.MaxRuntime <= 0 || config.MaxJournalRecords < 1 {
 		return nil, errors.New("invalid runtime or journal limit")
+	}
+	if config.ResponseRetention == 0 {
+		config.ResponseRetention = mailbox.DefaultRetention
+	}
+	if config.MaxResponseBytes == 0 {
+		config.MaxResponseBytes = mailbox.DefaultResponseBytes
+	}
+	if config.MaxResponseStorageBytes == 0 {
+		config.MaxResponseStorageBytes = mailbox.DefaultStorageBytes
 	}
 	if config.Context == nil {
 		config.Context = context.Background()

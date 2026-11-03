@@ -14,6 +14,7 @@ import (
 
 	"deltarelay/internal/chunker"
 	"deltarelay/internal/protocol"
+	"deltarelay/internal/transfer"
 )
 
 type localChunk struct {
@@ -24,17 +25,17 @@ type localChunk struct {
 // Sync spools the input to a private temporary file, so memory does not grow
 // with conversation size and changes to an input file cannot invalidate chunks
 // already hashed. The temporary plaintext spool is removed when Sync returns.
-func (c *Client) Sync(ctx context.Context, source io.Reader) (Stats, error) {
+func (c *Client) Sync(ctx context.Context, source io.Reader) (transfer.Stats, error) {
 	stats, _, err := c.sync(ctx, source, true)
 	return stats, err
 }
 
-func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (Stats, protocol.Manifest, error) {
+func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (transfer.Stats, protocol.Manifest, error) {
 	started := time.Now()
-	var stats Stats
+	var stats transfer.Stats
 	var manifest protocol.Manifest
 	var sent, requests atomic.Int64
-	finish := func(err error) (Stats, protocol.Manifest, error) {
+	finish := func(err error) (transfer.Stats, protocol.Manifest, error) {
 		stats.RequestBodyBytesSent = sent.Load()
 		stats.Requests = requests.Load()
 		stats.DurationMillis = time.Since(started).Milliseconds()

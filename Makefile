@@ -1,4 +1,4 @@
-.PHONY: build test race vet benchmark baseline-benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test dashboard-browser-test
+.PHONY: build test race vet benchmark baseline-benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test dashboard-browser-test verify
 
 build:
 	go build -trimpath -o bin/deltarelay ./cmd/deltarelay
@@ -42,3 +42,19 @@ dashboard-test:
 
 dashboard-browser-test:
 	pnpm test:browser
+
+# Full offline matrix. Requires Go, Node, Python, and the documented pnpm
+# offline store; never uses real accounts, private profiles, or live services.
+# Optional installed-OpenCode (make opencode-test) and performance
+# (make baseline-benchmark) checks stay separate.
+verify:
+	$(MAKE) build
+	$(MAKE) race
+	$(MAKE) vet
+	$(MAKE) plugin-test
+	$(MAKE) recovery-test
+	$(MAKE) dashboard-install
+	$(MAKE) dashboard-build
+	$(MAKE) dashboard-test
+	$(MAKE) dashboard-browser-test
+	git diff --check

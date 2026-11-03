@@ -18,6 +18,7 @@ import (
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/server"
 	"deltarelay/internal/store"
+	"deltarelay/internal/transfer"
 	"deltarelay/internal/upstream"
 )
 
@@ -45,7 +46,7 @@ func TestCLITransfer(t *testing.T) {
 		if err := run(context.Background(), []string{"sync", "--server", ts.URL, "--input", input}, &stdout, &stderr); err != nil {
 			t.Fatalf("sync: %v %s", err, stderr.String())
 		}
-		var stats client.Stats
+		var stats transfer.Stats
 		if err := json.Unmarshal(stdout.Bytes(), &stats); err != nil || stats.Hash != protocol.Sum(body) {
 			t.Fatalf("bad statistics: %s", stdout.String())
 		}

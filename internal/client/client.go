@@ -13,7 +13,6 @@ import (
 
 	"deltarelay/internal/chunker"
 	"deltarelay/internal/protocol"
-	"deltarelay/internal/transfer"
 )
 
 type Config struct {
@@ -40,6 +39,19 @@ type Config struct {
 	TempDir        string
 }
 
+// Defaults are owned by the client because they define its transport and
+// recovery behavior. CLI flags reuse them where the command has the same
+// semantics; deliberately different composition defaults stay at the call site.
+const (
+	DefaultWorkers       = 4
+	DefaultBatchBytes    = 256 << 10
+	DefaultHeaderTimeout = 5 * time.Minute
+	DefaultRetryWindow   = time.Hour
+	DefaultRetryMin      = time.Second
+	DefaultRetryMax      = 30 * time.Second
+	DefaultStallTimeout  = 2 * time.Minute
+)
+
 type Client struct {
 	config     Config
 	http       *http.Client
@@ -52,9 +64,6 @@ type Client struct {
 
 var ErrUploadBudget = errors.New("upload budget exceeded")
 var ErrBodyLimit = errors.New("input exceeds configured body or chunk-count limit")
-
-// Stats is a compatibility alias while callers migrate to the semantic owner.
-type Stats = transfer.Stats
 
 type HTTPError struct {
 	Status     int
@@ -100,13 +109,13 @@ func New(config Config) (*Client, error) {
 		return nil, err
 	}
 	if config.Workers == 0 {
-		config.Workers = 4
+		config.Workers = DefaultWorkers
 	}
 	if config.Workers < 1 || config.Workers > 32 {
 		return nil, errors.New("workers must be between 1 and 32")
 	}
 	if config.BatchBytes == 0 {
-		config.BatchBytes = 256 << 10
+		config.BatchBytes = DefaultBatchBytes
 	}
 	if config.BatchBytes < config.Chunking.Max+protocol.ChunkHeaderSize+protocol.BatchHeaderSize || config.BatchBytes > protocol.MaxUploadBatchBytes {
 		return nil, errors.New("batch size must fit a maximum-sized chunk and be at most 16 MiB")
@@ -121,16 +130,16 @@ func New(config Config) (*Client, error) {
 		return nil, errors.New("upload budget must be non-negative")
 	}
 	if config.RetryWindow == 0 {
-		config.RetryWindow = time.Hour
+		config.RetryWindow = DefaultRetryWindow
 	}
 	if config.RetryMin == 0 {
-		config.RetryMin = time.Second
+		config.RetryMin = DefaultRetryMin
 	}
 	if config.RetryMax == 0 {
-		config.RetryMax = 30 * time.Second
+		config.RetryMax = DefaultRetryMax
 	}
 	if config.StallTimeout == 0 {
-		config.StallTimeout = 2 * time.Minute
+		config.StallTimeout = DefaultStallTimeout
 	}
 	if config.RetryWindow < 0 || config.RetryMin <= 0 || config.RetryMax < config.RetryMin || config.StallTimeout <= 0 {
 		return nil, errors.New("invalid retry or stall timeouts")
@@ -151,7 +160,7 @@ func New(config Config) (*Client, error) {
 		t.MaxConnsPerHost = 0
 		t.ResponseHeaderTimeout = config.HeaderTimeout
 		if t.ResponseHeaderTimeout == 0 {
-			t.ResponseHeaderTimeout = 5 * time.Minute
+			t.ResponseHeaderTimeout = DefaultHeaderTimeout
 		}
 		transport = &http.Client{Transport: t}
 	}

@@ -35,6 +35,22 @@ var (
 const frameHeader = 4 + sha256.Size
 const frameMax = 32 << 10
 
+// Defaults are owned here because the mailbox owns response retention,
+// response storage, and retained-record limits. Callers that expose these
+// settings as flags should reference them instead of duplicating literals.
+const (
+	DefaultRetention     = 24 * time.Hour
+	DefaultStorageBytes  = 4 << 30
+	DefaultResponseBytes = 256 << 20
+	DefaultMaxRecords    = 100000
+
+	MinRetention = time.Second
+
+	// MinStorageBytes is the smallest aggregate response storage limit that
+	// can hold one empty framed response.
+	MinStorageBytes = frameHeader + 1
+)
+
 type Config struct {
 	Retention        time.Duration
 	MaxBytes         int64
@@ -67,18 +83,18 @@ type Mailbox struct {
 
 func Open(directory string, config Config) (*Mailbox, error) {
 	if config.Retention == 0 {
-		config.Retention = 24 * time.Hour
+		config.Retention = DefaultRetention
 	}
 	if config.MaxBytes == 0 {
-		config.MaxBytes = 4 << 30
+		config.MaxBytes = DefaultStorageBytes
 	}
 	if config.MaxResponseBytes == 0 {
-		config.MaxResponseBytes = 256 << 20
+		config.MaxResponseBytes = DefaultResponseBytes
 	}
 	if config.MaxRecords == 0 {
-		config.MaxRecords = 100000
+		config.MaxRecords = DefaultMaxRecords
 	}
-	if config.Retention < time.Second || config.MaxBytes < frameHeader+1 || config.MaxResponseBytes < 1 || config.MaxRecords < 1 {
+	if config.Retention < MinRetention || config.MaxBytes < MinStorageBytes || config.MaxResponseBytes < 1 || config.MaxRecords < 1 {
 		return nil, errors.New("invalid mailbox limits")
 	}
 	for _, name := range []string{directory, filepath.Join(directory, "records"), filepath.Join(directory, "responses")} {

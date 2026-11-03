@@ -23,6 +23,10 @@ import (
 	"deltarelay/internal/upstream"
 )
 
+// DefaultMaxConcurrent is the gateway's default provider-request admission
+// limit. The CLI registers its flag from this value.
+const DefaultMaxConcurrent = 8
+
 type Config struct {
 	Client                *client.Client
 	LocalToken            string
@@ -70,7 +74,7 @@ func New(config Config) (*Gateway, error) {
 		return nil, errors.New("invalid gateway body limit")
 	}
 	if config.MaxConcurrent == 0 {
-		config.MaxConcurrent = 8
+		config.MaxConcurrent = DefaultMaxConcurrent
 	}
 	if config.MaxConcurrent < 1 || config.MaxConcurrent > 64 || config.RequestTimeout < 0 {
 		return nil, errors.New("invalid gateway concurrency or timeout")

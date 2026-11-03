@@ -18,6 +18,7 @@ import (
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/server"
 	"deltarelay/internal/store"
+	"deltarelay/internal/transfer"
 )
 
 const token = "test-only-secret-token"
@@ -57,7 +58,7 @@ func data(size int) []byte {
 	return b
 }
 
-func assertRoundTrip(t *testing.T, c *client.Client, body []byte) client.Stats {
+func assertRoundTrip(t *testing.T, c *client.Client, body []byte) transfer.Stats {
 	t.Helper()
 	stats, err := c.Sync(context.Background(), bytes.NewReader(body))
 	if err != nil {

@@ -282,10 +282,11 @@ use stat/read and follow symlinks; checkpoint/history/provider readers explicitl
 reject symlinks where implemented. Do not silently broaden or tighten those
 different contracts while extracting filesystem helpers.
 
-Known documentation drift is recorded, not repaired here: README still describes
-a 2 MiB batch and 30-minute transfer timeout; code currently uses 256 KiB and 4h.
-Top-level CLI help calls the dashboard read-only despite optional protected
-supervisor controls. Defaults/help alignment remains Phase 8.
+Known documentation drift at baseline time was recorded, not repaired, in this
+phase: README described a 2 MiB batch and 30-minute transfer timeout while the
+code used 256 KiB and 4h; top-level CLI help called the dashboard read-only
+despite optional protected supervisor controls. These were corrected in Phase 8
+(see [`REFACTOR_PHASE8.md`](REFACTOR_PHASE8.md)).
 
 ## 5. Behavior-to-regression matrix
 

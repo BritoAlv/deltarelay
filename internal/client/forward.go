@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"deltarelay/internal/protocol"
+	"deltarelay/internal/transfer"
 	"deltarelay/internal/upstream"
 )
 
@@ -36,12 +37,12 @@ func (e *RequestError) Error() string {
 // The local stream stays open across PC-to-VPS outages. The caller must close
 // Body and keep ctx alive. Successful streaming does NOT acknowledge durable
 // local storage: responses remain on the VPS until explicit ACK or expiry.
-func (c *Client) Forward(ctx context.Context, request Request, body io.Reader) (*http.Response, Stats, error) {
+func (c *Client) Forward(ctx context.Context, request Request, body io.Reader) (*http.Response, transfer.Stats, error) {
 	if !protocol.ValidRequestID(request.ID) || request.Method != http.MethodPost {
-		return nil, Stats{}, errors.New("invalid forwarding request ID or method")
+		return nil, transfer.Stats{}, errors.New("invalid forwarding request ID or method")
 	}
 	if err := upstream.ValidateHeaders(request.Headers); err != nil {
-		return nil, Stats{}, err
+		return nil, transfer.Stats{}, err
 	}
 	started := time.Now()
 	stats, manifest, err := c.sync(ctx, body, false)
