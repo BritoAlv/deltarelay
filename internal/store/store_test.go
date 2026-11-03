@@ -101,6 +101,34 @@ func TestInvalidUploadsAndCanceledAssembly(t *testing.T) {
 	}
 }
 
+func TestUsageAccountingSurvivesPostRenameSyncFailure(t *testing.T) {
+	directory := t.TempDir()
+	s, err := OpenLimited(directory, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure := errors.New("injected directory sync failure")
+	original := syncDirectories
+	syncDirectories = func(string, int) error { return failure }
+	t.Cleanup(func() { syncDirectories = original })
+
+	data := []byte("durable chunk")
+	chunk := protocol.Chunk{Hash: protocol.Sum(data), Size: int64(len(data))}
+	if err := s.PutChunk(chunk, data); !errors.Is(err, failure) {
+		t.Fatalf("post-rename sync failure was not returned: %v", err)
+	}
+	if used, _ := s.Usage(); used != int64(len(data)) {
+		t.Fatalf("rename followed by sync failure was not accounted: %d", used)
+	}
+	restarted, err := OpenLimited(directory, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used, _ := restarted.Usage(); used != int64(len(data)) {
+		t.Fatalf("reopened store lost accounted bytes: %d", used)
+	}
+}
+
 func TestQuotaAndAnonymousReconstruction(t *testing.T) {
 	directory := t.TempDir()
 	s, err := OpenLimited(directory, 10)

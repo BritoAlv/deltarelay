@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/transfer"
 )
 
@@ -359,28 +360,5 @@ func (r *Recorder) persist() error {
 	if r.closed {
 		return errors.New("statistics recorder is closed")
 	}
-	f, err := os.CreateTemp(filepath.Dir(r.path), ".stats-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err := json.NewEncoder(f).Encode(r.data); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(f.Name(), r.path); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(r.path))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return fsx.WriteJSON(r.path, r.data)
 }

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/protocol"
 )
 
@@ -84,7 +85,7 @@ func Open(directory string, config Config) (*Mailbox, error) {
 		if err := os.MkdirAll(name, 0700); err != nil {
 			return nil, err
 		}
-		if err := syncDir(filepath.Dir(name)); err != nil {
+		if err := fsx.SyncDir(filepath.Dir(name)); err != nil {
 			return nil, err
 		}
 	}
@@ -97,7 +98,7 @@ func Open(directory string, config Config) (*Mailbox, error) {
 			return nil, err
 		}
 		m.stateID = hex.EncodeToString(id[:])
-		if err := writeJSON(identity, m.stateID); err != nil {
+		if err := fsx.WriteJSON(identity, m.stateID); err != nil {
 			return nil, err
 		}
 	} else if err != nil {
@@ -132,7 +133,7 @@ func Open(directory string, config Config) (*Mailbox, error) {
 			e.record.State = protocol.Interrupted
 			e.record.ErrorCode = "server_restarted_dispatch_unknown"
 			e.record.Finished = time.Now().Unix()
-			e.record.Expires = time.Now().Add(config.Retention).Unix()+1
+			e.record.Expires = time.Now().Add(config.Retention).Unix() + 1
 			if err := m.save(e.record); err != nil {
 				return nil, err
 			}
@@ -214,7 +215,7 @@ func (m *Mailbox) payload(id string) string {
 	return filepath.Join(m.directory, "responses", protocol.Sum([]byte(id)))
 }
 func (m *Mailbox) save(record protocol.RequestStatus) error {
-	return writeJSON(filepath.Join(m.directory, "records", protocol.Sum([]byte(record.ID))), record)
+	return fsx.WriteJSON(filepath.Join(m.directory, "records", protocol.Sum([]byte(record.ID))), record)
 }
 func (m *Mailbox) notify() { close(m.changed); m.changed = make(chan struct{}) }
 
@@ -337,7 +338,7 @@ func (m *Mailbox) Append(id string, data []byte) error {
 		return err
 	}
 	if e.encoded == 0 {
-		if err := syncDir(filepath.Dir(m.payload(id))); err != nil {
+		if err := fsx.SyncDir(filepath.Dir(m.payload(id))); err != nil {
 			return err
 		}
 	}
@@ -365,7 +366,7 @@ func (m *Mailbox) Finish(id, state, code, hash string) error {
 	r := e.record
 	r.State, r.ErrorCode, r.Hash = state, code, hash
 	r.Finished = time.Now().Unix()
-	r.Expires = time.Now().Add(m.config.Retention).Unix()+1
+	r.Expires = time.Now().Add(m.config.Retention).Unix() + 1
 	if e.cancel != nil {
 		e.cancel()
 		e.cancel = nil
@@ -408,7 +409,7 @@ func (m *Mailbox) Read(id string, offset int64) (protocol.RequestStatus, []byte,
 	}
 	defer f.Close()
 	result := make([]byte, 0, min(int64(protocol.ResponseSegmentBytes), r.Bytes-offset))
-	startFrame := sort.Search(len(e.frames),func(i int)bool{return e.frames[i].offset+int64(e.frames[i].size)>offset})
+	startFrame := sort.Search(len(e.frames), func(i int) bool { return e.frames[i].offset+int64(e.frames[i].size) > offset })
 	for _, frame := range e.frames[startFrame:] {
 		data := make([]byte, frame.size)
 		if _, err := f.ReadAt(data, frame.position); err != nil {
@@ -448,7 +449,7 @@ func (m *Mailbox) Cancel(id string, claim func() error) (protocol.RequestStatus,
 	r := e.record
 	r.State, r.ErrorCode = protocol.Cancelled, "client_cancelled"
 	r.Finished = time.Now().Unix()
-	r.Expires = time.Now().Add(m.config.Retention).Unix()+1
+	r.Expires = time.Now().Add(m.config.Retention).Unix() + 1
 	err := m.save(r)
 	if err != nil {
 		m.poisoned = true
@@ -490,7 +491,7 @@ func (m *Mailbox) removeResponse(e *entry) error {
 	if err := os.Remove(m.payload(e.record.ID)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if err := syncDir(filepath.Join(m.directory, "responses")); err != nil {
+	if err := fsx.SyncDir(filepath.Join(m.directory, "responses")); err != nil {
 		return err
 	}
 	m.used -= e.encoded
@@ -500,7 +501,9 @@ func (m *Mailbox) removeResponse(e *entry) error {
 
 func (m *Mailbox) expire(e *entry) error {
 	if e.record.Acknowledged || e.record.Expired {
-		if e.encoded != 0 { return m.removeResponse(e) }
+		if e.encoded != 0 {
+			return m.removeResponse(e)
+		}
 		return nil
 	}
 	if !protocol.Terminal(e.record.State) || time.Now().Unix() < e.record.Expires {

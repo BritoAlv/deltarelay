@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/protocol"
 )
 
@@ -60,37 +61,6 @@ func privateRead(path string, limit int64) ([]byte, error) {
 		return nil, errors.New("local checkpoint must be a small private regular file")
 	}
 	return io.ReadAll(io.LimitReader(f, limit+1))
-}
-
-func atomicJSON(path string, value any) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".pending-*")
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	defer os.Remove(f.Name())
-	if err := json.NewEncoder(f).Encode(value); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(f.Name(), path); err != nil {
-		return err
-	}
-	return syncDirectory(filepath.Dir(path))
-}
-
-func syncDirectory(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return f.Sync()
 }
 
 func (c *Client) openControls() error {
@@ -173,7 +143,7 @@ func (c *Client) savePin(id string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	return atomicJSON(path, id)
+	return fsx.WriteJSON(path, id)
 }
 
 // QueueCancel durably records an explicit cancellation before attempting it.
@@ -200,7 +170,7 @@ func (c *Client) QueueCancel(id string) error {
 	}
 	op := pendingCancel{ID: id, StateID: stateID}
 	if c.config.ControlDir != "" {
-		if err := atomicJSON(filepath.Join(c.config.ControlDir, protocol.Sum([]byte(id))+".cancel.json"), op); err != nil {
+		if err := fsx.WriteJSON(filepath.Join(c.config.ControlDir, protocol.Sum([]byte(id))+".cancel.json"), op); err != nil {
 			ctl.lastError = "cancel_queue_persistence_failed"
 			return err
 		}
@@ -278,7 +248,7 @@ func (c *Client) controlLoop() {
 						err = nil
 					}
 					if err == nil {
-						err = syncDirectory(c.config.ControlDir)
+						err = fsx.SyncDir(c.config.ControlDir)
 					}
 				}
 				if err == nil {

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"deltarelay/internal/client"
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/gateway"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/upstream"
@@ -175,15 +176,11 @@ func tokenCommand(args []string, stdout, stderr io.Writer) error {
 	if _, err := rand.Read(secret[:]); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(*output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	_, err := fsx.CreateExclusive(*output, 0600, func(f *os.File) error {
+		_, err := fmt.Fprintln(f, hex.EncodeToString(secret[:]))
+		return err
+	})
 	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := fmt.Fprintln(f, hex.EncodeToString(secret[:])); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
 		return err
 	}
 	return json.NewEncoder(stdout).Encode(map[string]string{"token_file": *output})

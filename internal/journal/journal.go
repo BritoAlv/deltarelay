@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/protocol"
 )
 
@@ -30,17 +31,8 @@ func Open(directory string, limit int) (*Journal, error) {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
-	parent, err := os.Open(filepath.Dir(directory))
-	if err != nil {
+	if err := fsx.SyncDir(filepath.Dir(directory)); err != nil {
 		return nil, err
-	}
-	err = parent.Sync()
-	closeErr := parent.Close()
-	if err != nil {
-		return nil, err
-	}
-	if closeErr != nil {
-		return nil, closeErr
 	}
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -67,30 +59,22 @@ func (j *Journal) Claim(id, fingerprint string) error {
 	if j.count >= j.limit {
 		return ErrFull
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	data := struct {
+		Fingerprint string `json:"fingerprint"`
+		Created     int64  `json:"created_unix"`
+	}{fingerprint, time.Now().Unix()}
+	// Even an incomplete marker is kept: uncertain dispatch must not be retried.
+	created, err := fsx.CreateExclusive(path, 0600, func(f *os.File) error {
+		return json.NewEncoder(f).Encode(data)
+	})
+	if created {
+		j.count++
+	}
 	if errors.Is(err, os.ErrExist) {
 		return ErrUsed
 	}
 	if err != nil {
 		return err
 	}
-	j.count++
-	// Even an incomplete marker is kept: uncertain dispatch must not be retried.
-	defer f.Close()
-	data := struct {
-		Fingerprint string `json:"fingerprint"`
-		Created     int64  `json:"created_unix"`
-	}{fingerprint, time.Now().Unix()}
-	if err := json.NewEncoder(f).Encode(data); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	dir, err := os.Open(j.directory)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return fsx.SyncDir(j.directory)
 }

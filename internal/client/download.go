@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"syscall"
 
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/protocol"
 )
 
@@ -79,7 +80,7 @@ func (c *Client) openDownload(ctx context.Context, kind, key, output string) (*d
 		if err := f.Sync(); err != nil {
 			return nil, err
 		}
-		if err := atomicJSON(metadata, checkpoint); err != nil {
+		if err := fsx.WriteJSON(metadata, checkpoint); err != nil {
 			return nil, err
 		}
 	}
@@ -103,7 +104,7 @@ func (d *download) publish(size int64, hash string) error {
 	if err := os.Link(d.file.Name(), d.output); err != nil {
 		return err
 	}
-	if err := syncDirectory(filepath.Dir(d.output)); err != nil {
+	if err := fsx.SyncDir(filepath.Dir(d.output)); err != nil {
 		return err
 	}
 	if err := os.Remove(d.file.Name()); err != nil {
@@ -112,7 +113,7 @@ func (d *download) publish(size int64, hash string) error {
 	if err := os.Remove(d.metadata); err != nil {
 		return err
 	}
-	return syncDirectory(filepath.Dir(d.output))
+	return fsx.SyncDir(filepath.Dir(d.output))
 }
 
 // Fetch uses bounded HTTP byte ranges and private persistent checkpoints. A

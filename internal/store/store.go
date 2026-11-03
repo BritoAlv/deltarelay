@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"deltarelay/internal/fsx"
 	"deltarelay/internal/protocol"
 )
 
@@ -20,6 +21,10 @@ var (
 	ErrUnavailableChunk = errors.New("chunk unavailable or corrupt")
 	ErrQuota            = errors.New("persistent cache byte limit reached")
 )
+
+// syncDirectories is a test seam for exercising a rename that succeeds before
+// a later directory-sync failure.
+var syncDirectories = fsx.SyncDirChain
 
 type Store struct {
 	root      string
@@ -54,17 +59,8 @@ func OpenLimited(root string, maxBytes int64) (*Store, error) {
 		return nil, err
 	}
 	for i := len(created) - 1; i >= 0; i-- {
-		parent, err := os.Open(filepath.Dir(created[i]))
-		if err != nil {
+		if err := fsx.SyncDir(filepath.Dir(created[i])); err != nil {
 			return nil, err
-		}
-		err = parent.Sync()
-		closeErr := parent.Close()
-		if err != nil {
-			return nil, err
-		}
-		if closeErr != nil {
-			return nil, closeErr
 		}
 	}
 	root, err := filepath.Abs(root)
@@ -307,40 +303,10 @@ func atomicWrite(path string, write func(*os.File) error) error {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(directory, ".pending-*")
-	if err != nil {
-		return err
-	}
-	temporary := f.Name()
-	defer os.Remove(temporary)
-	defer f.Close()
-	if err := write(f); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporary, path); err != nil {
+	if err := fsx.Replace(path, write); err != nil {
 		return err
 	}
 	// Persist directory entries before acknowledging the write. This also covers
 	// newly created shard directories, not just the file's immediate parent.
-	for _, name := range []string{directory, filepath.Dir(directory), filepath.Dir(filepath.Dir(directory))} {
-		dir, err := os.Open(name)
-		if err != nil {
-			return err
-		}
-		err = dir.Sync()
-		closeErr := dir.Close()
-		if err != nil {
-			return err
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-	}
-	return nil
+	return syncDirectories(directory, 3)
 }

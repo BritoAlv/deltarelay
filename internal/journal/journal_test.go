@@ -2,12 +2,33 @@ package journal
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"deltarelay/internal/protocol"
 )
+
+func TestIncompleteClaimMarkerStillBlocksReplay(t *testing.T) {
+	directory := t.TempDir()
+	const id = "uncertain-dispatch-request-0001"
+	marker := filepath.Join(directory, protocol.Sum([]byte(id)))
+	if err := os.WriteFile(marker, []byte(`{"fingerprint":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	j, err := Open(directory, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Claim(id, protocol.Sum([]byte("different body"))); !errors.Is(err, ErrUsed) {
+		t.Fatalf("incomplete marker permitted replay: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("generic cleanup removed an uncertain claim: %v", err)
+	}
+}
 
 func TestDurableExclusiveClaimsAndLimit(t *testing.T) {
 	directory := t.TempDir()
