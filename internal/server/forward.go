@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -15,8 +13,11 @@ import (
 	"deltarelay/internal/upstream"
 )
 
+// forward keeps the legacy response lifetime tied to the requesting client. It
+// shares validation, header normalization, and claim fingerprints with durable
+// submission but deliberately does not use the durable background job service.
 func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
-	if !s.policy.Enabled() {
+	if !s.jobs.Enabled() {
 		writeError(w, http.StatusServiceUnavailable, "provider forwarding is not configured")
 		return
 	}
@@ -24,51 +25,30 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnsupportedMediaType, "application/json required")
 		return
 	}
-	reader, closeBody, err := decodedBody(w, r, protocol.MaxManifestBytes)
-	if err != nil {
+	var input protocol.ForwardRequest
+	switch decodeBoundedJSON(w, r, protocol.MaxManifestBytes, &input) {
+	case decodeEncoding:
 		writeError(w, http.StatusBadRequest, "invalid forwarding encoding")
 		return
-	}
-	defer closeBody()
-	data, err := io.ReadAll(reader)
-	if err != nil || len(data) > protocol.MaxManifestBytes {
+	case decodeTooLarge:
 		writeError(w, http.StatusRequestEntityTooLarge, "invalid or oversized forwarding metadata")
 		return
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var input protocol.ForwardRequest
-	if decoder.Decode(&input) != nil {
+	case decodeSyntax:
 		writeError(w, http.StatusBadRequest, "invalid forwarding metadata")
 		return
-	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
+	case decodeTrailing:
 		writeError(w, http.StatusBadRequest, "expected one forwarding object")
 		return
 	}
-	if input.Version != protocol.Version || input.Method != http.MethodPost || !protocol.ValidRequestID(input.ID) {
+	if !validProviderEnvelope(input, protocol.Version, "") {
 		writeError(w, http.StatusBadRequest, "invalid version, method, or request ID")
 		return
 	}
-	if err := input.Manifest.Validate(s.maxBodySize, protocol.DefaultMaxChunks); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	input, fingerprint, err := prepareProviderRequest(s.policy, s.maxBodySize, input)
+	if err != nil {
+		s.providerValidationError(w, err, true)
 		return
 	}
-	if err := upstream.ValidateHeaders(input.Headers); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if _, err := s.policy.Match(input.Target); err != nil {
-		writeError(w, http.StatusForbidden, err.Error())
-		return
-	}
-	input.Headers = upstream.CleanHeaders(input.Headers)
-	if encoding := input.Headers.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
-		writeError(w, http.StatusBadRequest, "forwarding requires decoded content")
-		return
-	}
-	input.Headers.Del("Content-Encoding")
 	body, err := s.store.Reconstruct(r.Context(), input.Manifest)
 	if err != nil {
 		switch {
@@ -85,13 +65,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 	if r.Context().Err() != nil {
 		return
 	}
-	fingerprint, _ := json.Marshal(struct {
-		Target  string
-		Headers http.Header
-		Hash    string
-		Size    int64
-	}{input.Target, input.Headers, input.Manifest.Hash, input.Manifest.Size})
-	if err := s.journal.Claim(input.ID, protocol.Sum(fingerprint)); err != nil {
+	if err := s.jobs.Claim(input.ID, fingerprint); err != nil {
 		switch {
 		case errors.Is(err, journal.ErrUsed):
 			writeError(w, http.StatusConflict, err.Error())
@@ -111,7 +85,7 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 	}
 	request.Header = input.Headers
 	request.ContentLength = input.Manifest.Size
-	response, err := s.upstream.Do(request)
+	response, err := s.jobs.upstream.Do(request)
 	if err != nil {
 		if ctx.Err() == nil {
 			writeError(w, http.StatusBadGateway, "provider connection failed; request may have been sent; automatic replay refused")
@@ -123,9 +97,9 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "provider redirect refused; no direct-provider fallback")
 		return
 	}
-	timer := time.AfterFunc(s.idleTimeout, cancel)
+	timer := time.AfterFunc(s.jobs.idleTimeout, cancel)
 	defer timer.Stop()
-	response.Body = &activityBody{ReadCloser: response.Body, timer: timer, idle: s.idleTimeout}
+	response.Body = &activityBody{ReadCloser: response.Body, timer: timer, idle: s.jobs.idleTimeout}
 	w.Header().Set("X-DeltaRelay-Upstream", "1")
 	w.Header().Set("X-DeltaRelay-Body-Hash", input.Manifest.Hash)
 	w.Header().Set("X-DeltaRelay-Request-ID", input.ID)

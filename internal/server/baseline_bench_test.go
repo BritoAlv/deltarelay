@@ -90,7 +90,7 @@ func benchmarkGatewayRequestStartup(b *testing.B, persistent, concurrent bool) {
 		const id = "baseline-background-request"
 		fingerprint := protocol.Sum([]byte("synthetic-background-request"))
 		if _, created, err := h.mailbox.Accept(id, fingerprint, protocol.Sum(nil), func() error {
-			return h.journal.Claim(id, fingerprint)
+			return h.jobs.journal.Claim(id, fingerprint)
 		}); err != nil || !created {
 			b.Fatalf("background acceptance: %t %v", created, err)
 		}

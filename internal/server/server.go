@@ -4,7 +4,6 @@ package server
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -18,7 +17,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"deltarelay/internal/journal"
@@ -52,20 +50,10 @@ type Server struct {
 	slots             chan struct{}
 	mux               *http.ServeMux
 	policy            *upstream.Policy
-	upstream          *http.Client
-	journal           *journal.Journal
-	idleTimeout       time.Duration
-	forwardSlots      chan struct{}
 	responseSlots     chan struct{}
 	mailbox           *mailbox.Mailbox
-	jobsContext       context.Context
-	stopJobs          context.CancelFunc
-	jobs              sync.WaitGroup
-	closeOnce         sync.Once
-	maxRuntime        time.Duration
 	maxJournalRecords int
-	lifecycle         sync.Mutex
-	closing           bool
+	jobs              *jobService
 }
 
 func New(config Config) (*Server, error) {
@@ -115,23 +103,25 @@ func New(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	jobsContext, stopJobs := context.WithCancel(config.Context)
+	var requests *journal.Journal
+	if policy.Enabled() {
+		requests, err = journal.Open(filepath.Join(config.Store.Directory(), "requests"), config.MaxJournalRecords)
+		if err != nil {
+			return nil, err
+		}
+	}
 	s := &Server{
 		store: config.Store, tokenHash: sha256.Sum256([]byte(config.Token)),
 		maxBodySize: config.MaxBodySize, slots: make(chan struct{}, config.MaxConcurrent),
 		mux:    http.NewServeMux(),
-		policy: policy, upstream: policy.HTTPClient(config.HeaderTimeout), idleTimeout: config.IdleTimeout,
-		forwardSlots:  make(chan struct{}, config.MaxConcurrent),
-		responseSlots: make(chan struct{}, config.MaxConcurrent*4),
-		mailbox:       box, jobsContext: jobsContext, stopJobs: stopJobs, maxRuntime: config.MaxRuntime, maxJournalRecords: config.MaxJournalRecords,
+		policy: policy, responseSlots: make(chan struct{}, config.MaxConcurrent*4),
+		mailbox: box, maxJournalRecords: config.MaxJournalRecords,
 	}
-	if policy.Enabled() {
-		s.journal, err = journal.Open(filepath.Join(config.Store.Directory(), "requests"), config.MaxJournalRecords)
-		if err != nil {
-			stopJobs()
-			return nil, err
-		}
-	}
+	s.jobs = newJobService(jobServiceConfig{
+		Store: config.Store, Mailbox: box, Journal: requests, Policy: policy,
+		Upstream: policy.HTTPClient(config.HeaderTimeout), MaxConcurrent: config.MaxConcurrent,
+		MaxRuntime: config.MaxRuntime, IdleTimeout: config.IdleTimeout, Context: config.Context,
+	})
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		used, limit := s.store.Usage()
 		writeJSON(w, http.StatusOK, map[string]any{"version": protocol.Version, "forwarding": policy.Enabled(), "cache_bytes": used, "max_cache_bytes": limit})
@@ -151,33 +141,12 @@ func New(config Config) (*Server, error) {
 	s.mux.HandleFunc("GET /v2/requests/{id}/response", s.requestResponse)
 	s.mux.HandleFunc("POST /v2/requests/{id}/ack", s.acknowledge)
 	s.mux.HandleFunc("POST /v2/requests/{id}/cancel", s.cancelRequest)
-	s.jobs.Add(1)
-	go func() {
-		defer s.jobs.Done()
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-jobsContext.Done():
-				return
-			case <-ticker.C:
-				_ = box.Sweep()
-			}
-		}
-	}()
 	return s, nil
 }
 
 // Close cancels running provider jobs and waits for their terminal records.
 func (s *Server) Close() {
-	s.closeOnce.Do(func() {
-		s.lifecycle.Lock()
-		s.closing = true
-		s.stopJobs()
-		s.mailbox.Close()
-		s.lifecycle.Unlock()
-		s.jobs.Wait()
-	})
+	s.jobs.Close()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +170,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	slots := s.slots
 	if r.URL.Path == "/v1/forward" {
-		slots = s.forwardSlots
+		slots = s.jobs.slots
 	} else if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v2/requests/") {
 		slots = s.responseSlots
 	}
@@ -374,29 +343,6 @@ func (s *Server) body(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("ETag", fmt.Sprintf("\"%s\"", hash))
 	w.Header().Set("X-DeltaRelay-Body-Size", strconv.FormatInt(size, 10))
 	http.ServeContent(w, r, hash, time.Time{}, f)
-}
-
-// Both the compressed wire body and the decoded body are bounded. The extra
-// decoded byte lets callers distinguish an exact limit from silent truncation.
-func decodedBody(w http.ResponseWriter, r *http.Request, maxDecoded int64) (io.Reader, func(), error) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxDecoded+(64<<10))
-	var reader io.Reader = r.Body
-	closeBody := func() { _ = r.Body.Close() }
-	switch r.Header.Get("Content-Encoding") {
-	case "", "identity":
-	case "gzip":
-		gz, err := gzip.NewReader(r.Body)
-		if err != nil {
-			closeBody()
-			return nil, func() {}, err
-		}
-		reader = gz
-		closeBody = func() { _ = gz.Close(); _ = r.Body.Close() }
-	default:
-		closeBody()
-		return nil, func() {}, errors.New("unsupported content encoding")
-	}
-	return io.LimitReader(reader, maxDecoded+1), closeBody, nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

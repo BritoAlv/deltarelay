@@ -66,7 +66,7 @@ func TestPersistedRequestFingerprintCompatibility(t *testing.T) {
 						}
 						return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("synthetic response"))}, nil
 					})
-					h.upstream = &http.Client{Transport: transport}
+					h.jobs.upstream = &http.Client{Transport: transport}
 					for variant := 0; variant < 2; variant++ {
 						body := []byte(fixture.Body)
 						m := protocol.Manifest{Version: protocol.Version, Hash: protocol.Sum(body), Size: int64(len(body)), Chunks: []protocol.Chunk{}}
