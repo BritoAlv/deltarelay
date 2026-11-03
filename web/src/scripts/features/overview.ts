@@ -61,9 +61,9 @@ export function mountOverview({ root, navCount, notes, onRefresh, onPauseToggle 
         setText(id, "—")
         requiredById(root, id).classList.remove("negative")
       }
-      setText("stat-saved-foot", "Awaiting transfer statistics")
-      setText("stat-sessions-foot", "No session data yet")
-      setText("stat-requests-foot", "All recorded history")
+      setText("stat-saved-foot", "No data")
+      setText("stat-sessions-foot", "No data")
+      setText("stat-requests-foot", "No data")
       navCount.textContent = "—"
       reuseRing.style.strokeDashoffset = "414.69"
       return

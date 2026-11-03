@@ -3,13 +3,12 @@ import Icon from "./Icon.astro"
 ---
 <aside class="sidebar">
   <a class="brand" href="#overview" aria-label="DeltaRelay overview"><span class="brand-symbol">Δ</span><span>delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span></a>
-  <div class="workspace"><span class="workspace-icon"><Icon name="terminal" size={18} /></span><div><strong>Local workspace</strong><span>Personal relay</span></div><span class="workspace-dot"></span></div>
   <p class="nav-label">MONITOR</p>
   <nav aria-label="Dashboard navigation">
-    <a class="nav-link selected" href="#overview" data-nav="overview" aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span><span class="nav-key">01</span></a>
+    <a class="nav-link selected" href="#overview" data-nav="overview" aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span></a>
     <a class="nav-link" href="#sessions" data-nav="sessions" aria-label="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
     <a class="nav-link" href="#controls" data-nav="controls" aria-label="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
     <a class="nav-link" href="#system" data-nav="system" aria-label="System health"><Icon name="activity" size={18} /><span>System health</span></a>
   </nav>
-  <div class="sidebar-bottom"><div class="private-note"><Icon name="shield" size={19} /><div><strong>Local. Private. Lossless.</strong><p>Your conversations stay out<br />of this dashboard.</p></div></div><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
+  <div class="sidebar-bottom"><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
 </aside>

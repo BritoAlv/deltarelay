@@ -36,7 +36,7 @@ test("initial page state loads without presenting fabricated diagnostics", async
   const dashboard = startDashboard(page.document, { autoStart: false })
   assert.equal(page.document.querySelector("#connection-label")?.textContent, "Connecting")
   assert.equal(page.document.querySelector("#stat-sessions")?.textContent, "—")
-  assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /traffic story starts/)
+  assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /No finished requests in this window/)
   assert.equal(page.document.querySelector("#session-rows")?.children.length, 0)
   assert.equal(page.document.querySelector("#sessions-empty")?.hasAttribute("hidden"), false)
   dashboard.destroy()

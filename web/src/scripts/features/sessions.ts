@@ -39,13 +39,13 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     const snapshot: Snapshot = state.snapshot
     const session = snapshot.history.sessions.find((candidate) => candidate.id === selectedSession)
     if (!session) {
-      detail.textContent = "This session has left the retained history. Global counters are unchanged."
+      detail.textContent = "Session is no longer in retained history. Global totals are unchanged."
       return
     }
     detailTitle.textContent = session.id || "Unattributed requests"
     const requests = snapshot.history.recent_requests.filter((request) => request.session_id === session.id).sort((a, b) => b.sequence - a.sequence)
     const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
-    detail.innerHTML = `<div class="detail-meta"><span>${escape(session.upstream)} · ${integer(session.requests)} requests · ${session.failed} unsuccessful</span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div><h3>Recent requests <span class="section-meta">(${requests.length} retained)</span></h3>${requests.map((request) => `<div class="request-entry"><div><code>${escape(request.id)}</code><p>${escape(request.kind)} · ${escape(relativeTime(request.started_at))} · ${escape(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? ` · HTTP ${request.status}` : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : "warning")}<p class="request-transfer">${request.state === "running" ? "Transfer totals pending" : `${escape(bytes(request.transfer.body_bytes))} → ${escape(bytes(request.transfer.request_body_bytes_sent))}`}</p></div></div>`).join("")}<p class="detail-note">${session.id ? "This session is identified by its opaque OpenCode ID, not its title or content." : "These requests did not include a valid session ID; they are grouped together, not treated as a single OpenCode session."} Request history is bounded; session totals can cover more calls than the retained list. “Interrupted” after a gateway restart does not mean the VPS job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
+    detail.innerHTML = `<div class="detail-meta"><span>${escape(session.upstream)} · ${integer(session.requests)} requests · ${session.failed} unsuccessful</span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div><h3>Recent requests <span class="section-meta">(${requests.length} retained)</span></h3>${requests.map((request) => `<div class="request-entry"><div><code>${escape(request.id)}</code><p>${escape(request.kind)} · ${escape(relativeTime(request.started_at))} · ${escape(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? ` · HTTP ${request.status}` : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : "warning")}<p class="request-transfer">${request.state === "running" ? "Transfer totals pending" : `${escape(bytes(request.transfer.body_bytes))} → ${escape(bytes(request.transfer.request_body_bytes_sent))}`}</p></div></div>`).join("")}<p class="detail-note">${session.id ? "Session ID is opaque; no title or content is shown." : "Requests without a valid session ID are grouped here."} History is bounded; session totals may exceed the retained list. “Interrupted” after a gateway restart does not mean the VPS job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
   }
 
   function renderSessions() {
@@ -62,10 +62,10 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     empty.hidden = sessions.length > 0
     if (state?.snapshot?.history.sessions.length) {
       required(empty, "h3").textContent = "No matching sessions"
-      required(empty, "p").textContent = "Try a different session ID, upstream, or state filter."
+      required(empty, "p").textContent = "Change the search text or state filter."
     } else {
-      required(empty, "h3").textContent = "No sessions yet"
-      required(empty, "p").textContent = "Routed requests will appear here automatically. Start the gateway and send a message through DeltaRelay."
+      required(empty, "h3").textContent = "No sessions recorded"
+      required(empty, "p").textContent = "Requests routed through the gateway will appear here."
     }
     setText("table-summary", sessions.length ? `${start + 1}–${Math.min(start + pageSize, sessions.length)} of ${sessions.length} sessions` : "0 sessions")
     setText("page-label", `Page ${page} of ${totalPages}`)
