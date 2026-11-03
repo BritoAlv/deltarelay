@@ -69,6 +69,7 @@ change cross-compiling the standalone Go binary.
 pnpm install --offline --frozen-lockfile --trust-lockfile
 pnpm check
 pnpm test
+pnpm test:browser
 pnpm build
 go build -trimpath -o bin/deltarelay ./cmd/deltarelay
 ```
@@ -76,8 +77,9 @@ go build -trimpath -o bin/deltarelay ./cmd/deltarelay
 `--offline` never falls back to downloads. The workspace also defaults to offline
 mode and disables dependency lifecycle scripts, preventing postinstall download
 fallbacks. Astro telemetry is disabled in the scripts. Vite, Rollup, and one
-Markdown transitive dependency are pinned to cached versions. No additional
-client UI dependencies are installed.
+Markdown transitive dependency are pinned to cached versions. The pinned
+`happy-dom` dev dependency is used only by the browser smoke tests; it is not
+included in the static dashboard bundle and adds no runtime client dependency.
 
 pnpm 12's `--trust-lockfile` skips fetching fresh registry metadata for its
 supply-chain policy check; it uses the reviewed, committed lockfile and its
@@ -251,6 +253,7 @@ go vet ./...
 node --test integration/opencode/*.test.mjs
 pnpm check
 pnpm test
+pnpm test:browser
 pnpm build
 ```
 
@@ -258,3 +261,8 @@ The tests cover session grouping, concurrency, savings, streaming active state,
 failure accounting, bounded retention, restart interruption, private persistence,
 file locking, write failures, authentication, credential/header isolation,
 read-only routes, origin/Host checks, redirects, and frontend measurement logic.
+The browser smoke tests render the built static page into a lightweight DOM with
+mocked same-origin APIs; they cover loading, successful and stale refreshes,
+filtering/pagination, session details, CSV export, independent supervisor
+controls, and duplicate Desktop-launch prevention without starting any real
+service or Desktop process.

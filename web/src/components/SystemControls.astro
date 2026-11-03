@@ -1,0 +1,27 @@
+<section id="controls" class="system-section" aria-labelledby="controls-title">
+  <div class="section-heading"><div><h2 id="controls-title">System controls</h2><p>Recovery stays active when this tab is closed.</p></div><button class="button" id="recover-all" type="button" disabled>Recover all</button></div>
+  <div class="control-overview">
+    <article class="panel control-panel">
+      <div class="control-heading"><h3>PC → VPS connection</h3><span id="control-connection" class="status-pill neutral">Checking</span></div>
+      <p id="recovery-status" role="status">Connecting to the independent local supervisor…</p>
+      <p id="network-detail" class="control-detail" role="status">Internet and VPS reachability are checked separately.</p>
+      <p id="recovery-detail" class="control-detail"></p>
+      <div class="control-settings">
+        <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic reconnect</label>
+        <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" disabled /> Automatic remote-host wake</label>
+      </div>
+      <div class="control-wake"><span id="remote-state">Remote host state unknown</span><div class="remote-actions"><button id="wake-remote" class="button" type="button" disabled hidden>Wake remote host</button><button id="stop-remote" class="button button-danger" type="button" disabled hidden>Stop remote host…</button></div></div>
+      <p id="remote-power-notice" class="control-detail" hidden>Power controls depend on provider capabilities. Waking a remote host may resume compute billing; manual wake works with auto-wake on or off.</p>
+      <p class="control-detail">Stopping interrupts active requests and disables automatic reconnect and wake until you re-enable them. Saved files and relay state are preserved.</p>
+    </article>
+    <article class="panel control-panel">
+      <div class="control-heading"><h3>ChatGPT sign-in</h3><span id="auth-state" class="status-pill neutral">Checking</span></div>
+      <p id="auth-countdown" class="auth-countdown">—</p>
+      <p id="auth-deadline" class="control-detail">Reading local authentication metadata…</p>
+      <p class="control-detail">This is the current access token’s expiry, not a usage-limit reset or a guaranteed sign-in deadline. OpenCode may refresh it automatically.</p>
+      <p class="control-detail">If sign-in is required, use OpenCode’s Connect provider flow. This page never refreshes tokens or makes model requests.</p>
+    </article>
+  </div>
+  <div id="control-notice" class="notice" role="status" hidden></div>
+  <article class="panel service-panel"><div class="control-heading"><h3>Services</h3><button id="restart-all" class="text-button" type="button" disabled>Restart all…</button></div><div id="service-controls" class="service-controls"><p class="control-detail">Service controls are available even when the local gateway is down.</p></div><p class="control-detail">Restart means restart—not erase. Tokens, sessions, cached chunks, and saved responses are preserved. Restarting services can interrupt active requests.</p></article>
+</section>

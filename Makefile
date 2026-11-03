@@ -1,4 +1,4 @@
-.PHONY: build test race vet benchmark baseline-benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test
+.PHONY: build test race vet benchmark baseline-benchmark plugin-test plugin-config opencode-test recovery-test dashboard-install dashboard-build dashboard-test dashboard-browser-test
 
 build:
 	go build -trimpath -o bin/deltarelay ./cmd/deltarelay
@@ -39,3 +39,6 @@ dashboard-build:
 dashboard-test:
 	pnpm check
 	pnpm test
+
+dashboard-browser-test:
+	pnpm test:browser

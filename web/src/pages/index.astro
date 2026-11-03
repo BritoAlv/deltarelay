@@ -1,8 +1,13 @@
 ---
-import Icon from "../components/Icon.astro"
-import ThemePicker from "../components/ThemePicker.astro"
-import { defaultTheme } from "../lib/themes"
 import "../styles/dashboard.css"
+import DashboardFooter from "../components/DashboardFooter.astro"
+import OverviewSection from "../components/OverviewSection.astro"
+import SessionDialog from "../components/SessionDialog.astro"
+import SessionsSection from "../components/SessionsSection.astro"
+import Sidebar from "../components/Sidebar.astro"
+import SystemControls from "../components/SystemControls.astro"
+import SystemHealth from "../components/SystemHealth.astro"
+import { defaultTheme } from "../lib/themes"
 ---
 <!doctype html>
 <html lang="en" data-theme={defaultTheme.id}>
@@ -18,81 +23,19 @@ import "../styles/dashboard.css"
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to dashboard</a>
-    <aside class="sidebar">
-      <a class="brand" href="#overview" aria-label="DeltaRelay overview"><span class="brand-symbol">Δ</span><span>delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span></a>
-      <div class="workspace"><span class="workspace-icon"><Icon name="terminal" size={18} /></span><div><strong>Local workspace</strong><span>Personal relay</span></div><span class="workspace-dot"></span></div>
-      <p class="nav-label">MONITOR</p>
-      <nav aria-label="Dashboard navigation">
-        <a class="nav-link selected" href="#overview" data-nav="overview" aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span><span class="nav-key">01</span></a>
-        <a class="nav-link" href="#sessions" data-nav="sessions" aria-label="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
-        <a class="nav-link" href="#controls" data-nav="controls" aria-label="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
-        <a class="nav-link" href="#system" data-nav="system" aria-label="System health"><Icon name="activity" size={18} /><span>System health</span></a>
-      </nav>
-      <div class="sidebar-bottom"><div class="private-note"><Icon name="shield" size={19} /><div><strong>Local. Private. Lossless.</strong><p>Your conversations stay out<br />of this dashboard.</p></div></div><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
-    </aside>
+    <Sidebar />
 
     <div class="page-shell">
       <main id="main">
-        <div class="appearance-controls"><ThemePicker /></div>
-        <section id="overview" aria-labelledby="overview-title">
-          <div class="page-heading"><div><div class="eyebrow">YOUR RELAY, AT A GLANCE</div><h1 id="overview-title">Overview<span class="title-dot">.</span></h1><p>Less upload. The exact same conversation.</p></div><div class="heading-actions"><button class="button" id="open-desktop" type="button" aria-describedby="desktop-status" disabled><Icon name="desktop" size={16} />Open OpenCode Desktop</button><button class="icon-button" id="pause-button" type="button" aria-label="Pause automatic refresh" title="Pause automatic refresh"><Icon name="pause" size={17} /></button><button class="button button-secondary" id="refresh-button" type="button"><Icon name="refresh" size={16} />Refresh</button></div></div>
-          <p id="desktop-status" class="control-detail" role="status">Checking the local Desktop launcher…</p>
-          <div class="connection-line"><span class="live-badge" id="connection-badge"><span class="tiny-dot"></span><span id="connection-label">Connecting</span></span><span id="updated-at">Waiting for local gateway</span><span class="refresh-note" id="refresh-note">Auto-refresh every 10s</span></div>
-          <div id="notice" class="notice" role="status" hidden></div>
-          <noscript><div class="notice">Enable JavaScript to load local diagnostics. This page makes no provider requests.</div></noscript>
-
-          <div class="stats-grid">
-            <article class="stat-card primary-stat"><div class="stat-label">Upload reduction<Icon name="arrow" size={18} /></div><div class="stat-value accent" id="stat-reduction">—</div><div class="stat-foot"><span class="mini-tag">ENCODED UPLOAD</span><span>vs. original bodies</span></div><div class="stat-decoration" aria-hidden="true">↗</div></article>
-            <article class="stat-card"><div class="stat-label">Bandwidth saved<Icon name="download" size={17} /></div><div class="stat-value" id="stat-saved">—</div><div class="stat-foot" id="stat-saved-foot">Awaiting transfer statistics</div></article>
-            <article class="stat-card"><div class="stat-label">Tracked sessions<Icon name="sessions" size={18} /></div><div class="stat-value" id="stat-sessions">—</div><div class="stat-foot"><span class="tiny-dot" id="active-session-dot"></span><span id="stat-sessions-foot">No session data yet</span></div></article>
-            <article class="stat-card"><div class="stat-label">Model requests<Icon name="activity" size={18} /></div><div class="stat-value" id="stat-requests">—</div><div class="stat-foot" id="stat-requests-foot">All recorded history</div></article>
-          </div>
-
-          <div class="overview-grid">
-            <article class="panel traffic-panel"><div class="panel-heading"><div><h2>Upload traffic</h2><p>Original bodies vs. encoded uploads</p></div><label class="sr-only" for="chart-range">Traffic time range</label><select id="chart-range"><option value="24">Last 24 hours</option><option value="168">Last 7 days</option></select></div><div class="chart-summary"><div><span class="legend-dot original"></span><span>Original</span><strong id="chart-original">—</strong></div><div><span class="legend-dot delta"></span><span>DeltaRelay</span><strong id="chart-encoded">—</strong></div></div><div id="traffic-chart" class="traffic-chart" role="img" aria-label="Upload traffic chart awaiting data"><div class="chart-placeholder">Your traffic story starts with the first request.</div></div><div class="panel-bottom"><span><Icon name="info" size={14} /> Retained, finished requests only</span><span id="chart-count">0 requests in this window</span></div></article>
-
-            <article class="panel efficiency-panel"><div class="panel-heading"><div><h2>Relay cache reuse</h2><p>Reuse more. Send less.</p></div><span class="small-icon"><Icon name="bolt" size={18} /></span></div><div class="efficiency-ring"><svg viewBox="0 0 160 160" aria-hidden="true"><circle class="ring-track" cx="80" cy="80" r="66" /><circle id="reuse-ring" class="ring-value" cx="80" cy="80" r="66" /></svg><div><strong id="reuse-value">—</strong><span>cache reuse</span></div></div><div class="efficiency-row"><span><i class="legend-dot delta"></i>Reused body bytes</span><strong id="reuse-bytes">—</strong></div><div class="efficiency-row"><span><i class="legend-dot original"></i>Raw chunks uploaded</span><strong id="uploaded-bytes">—</strong></div><p class="efficiency-note">Cache reuse and compression both reduce uploads. Neither guarantees lower provider billing.</p></article>
-          </div>
-        </section>
-
-        <section id="controls" class="system-section" aria-labelledby="controls-title">
-          <div class="section-heading"><div><h2 id="controls-title">System controls</h2><p>Recovery stays active when this tab is closed.</p></div><button class="button" id="recover-all" type="button" disabled>Recover all</button></div>
-          <div class="control-overview">
-            <article class="panel control-panel">
-              <div class="control-heading"><h3>PC → VPS connection</h3><span id="control-connection" class="status-pill neutral">Checking</span></div>
-              <p id="recovery-status" role="status">Connecting to the independent local supervisor…</p>
-              <p id="network-detail" class="control-detail" role="status">Internet and VPS reachability are checked separately.</p>
-              <p id="recovery-detail" class="control-detail"></p>
-              <div class="control-settings">
-                <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic reconnect</label>
-                <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" disabled /> Automatic remote-host wake</label>
-              </div>
-              <div class="control-wake"><span id="remote-state">Remote host state unknown</span><div class="remote-actions"><button id="wake-remote" class="button" type="button" disabled hidden>Wake remote host</button><button id="stop-remote" class="button button-danger" type="button" disabled hidden>Stop remote host…</button></div></div>
-              <p id="remote-power-notice" class="control-detail" hidden>Power controls depend on provider capabilities. Waking a remote host may resume compute billing; manual wake works with auto-wake on or off.</p>
-              <p class="control-detail">Stopping interrupts active requests and disables automatic reconnect and wake until you re-enable them. Saved files and relay state are preserved.</p>
-            </article>
-            <article class="panel control-panel">
-              <div class="control-heading"><h3>ChatGPT sign-in</h3><span id="auth-state" class="status-pill neutral">Checking</span></div>
-              <p id="auth-countdown" class="auth-countdown">—</p>
-              <p id="auth-deadline" class="control-detail">Reading local authentication metadata…</p>
-              <p class="control-detail">This is the current access token’s expiry, not a usage-limit reset or a guaranteed sign-in deadline. OpenCode may refresh it automatically.</p>
-              <p class="control-detail">If sign-in is required, use OpenCode’s Connect provider flow. This page never refreshes tokens or makes model requests.</p>
-            </article>
-          </div>
-          <div id="control-notice" class="notice" role="status" hidden></div>
-          <article class="panel service-panel"><div class="control-heading"><h3>Services</h3><button id="restart-all" class="text-button" type="button" disabled>Restart all…</button></div><div id="service-controls" class="service-controls"><p class="control-detail">Service controls are available even when the local gateway is down.</p></div><p class="control-detail">Restart means restart—not erase. Tokens, sessions, cached chunks, and saved responses are preserved. Restarting services can interrupt active requests.</p></article>
-        </section>
-
-        <section id="system" class="system-section" aria-labelledby="system-title"><div class="section-heading"><div><h2 id="system-title">System health</h2><p>Every hop, in one place.</p></div><span class="section-meta" id="system-summary">Waiting for diagnostics</span></div><div class="system-grid" id="system-cards"><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="terminal" /></span><span class="status-pill neutral">Waiting</span></div><h3>Local gateway</h3><p>Connect to inspect your relay.</p></article><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="link" /></span><span class="status-pill neutral">Unknown</span></div><h3>VPS connection</h3><p>Authenticated relay reachability</p></article><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="system" /></span><span class="status-pill neutral">Unknown</span></div><h3>Storage & mailbox</h3><p>Cache and saved response capacity</p></article><article class="system-card"><div class="system-card-top"><span class="system-icon"><Icon name="globe" /></span><span class="status-pill neutral">Unobserved</span></div><h3>Provider forwarding</h3><p>Based on actual requests, not probes</p></article></div></section>
-
-        <section id="sessions" class="sessions-section" aria-labelledby="sessions-title"><div class="section-heading"><div class="section-title-row"><h2 id="sessions-title">Sessions</h2><span class="count-badge" id="session-count">0</span></div><p class="section-meta">Session-level savings, without the conversation.</p></div><article class="panel sessions-panel"><div class="table-toolbar"><div class="search-field"><Icon name="search" size={17} /><label class="sr-only" for="session-search">Search session ID or upstream</label><input id="session-search" type="search" placeholder="Search sessions or upstreams…" autocomplete="off" /></div><label class="sr-only" for="session-filter">Filter sessions by state</label><select id="session-filter"><option value="all">All states</option><option value="active">Active</option><option value="idle">Idle</option><option value="attention">Needs attention</option></select><button class="text-button export-button" id="export-button" type="button" disabled><Icon name="download" size={16} />Export CSV</button></div><div class="table-scroll"><table><thead><tr><th scope="col">Session / upstream</th><th scope="col">State</th><th scope="col" class="number">Requests</th><th scope="col" class="number">Original</th><th scope="col" class="number">Uploaded</th><th scope="col" class="number">Reduction</th><th scope="col">Last activity</th><th scope="col"><span class="sr-only">Details</span></th></tr></thead><tbody id="session-rows"></tbody></table></div><div class="empty-state" id="sessions-empty"><span class="empty-icon"><Icon name="sessions" size={28} /></span><h3>No sessions yet</h3><p>Routed requests will appear here automatically.<br />Start the local gateway and send a message through DeltaRelay.</p></div><div class="table-footer"><span id="table-summary">0 sessions</span><div class="pagination"><button class="text-button" id="previous-page" type="button" disabled>Previous</button><span id="page-label">Page 1 of 1</span><button class="text-button" id="next-page" type="button" disabled>Next</button></div></div></article></section>
-
-        <footer class="page-footer"><span><Icon name="shield" size={14} /> Metadata only. No prompts, responses, or credentials.</span><a href="#measurement-notes" id="notes-toggle" aria-expanded="false">How savings are measured <span>↗</span></a></footer><div class="measurement-notes panel" id="measurement-notes" hidden><h2>Honest numbers, not estimates</h2><p><strong>Upload reduction</strong> = 1 − encoded request-body bytes ÷ original body bytes. Encoded uploads include manifests, framing, compression, and retries; they exclude HTTP/TLS headers, responses, and packet-level overhead. Small requests or failures can have negative savings. Failed attempts are included, not hidden.</p><p><strong>Cache reuse</strong> measures body bytes already present at inventory time. It is not provider token-cache reuse or a billing discount. Running requests contribute bytes only after they finish. Session states are local gateway observations; “idle” does not mean an OpenCode session is closed. Provider results are the latest retained observation, not a live account-health probe.</p><p id="retention-note">History retains up to 256 sessions and 1,000 requests. Global totals survive retention trimming. Earlier history is not imported from logs.</p></div>
+        <OverviewSection />
+        <SystemControls />
+        <SystemHealth />
+        <SessionsSection />
+        <DashboardFooter />
       </main>
     </div>
 
-    <dialog id="session-dialog" class="session-dialog" aria-labelledby="detail-title"><div class="dialog-heading"><div><div class="eyebrow">SESSION INSPECTOR</div><h2 id="detail-title">Session</h2></div><button class="icon-button" id="close-detail" type="button" aria-label="Close session details"><Icon name="close" /></button></div><div id="session-detail"></div></dialog>
-    <script src="../scripts/dashboard.ts"></script>
-    <script src="../scripts/system.ts"></script>
+    <SessionDialog />
+    <script src="../scripts/main.ts"></script>
   </body>
 </html>

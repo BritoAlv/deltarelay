@@ -9,6 +9,7 @@
     "dev": "pnpm --filter @deltarelay/dashboard dev",
     "build": "pnpm --filter @deltarelay/dashboard build",
     "check": "pnpm --filter @deltarelay/dashboard check",
-    "test": "pnpm --filter @deltarelay/dashboard test"
+    "test": "pnpm --filter @deltarelay/dashboard test",
+    "test:browser": "pnpm --filter @deltarelay/dashboard test:browser"
   }
 }

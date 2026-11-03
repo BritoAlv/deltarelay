@@ -44,6 +44,7 @@ your own VPS, and generate the OpenCode plugin entry for this checkout.
 - [Refactor Phase 4: provider-job service and shared request validation](docs/REFACTOR_PHASE4.md)
 - [Refactor Phase 5: shared filesystem primitives](docs/REFACTOR_PHASE5.md)
 - [Refactor Phase 6: nonblocking telemetry persistence](docs/REFACTOR_PHASE6.md)
+- [Refactor Phase 7: feature-oriented dashboard and browser regressions](docs/REFACTOR_PHASE7.md)
 - [Optional recovery for an existing private Codespace profile](docs/CODESPACE_RECOVERY.md)
 
 Private configuration, tokens, logs, conversation exports, and relay state are
@@ -104,6 +105,9 @@ or database is required. Dependencies are pinned for an offline pnpm build.
 
 ```sh
 pnpm install --offline --frozen-lockfile --trust-lockfile
+pnpm check
+pnpm test
+pnpm test:browser        # focused DOM smoke tests; also builds the static page
 pnpm build
 go build -trimpath -o bin/deltarelay ./cmd/deltarelay
 ./bin/deltarelay dashboard --local-token-file /path/to/private/local.token
