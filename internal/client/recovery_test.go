@@ -407,7 +407,7 @@ func TestOfflineCancellationOutboxSurvivesGatewayRestart(t *testing.T) {
 		})
 	})
 	config := recoveryConfig(link.URL)
-	config.ControlDir = filepath.Join(t.TempDir(),"state")
+	config.ControlDir = filepath.Join(t.TempDir(), "state")
 	c := newClient(t, config)
 	requestCtx, stop := context.WithCancel(ctx)
 	response, _, err := c.Forward(requestCtx, client.Request{ID: "offline-cancel-request-0001", Target: provider.URL + "/responses", Method: "POST"}, strings.NewReader("request"))
@@ -451,7 +451,7 @@ func TestChangedRelayStateFailsClosedAcrossClientRestarts(t *testing.T) {
 	defer cancel()
 	first := fixture(t, t.TempDir())
 	second := fixture(t, t.TempDir())
-	directory := filepath.Join(t.TempDir(),"state")
+	directory := filepath.Join(t.TempDir(), "state")
 	config := recoveryConfig(first.URL)
 	config.ControlDir = directory
 	c := newClient(t, config)

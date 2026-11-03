@@ -202,7 +202,10 @@ func (b *resumableBody) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 	for {
-		if err := b.ctx.Err(); err != nil { b.failed.Store(true); return 0,err }
+		if err := b.ctx.Err(); err != nil {
+			b.failed.Store(true)
+			return 0, err
+		}
 		if len(b.buffer) != 0 {
 			n := copy(p, b.buffer)
 			b.buffer = b.buffer[n:]
@@ -216,29 +219,28 @@ func (b *resumableBody) Read(p []byte) (int, error) {
 		if b.failed.Load() {
 			return 0, errors.New("response stream already failed")
 		}
-		var response *http.Response
-		var data []byte
+		var response attemptResponse
 		err := b.client.retry(b.ctx, func() error {
 			var err error
-			response, data, err = b.client.rpc(b.ctx, http.MethodGet, "/v2/requests/"+b.id+"/response?offset="+strconv.FormatInt(b.offset, 10), nil, nil, protocol.ResponseSegmentBytes, nil, nil)
+			response, err = b.client.rpc(b.ctx, http.MethodGet, "/v2/requests/"+b.id+"/response?offset="+strconv.FormatInt(b.offset, 10), nil, nil, protocol.ResponseSegmentBytes, nil, nil)
 			return err
 		})
 		if err != nil {
 			b.failed.Store(true)
 			return 0, err
 		}
-		if response.StatusCode == http.StatusNoContent {
+		if response.status == http.StatusNoContent {
 			continue
 		}
 		b.client.stateMu.Lock()
 		stateID := b.client.stateID
 		b.client.stateMu.Unlock()
-		if response.Header.Get("X-DeltaRelay-State-ID") != stateID || response.Header.Get("X-DeltaRelay-Request-ID") != b.id || response.Header.Get("X-DeltaRelay-Offset") != strconv.FormatInt(b.offset, 10) || response.Header.Get("X-DeltaRelay-Segment-Hash") != protocol.Sum(data) {
+		if response.header.Get("X-DeltaRelay-State-ID") != stateID || response.header.Get("X-DeltaRelay-Request-ID") != b.id || response.header.Get("X-DeltaRelay-Offset") != strconv.FormatInt(b.offset, 10) || response.header.Get("X-DeltaRelay-Segment-Hash") != protocol.Sum(response.body) {
 			b.failed.Store(true)
 			return 0, errors.New("response segment identity, offset or checksum mismatch")
 		}
-		if len(data) != 0 {
-			b.buffer = data
+		if len(response.body) != 0 {
+			b.buffer = response.body
 			continue
 		}
 		record, err := b.client.Status(b.ctx, b.id)

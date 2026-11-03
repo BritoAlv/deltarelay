@@ -268,7 +268,7 @@ func (c *Client) controlLoop() {
 			if current != op.StateID {
 				err = errors.New("queued cancellation belongs to another relay")
 			} else {
-				_, _, err = c.rpc(ctl.ctx, http.MethodPost, "/v2/requests/"+op.ID+"/cancel", nil, headers, protocol.MaxManifestBytes, nil, nil)
+				_, err = c.rpc(ctl.ctx, http.MethodPost, "/v2/requests/"+op.ID+"/cancel", nil, headers, protocol.MaxManifestBytes, nil, nil)
 			}
 			ctl.mu.Lock()
 			if err == nil {

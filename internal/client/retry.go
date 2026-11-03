@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -10,7 +9,6 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -86,100 +84,13 @@ func retryable(err error) bool {
 	return errors.As(err, &transport) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
-type activityReader struct {
-	io.ReadCloser
-	touch func()
-}
-
-func (r *activityReader) Read(p []byte) (int, error) {
-	n, err := r.ReadCloser.Read(p)
-	if n > 0 {
-		r.touch()
-	}
-	return n, err
-}
-
-// The watchdog is per RPC, not a deadline on an entire generation. Activity
-// resets it; status/response long polls are bounded to 20s by the contract.
-func (c *Client) attempt(ctx context.Context) (context.Context, context.CancelFunc, func()) {
-	child, cancel := context.WithCancel(ctx)
-	var mu sync.Mutex
-	stopped := false
-	timer := time.AfterFunc(c.config.StallTimeout, cancel)
-	touch := func() {
-		mu.Lock()
-		defer mu.Unlock()
-		if !stopped {
-			timer.Reset(c.config.StallTimeout)
-		}
-	}
-	stop := func() { mu.Lock(); stopped = true; timer.Stop(); mu.Unlock(); cancel() }
-	return child, stop, touch
-}
-
-func (c *Client) addState(req *http.Request) {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	if c.stateID != "" {
-		req.Header.Set("X-DeltaRelay-State-ID", c.stateID)
-	}
-}
-
-// rpc reads a whole bounded segment before making any bytes visible to callers.
-func (c *Client) rpc(ctx context.Context, method, path string, data []byte, headers http.Header, limit int64, sent, requests *atomic.Int64) (*http.Response, []byte, error) {
-	attemptCtx, cancel, touch := c.attempt(ctx)
-	defer cancel()
-	var reader io.Reader
-	if data != nil {
-		if sent == nil {
-			sent = &atomic.Int64{}
-		}
-		reader = &countingReader{reader: bytes.NewReader(data), count: sent, touch: touch}
-	}
-	req, err := http.NewRequestWithContext(attemptCtx, method, c.base+path, reader)
-	if err != nil {
-		return nil, nil, err
-	}
-	if headers != nil {
-		req.Header = headers.Clone()
-	}
-	req.Header.Set("Authorization", "Bearer "+c.config.Token)
-	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("User-Agent", "deltarelay/2")
-	if data != nil {
-		req.ContentLength = int64(len(data))
-		req.Header.Set("Content-Type", "application/json")
-	}
-	c.addState(req)
-	if requests != nil {
-		requests.Add(1)
-	}
-	response, err := c.http.Do(req)
-	if err != nil {
-		return nil, nil, &TransportError{Err: err}
-	}
-	defer response.Body.Close()
-	response.Body = &activityReader{ReadCloser: response.Body, touch: touch}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, nil, responseError(response)
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
-		return nil, nil, &TransportError{Err: err}
-	}
-	if int64(len(body)) > limit {
-		return nil, nil, errors.New("relay response exceeds contract limit")
-	}
-	return response, body, nil
-}
-
 func (c *Client) jsonRPC(ctx context.Context, method, path string, data []byte, result any, sent, requests *atomic.Int64) error {
 	return c.retry(ctx, func() error {
-		_, body, err := c.rpc(ctx, method, path, data, nil, protocol.MaxManifestBytes, sent, requests)
+		response, err := c.rpc(ctx, method, path, data, nil, protocol.MaxManifestBytes, sent, requests)
 		if err != nil {
 			return err
 		}
-		return json.Unmarshal(body, result)
+		return json.Unmarshal(response.body, result)
 	})
 }
 

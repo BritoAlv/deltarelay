@@ -127,41 +127,40 @@ func (c *Client) Fetch(ctx context.Context, hash, output string) error {
 	}
 	defer d.file.Close()
 	defer d.file.Sync()
-	var head *http.Response
+	var head attemptResponse
 	err = c.retry(ctx, func() error {
 		var err error
-		head, _, err = c.rpc(ctx, http.MethodHead, "/v2/bodies/"+hash, nil, nil, 0, nil, nil)
+		head, err = c.rpc(ctx, http.MethodHead, "/v2/bodies/"+hash, nil, nil, 0, nil, nil)
 		return err
 	})
 	if err != nil {
 		return err
 	}
-	size, err := strconv.ParseInt(head.Header.Get("X-DeltaRelay-Body-Size"), 10, 64)
-	if err != nil || size < d.offset || size > c.config.MaxBodySize || head.Header.Get("ETag") != "\""+hash+"\"" {
+	size, err := strconv.ParseInt(head.header.Get("X-DeltaRelay-Body-Size"), 10, 64)
+	if err != nil || size < d.offset || size > c.config.MaxBodySize || head.header.Get("ETag") != "\""+hash+"\"" {
 		return errors.New("invalid download size or ETag")
 	}
 	for d.offset < size {
 		end := min(size, d.offset+protocol.ResponseSegmentBytes) - 1
 		headers := http.Header{"Range": []string{fmt.Sprintf("bytes=%d-%d", d.offset, end)}, "If-Range": []string{"\"" + hash + "\""}}
-		var response *http.Response
-		var data []byte
+		var response attemptResponse
 		err := c.retry(ctx, func() error {
 			var err error
-			response, data, err = c.rpc(ctx, http.MethodGet, "/v2/bodies/"+hash, nil, headers, protocol.ResponseSegmentBytes, nil, nil)
+			response, err = c.rpc(ctx, http.MethodGet, "/v2/bodies/"+hash, nil, headers, protocol.ResponseSegmentBytes, nil, nil)
 			return err
 		})
 		if err != nil {
 			return err
 		}
 		expectedRange := fmt.Sprintf("bytes %d-%d/%d", d.offset, end, size)
-		if response.StatusCode != 206 || response.Header.Get("Content-Range") != expectedRange || response.Header.Get("ETag") != "\""+hash+"\"" || int64(len(data)) != end-d.offset+1 {
+		if response.status != 206 || response.header.Get("Content-Range") != expectedRange || response.header.Get("ETag") != "\""+hash+"\"" || int64(len(response.body)) != end-d.offset+1 {
 			return errors.New("relay returned an invalid range or changed representation")
 		}
-		if _, err := d.file.Write(data); err != nil {
+		if _, err := d.file.Write(response.body); err != nil {
 			return err
 		}
-		_, _ = d.digest.Write(data)
-		d.offset += int64(len(data))
+		_, _ = d.digest.Write(response.body)
+		d.offset += int64(len(response.body))
 		if err := d.file.Sync(); err != nil {
 			return err
 		}
@@ -173,7 +172,9 @@ func (c *Client) Fetch(ctx context.Context, hash, output string) error {
 // verified durable file. Retrieval interruption never cancels generation.
 // With acknowledge=true, ACK occurs only after local fsync and publication.
 func (c *Client) FetchResponse(ctx context.Context, id, output string, acknowledge bool) (protocol.Receipt, error) {
-	if !protocol.ValidRequestID(id) { return protocol.Receipt{},errors.New("invalid request ID") }
+	if !protocol.ValidRequestID(id) {
+		return protocol.Receipt{}, errors.New("invalid request ID")
+	}
 	d, err := c.openDownload(ctx, "response", id, output)
 	if err != nil {
 		return protocol.Receipt{}, err
