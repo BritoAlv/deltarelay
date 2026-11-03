@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import start_supervisor
 import supervisor as control
+import supervision.supervisor as supervisor_impl
 
 
 class SupervisorTest(unittest.TestCase):
@@ -269,7 +270,7 @@ class SupervisorTest(unittest.TestCase):
         self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
         subject = self.supervisor()
         for error, want in [('command_failed', 'relay_recovery_failed'), ('command_timeout', 'relay_ssh_timeout')]:
-            with self.subTest(error=error), patch.object(control, 'run_command', side_effect=[
+            with self.subTest(error=error), patch.object(supervisor_impl, 'run_command', side_effect=[
                     b'{"state":"Available"}', control.ControlError(error)]):
                 with self.assertRaisesRegex(control.ControlError, '^' + want + '$'):
                     subject.remote()
@@ -278,7 +279,7 @@ class SupervisorTest(unittest.TestCase):
         binary = str(self.root / 'tools/gh')
         self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay', 'github_cli': binary}
         subject = self.supervisor()
-        with patch.object(control, 'run_command', side_effect=[b'{"state":"Shutdown"}', b'',
+        with patch.object(supervisor_impl, 'run_command', side_effect=[b'{"state":"Shutdown"}', b'',
                 b'{"state":"Available"}', b'{"state":"Available"}', json.dumps({'state_id': 'a' * 64}).encode()]) as run, \
                 patch.object(subject.stop, 'wait', return_value=False):
             subject.remote(wake=True)
@@ -296,18 +297,18 @@ class SupervisorTest(unittest.TestCase):
     def test_stopped_codespace_only_wakes_with_explicit_permission(self):
         self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
         subject = self.supervisor()
-        with patch.object(control, 'run_command', return_value=b'{"state":"Shutdown"}') as run:
+        with patch.object(supervisor_impl, 'run_command', return_value=b'{"state":"Shutdown"}') as run:
             with self.assertRaisesRegex(control.ControlError, 'host_stopped'):
                 subject.remote()
             self.assertEqual(run.call_count, 1)
         for automatic in (False, True):
-            subject.settings['auto_wake'] = automatic
+            subject.update_settings({'auto_reconnect': True, 'auto_wake': automatic})
             with patch.object(subject, 'remote') as remote, patch.object(subject, 'recover') as recover:
                 subject.submit({'component': 'codespace', 'action': 'wake', 'confirmed': True})
                 self.wait_job(subject)
                 remote.assert_called_once_with(wake=True)
                 recover.assert_called_once()
-        with patch.object(control, 'run_command', side_effect=[b'{"state":"Shutdown"}', b'', b'{"state":"Available"}', b'{"state":"Available"}', json.dumps({'state_id': 'a' * 64}).encode()]) as run, \
+        with patch.object(supervisor_impl, 'run_command', side_effect=[b'{"state":"Shutdown"}', b'', b'{"state":"Available"}', b'{"state":"Available"}', json.dumps({'state_id': 'a' * 64}).encode()]) as run, \
                 patch.object(subject.stop, 'wait', return_value=False):
             subject.remote(wake=True)
             self.assertIn('/user/codespaces/test-codespace/start', run.call_args_list[1].args[0])
@@ -318,7 +319,7 @@ class SupervisorTest(unittest.TestCase):
             subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
         self.config['codespace'] = {'name': 'test-codespace', 'remote_directory': '~/existing-relay'}
         subject = self.supervisor()
-        with patch.object(control, 'run_command') as run:
+        with patch.object(supervisor_impl, 'run_command') as run:
             for confirmed in (None, False, 'true', 1):
                 with self.assertRaisesRegex(control.ControlError, '^confirmation_required$'):
                     subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': confirmed})
@@ -342,7 +343,7 @@ class SupervisorTest(unittest.TestCase):
         subject = self.supervisor()
         subject.update_settings({'auto_reconnect': True, 'auto_wake': True})
         subject.relay_state = 'connected'
-        subject.recovery['next_retry_at'] = control.stamp()
+        subject.state.update_recovery(next_retry_at=control.stamp())
         outputs = iter([b'{"state":"Available"}', b'', b'{"state":"ShuttingDown"}', b'{"state":"Shutdown"}'])
 
         def command(_, **kwargs):
@@ -353,7 +354,7 @@ class SupervisorTest(unittest.TestCase):
             return next(outputs)
 
         with patch.object(subject, 'stop_component') as stopped, \
-                patch.object(control, 'run_command', side_effect=command) as run, \
+                patch.object(supervisor_impl, 'run_command', side_effect=command) as run, \
                 patch.object(subject.stop, 'wait', return_value=False), \
                 patch.object(subject, 'start_component') as start, patch.object(subject, 'recover') as recover:
             subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
@@ -395,7 +396,7 @@ class SupervisorTest(unittest.TestCase):
         for state in ('Shutdown', 'ShuttingDown'):
             with self.subTest(state=state):
                 subject = self.supervisor()
-                with patch.object(control, 'run_command', side_effect=[json.dumps({'state': state}).encode(),
+                with patch.object(supervisor_impl, 'run_command', side_effect=[json.dumps({'state': state}).encode(),
                         b'{"state":"Shutdown"}']) as run, patch.object(subject.stop, 'wait', return_value=False):
                     subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
                     self.wait_job(subject)
@@ -409,7 +410,7 @@ class SupervisorTest(unittest.TestCase):
                 subject = self.supervisor()
                 subject.host_state = 'running'
                 subject.update_settings({'auto_reconnect': True, 'auto_wake': True})
-                with patch.object(control, 'run_command', side_effect=[b'{"state":"Available"}', control.ControlError(error)]):
+                with patch.object(supervisor_impl, 'run_command', side_effect=[b'{"state":"Available"}', control.ControlError(error)]):
                     subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
                     self.wait_job(subject)
                 self.assertEqual(subject.recovery['last_error'], error)
@@ -422,7 +423,7 @@ class SupervisorTest(unittest.TestCase):
         for cancelled, want in ((False, 'host_stop_timeout'), (True, 'operation_cancelled')):
             with self.subTest(cancelled=cancelled):
                 subject = self.supervisor()
-                with patch.object(control, 'run_command', return_value=b'{"state":"ShuttingDown"}') as run, \
+                with patch.object(supervisor_impl, 'run_command', return_value=b'{"state":"ShuttingDown"}') as run, \
                         patch.object(subject.stop, 'wait', return_value=cancelled), \
                         patch.object(control.time, 'monotonic', side_effect=[0, 121]):
                     with self.assertRaisesRegex(control.ControlError, '^' + want + '$'):
@@ -440,7 +441,7 @@ class SupervisorTest(unittest.TestCase):
             for name in ('tunnel', 'gateway'):
                 subject.start_component(name)
                 self.addCleanup(self.cleanup_child, subject.children[name])
-        with patch.object(control, 'run_command', return_value=b'{"state":"Shutdown"}'):
+        with patch.object(supervisor_impl, 'run_command', return_value=b'{"state":"Shutdown"}'):
             subject.submit({'component': 'codespace', 'action': 'stop', 'confirmed': True})
             self.wait_job(subject)
         self.assertIsNotNone(subject.children['tunnel'].poll())
@@ -568,6 +569,172 @@ class SupervisorTest(unittest.TestCase):
         for url in ('https://api.github.com/', 'http://127.0.0.1:9/'):
             self.config['internet_check_url'] = url
             control.validate(self.config)
+
+
+class StateOwnershipTest(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.config = {'version': 1, 'profile': str(self.root), 'relay_url': 'http://127.0.0.1:18787',
+                       'gateway_url': 'http://127.0.0.1:18788',
+                       'relay_token_file': str(self.root / 'relay.token'),
+                       'local_token_file': str(self.root / 'local.token'),
+                       'relay_state_file': str(self.root / 'identity.json'),
+                       'components': {}}
+
+    def supervisor(self, **kwargs):
+        result = control.Supervisor(self.config, **kwargs)
+        self.addCleanup(result.stop.set)
+        return result
+
+    def test_snapshot_returns_copies_of_all_observable_state(self):
+        subject = self.supervisor()
+        snapshot = subject.snapshot()
+        snapshot['settings']['auto_wake'] = True
+        snapshot['recovery']['busy'] = True
+        snapshot['components'][0]['state'] = 'tampered'
+        snapshot['remote']['id'] = 'tampered'
+        self.assertFalse(subject.settings['auto_wake'])
+        self.assertFalse(subject.recovery['busy'])
+        self.assertNotEqual(subject.states[control.COMPONENTS[0]], 'tampered')
+        self.assertNotEqual(subject.snapshot()['remote']['id'], 'tampered')
+
+    def test_snapshots_stay_consistent_while_operations_transition(self):
+        subject = self.supervisor()
+        state = subject.state
+        stop = threading.Event()
+        errors = []
+
+        def writer():
+            try:
+                for _ in range(1000):
+                    state.begin_operation('restart_gateway')
+                    state.set_component('gateway', 'starting')
+                    state.set_component('gateway', 'running')
+                    state.begin_attempt('recovering_connection')
+                    state.update_recovery(last_error='bounded_failure')
+                    state.finish_operation()
+            except BaseException as error:  # Surface thread assertions to the test.
+                errors.append(error)
+            finally:
+                stop.set()
+
+        def reader():
+            attempts = 0
+            try:
+                while not stop.is_set():
+                    snapshot = state.snapshot()
+                    recovery = snapshot['recovery']
+                    self.assertEqual(set(snapshot), {'version', 'managed', 'collected_at', 'settings', 'recovery',
+                                                     'relay_state', 'internet_state', 'internet_checked_at',
+                                                     'remote', 'components'})
+                    if not recovery['busy']:
+                        self.assertIn(recovery['phase'], ('starting', 'monitoring'))
+                    self.assertGreaterEqual(recovery['attempts'], attempts)
+                    self.assertEqual(len(snapshot['components']), len(control.COMPONENTS))
+                    self.assertEqual(set(snapshot['settings']), {'auto_reconnect', 'auto_wake'})
+                    attempts = recovery['attempts']
+            except BaseException as error:
+                errors.append(error)
+
+        threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join(timeout=10)
+        self.assertEqual(errors, [])
+
+    def test_slow_settings_persistence_does_not_block_snapshots(self):
+        subject = self.supervisor()
+        entered, release = threading.Event(), threading.Event()
+        value = {'auto_reconnect': False, 'auto_wake': True}
+
+        def persist(settings):
+            entered.set()
+            self.assertTrue(release.wait(2))
+
+        writer = threading.Thread(target=subject.state.apply_settings, args=(value, persist))
+        writer.start()
+        self.assertTrue(entered.wait(1))
+        reader_done = threading.Event()
+        threading.Thread(target=lambda: (subject.snapshot(), reader_done.set()), daemon=True).start()
+        self.assertTrue(reader_done.wait(0.5), 'snapshot waited for settings disk I/O')
+        release.set()
+        writer.join(timeout=2)
+        self.assertEqual(subject.settings, value)
+
+    def test_failed_settings_persistence_keeps_the_previous_snapshot(self):
+        subject = self.supervisor()
+        before = subject.settings
+        with patch.object(supervisor_impl, 'save_json', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                subject.update_settings({'auto_reconnect': False, 'auto_wake': True})
+        self.assertEqual(subject.settings, before)
+
+    def test_collaborators_are_injectable_at_real_boundaries(self):
+        class Probe:
+            def relay(self): return 'connected'
+            def internet(self): return 'connected'
+            def expected_identity(self): return 'a' * 64
+
+        class Processes:
+            def __init__(self):
+                self.children, self.identities, self.started = {}, {}, []
+
+            def identity(self, _): return None
+
+            def start(self, name): self.started.append(name)
+
+            def stop(self, name): self.started.append('stop:' + name)
+
+        processes = Processes()
+        self.config['components']['gateway'] = {'command': ['/bin/true'], 'pid_file': str(self.root / 'gateway.pid')}
+        subject = self.supervisor(probes=Probe(), processes=processes)
+        self.assertEqual(subject.probe(), 'connected')
+        self.assertEqual(subject.expected_identity(), 'a' * 64)
+        subject.start_component('gateway')
+        self.assertEqual(processes.started, ['gateway'])
+
+    def test_executable_entry_point_imports_away_from_the_repository(self):
+        scripts = [Path(__file__).resolve().parents[1] / 'deploy/supervisor.py',
+                   Path(__file__).resolve().parents[1] / 'deploy/start_supervisor.py']
+        with tempfile.TemporaryDirectory() as directory:
+            for script in scripts:
+                with self.subTest(script=script.name):
+                    result = subprocess.run([sys.executable, '-B', str(script), '--help'], cwd=directory,
+                                            text=True, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('--config', result.stdout)
+
+
+class RecoveryPolicyTest(unittest.TestCase):
+    def test_backoff_and_provider_retry_use_injected_clock(self):
+        now = [0.0]
+        wall = [1000.0]
+        policy = control.RecoveryPolicy(clock=lambda: now[0], wall_clock=lambda: wall[0])
+        for _ in range(2):
+            policy.note_failure()
+        self.assertFalse(policy.recovery_due())
+        policy.note_failure()
+        self.assertTrue(policy.recovery_due())
+        retry_at = policy.schedule_retry()
+        self.assertEqual(retry_at, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(1002)))
+        self.assertEqual(policy.delay_value(), 4)
+        self.assertEqual(policy.next_attempt_value(), 2)
+        policy.record_connected()
+        self.assertEqual((policy.failures, policy.delay_value(), policy.next_attempt_value()), (0, 2, 0))
+
+        policy.provider_failed('unreachable', False)
+        self.assertFalse(policy.provider_due())
+        now[0] = 2
+        self.assertTrue(policy.provider_due())
+        policy.provider_ok(host_status_next=20)
+        self.assertFalse(policy.host_status_due())
+        now[0] = 20
+        self.assertTrue(policy.host_status_due())
+        policy.provider_failed('identity_mismatch', True)
+        self.assertEqual(policy.provider_blocked_value(), 'identity_mismatch')
+        self.assertFalse(policy.provider_due())
+        self.assertEqual(policy.provider_status(), ('identity_mismatch', 'identity_mismatch', None))
 
 
 class LauncherTest(unittest.TestCase):

@@ -40,6 +40,7 @@ your own VPS, and generate the OpenCode plugin entry for this checkout.
 - [Refactor Phase 0: compatibility, regression, and performance baseline](docs/REFACTOR_BASELINE.md)
 - [Refactor Phase 1: shared contracts and semantic ownership](docs/REFACTOR_PHASE1.md)
 - [Refactor Phase 2: client transport consolidation](docs/REFACTOR_PHASE2.md)
+- [Refactor Phase 3: modular supervision and state ownership](docs/REFACTOR_PHASE3.md)
 - [Optional recovery for an existing private Codespace profile](docs/CODESPACE_RECOVERY.md)
 
 Private configuration, tokens, logs, conversation exports, and relay state are

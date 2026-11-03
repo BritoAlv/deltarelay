@@ -1,0 +1,145 @@
+"""Unix-socket control API and executable entry point."""
+
+import argparse
+import fcntl
+import http.client
+import http.server
+import json
+import os
+from pathlib import Path
+import signal
+import socket
+import socketserver
+import stat
+import sys
+import threading
+
+from remote_provider import ProviderError as ControlError, private_json
+
+from .supervisor import Supervisor
+
+
+def control_request(path, method, endpoint, body=None):
+    """Call the private Unix socket without exposing it through a TCP listener."""
+    connection = http.client.HTTPConnection('localhost', timeout=2)
+    try:
+        connection.sock = socket.socket(socket.AF_UNIX)
+        connection.sock.settimeout(2)
+        connection.sock.connect(str(path))
+        data = json.dumps(body) if body is not None else None
+        headers = {'Content-Type': 'application/json'} if data is not None else {}
+        connection.request(method, endpoint, data, headers)
+        response = connection.getresponse()
+        value = json.loads(response.read(65537))
+        return response.status, value
+    except (OSError, ValueError, http.client.HTTPException):
+        return None, None
+    finally:
+        connection.close()
+
+
+def controller_status(path):
+    status, value = control_request(path, 'GET', '/status')
+    return value if status == 200 and isinstance(value, dict) and value.get('version') in (1, 2) else None
+
+
+class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass  # Never log bodies, credentials, commands, or private paths.
+
+    def reply(self, code, data):
+        body = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path == '/status':
+            self.reply(200, self.server.supervisor.snapshot())
+        else:
+            self.reply(404, {'error': 'not_found'})
+
+    def do_POST(self):
+        try:
+            length = int(self.headers.get('Content-Length', '0'))
+            if not 0 < length <= 4096 or self.headers.get('Content-Type') != 'application/json':
+                raise ControlError('invalid_request')
+            value = json.loads(self.rfile.read(length))
+            if self.path == '/settings':
+                self.server.supervisor.update_settings(value)
+            elif self.path == '/action':
+                self.server.supervisor.submit(value)
+            else:
+                self.reply(404, {'error': 'not_found'})
+                return
+            self.reply(202, {'accepted': True})
+        except ControlError as error:
+            self.reply(409, {'error': str(error)})
+        except (OSError, ValueError):
+            self.reply(400, {'error': 'invalid_request'})
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description='Private, single-user service supervisor. No inference, shell API, or public listener.')
+    parser.add_argument('--config', required=True, type=Path)
+    parser.add_argument('--no-dashboard', action='store_true')
+    parser.add_argument('--no-desktop', action='store_true')
+    args = parser.parse_args(argv)
+    os.umask(0o077)
+    supervisor = Supervisor(private_json(args.config))
+    lock = os.open(supervisor.directory / 'supervisor.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    path = supervisor.directory / 'supervisor.sock'
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+            raise ControlError('unsafe_socket')
+        path.unlink()  # The exclusive lock proves no existing controller owns it.
+    with Server(str(path), Handler) as server:
+        os.chmod(path, 0o600)
+        server.supervisor = supervisor
+        server.timeout = 0.5
+        signal.signal(signal.SIGTERM, lambda *_: supervisor.stop.set())
+        signal.signal(signal.SIGINT, lambda *_: supervisor.stop.set())
+        supervisor.state.set_dashboard_enabled(not args.no_dashboard)
+        # The independent dashboard comes first, even with no remote network.
+        for name in ('dashboard', 'gateway', 'opencode', 'desktop'):
+            if name not in supervisor.config['components'] or name == 'dashboard' and args.no_dashboard or name in ('desktop', 'opencode') and args.no_desktop:
+                continue
+            try:
+                supervisor.start_component(name)
+                if name == 'dashboard':
+                    current = supervisor._identity(name)
+                    if current and '--control-socket' not in current['args']:
+                        # Upgrade only the positively identified legacy read-only
+                        # dashboard. Never replace the gateway or Desktop here.
+                        supervisor.restart_component(name)
+            except Exception:
+                supervisor.state.set_component(name, 'start_failed')
+        worker = threading.Thread(target=supervisor.monitor, daemon=True)
+        worker.start()
+        while not supervisor.stop.is_set():
+            server.handle_request()
+        # Do not let Python tear down daemon threads while a provider process
+        # group is still being cancelled. Managed long-lived services stay up.
+        worker.join(timeout=15)
+        if supervisor.operation.acquire(timeout=15):
+            supervisor.operation.release()
+    path.unlink(missing_ok=True)
+    # Adopted services remain running when the controller itself stops.
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception:
+        print('Supervisor failed; check the private configuration, permissions, and exclusive control lock.', file=sys.stderr)
+        sys.exit(1)

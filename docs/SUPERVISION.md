@@ -225,6 +225,9 @@ process that ignores graceful shutdown is force-stopped after a bounded timeout;
 a recycled PID, unrecognized port owner, or unrelated process is never signaled.
 Stopping the supervisor leaves existing services running; rerun `startup.sh` to
 resume monitoring. Configuration is read at controller startup, not live-reloaded.
+Runtime code is organized in `deploy/supervision/`; `deploy/supervisor.py` remains
+the executable compatibility entry point and `deploy/start_supervisor.py` remains
+the launcher entry point.
 
 ```sh
 go test -race ./...

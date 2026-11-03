@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 import remote_provider as contract
 import supervisor
+import supervision.state as supervision_state
 from providers import common
 
 
@@ -48,7 +49,7 @@ class SharedContractTest(unittest.TestCase):
                          ('relay_token_file', 'local_token_file', 'relay_state_file')}}
             subject = supervisor.Supervisor(config)
             self.addCleanup(subject.stop.set)
-            with patch.object(supervisor, 'stamp', return_value='2026-11-01T12:00:00Z'):
+            with patch.object(supervision_state, 'stamp', return_value='2026-11-01T12:00:00Z'):
                 self.assertEqual(subject.snapshot(), read('supervisor-v2.json'))
             self.assertEqual(subject.children, {})
 
