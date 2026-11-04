@@ -78,7 +78,8 @@ def codespace_config(project, profile, port):
             'gateway': {'command': [binary, 'gateway', '--listen', '127.0.0.1:18788', '--server', 'http://127.0.0.1:18787',
                                    '--token-file', str(profile / 'relay.token'), '--local-token-file', str(profile / 'local.token'),
                                    '--upstreams', str(profile / 'upstreams.json'), '--state-dir', str(state),
-                                   '--stats-file', str(profile / '.runtime/dashboard-stats.json')],
+                                   '--stats-file', str(profile / '.runtime/dashboard-stats.json'),
+                                   '--capture-dir', str(profile / 'captures')],
                         # Adopt the deployed gateway without replacing its binary or interrupting its work.
                         'adopt_match': [str(profile / 'deltarelay-linux-amd64'), 'gateway', '--listen', '127.0.0.1:18788'],
                         'pid_file': str(profile / 'gateway.pid'), 'port': 18788},

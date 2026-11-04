@@ -747,6 +747,8 @@ class LauncherTest(unittest.TestCase):
             self.assertNotIn('tunnel-supervisor.sh', ' '.join(config['components']['tunnel']['command']))
             self.assertEqual(config['components']['dashboard']['port'], 8791)
             self.assertEqual(config['codespace']['name'], 'existing-test')
+            gateway = config['components']['gateway']['command']
+            self.assertEqual(gateway[gateway.index('--capture-dir') + 1], str(root / 'captures'))
 
 
 @unittest.skipUnless(os.environ.get('DELTARELAY_RECOVERY_TEST_BINARY'),

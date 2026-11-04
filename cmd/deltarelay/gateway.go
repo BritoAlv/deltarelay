@@ -40,7 +40,7 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	recovery := bindRecovery(flags, true)
 	quiet := flags.Bool("quiet", false, "disable per-request metadata-only statistics logs")
 	statsFile := flags.String("stats-file", defaultEnv("DELTARELAY_STATS_FILE", defaultStatsFile), "private bounded session statistics; empty disables persistence")
-	captureDir := flags.String("capture-dir", os.Getenv("DELTARELAY_CAPTURE_DIR"), "opt-in private request/payload captures (sensitive prompts/code); empty disables capture")
+	captureDir := flags.String("capture-dir", defaultEnv("DELTARELAY_CAPTURE_DIR", defaultCaptureDir), "private request/payload captures (sensitive prompts/code); empty disables capture")
 	captureBytes := flags.Int64("capture-max-bytes", inspection.DefaultMaxBytes, "maximum retained inspection bytes, including metadata")
 	captureRequestBytes := flags.Int64("capture-max-request-bytes", inspection.DefaultMaxCaptureBytes, "maximum inspection bytes per request including its evidence index; excess is explicitly truncated")
 	captureCount := flags.Int("capture-max-requests", inspection.DefaultMaxCaptures, "maximum retained inspection captures")

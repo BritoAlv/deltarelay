@@ -19,9 +19,10 @@ defaults/precedence remain recorded in
   retries. Retries apply only to reads or operations whose idempotency the
   protocol enforces.
 - Optional dashboard statistics are not durable mailbox storage.
-- Opt-in request-evidence capture is separate from metadata statistics: it is
-  off by default, stores request-side payloads only on private local disk, and
-  is served only through validated read-only inspection routes.
+- Request-evidence capture is separate from metadata statistics: it is enabled
+  by default, stores request-side payloads only on private local disk, and is
+  served only through validated read-only inspection routes. An empty
+  `--capture-dir` disables it.
 - The Go runtime is standard-library-only; the dashboard is static and
   framework-light.
 
@@ -36,12 +37,12 @@ defaults/precedence remain recorded in
 | `internal/client` | PC-side spooling, chunk inventory/upload, relay RPC attempts, retry policy, response resumption, checkpoints, and the offline cancellation outbox. |
 | `internal/upstream` | Destination allowlist matching, DNS/private-network rejection, header filtering, and the provider HTTP client. |
 | `internal/fsx` | Narrow filesystem mechanics: directory syncing, atomic replacement, JSON writes, and exclusive creation. Callers keep their own durability and overwrite policies. |
-| `internal/inspection` | Opt-in, private request/attempt evidence capture, bounded retention and quota accounting, crash checkpoints, and validated read-only inspection routes. |
+| `internal/inspection` | Private request/attempt evidence capture, bounded retention and quota accounting, crash checkpoints, and validated read-only inspection routes. |
 | `internal/store` | Content-addressed chunk/body cache, verification, assembly, and cache quota accounting. |
 | `internal/journal` | Exclusive, durable provider-dispatch claims and replay refusal. |
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
 | `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, shutdown, and legacy streaming. |
-| `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and opt-in capture attachment. |
+| `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, and the narrow supervisor-control bridge. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
@@ -75,7 +76,7 @@ internal/transfer ──────> (no internal imports)
 The client does not import the gateway or VPS server implementation. The
 gateway does not receive relay-store paths or mailbox internals. The dashboard
 never receives relay or provider authentication credentials. When capture is
-explicitly enabled, it can read captured request bodies, which may themselves
+enabled (the default), it can read captured request bodies, which may themselves
 contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
 
 ## Data plane
@@ -113,10 +114,11 @@ streaming lifetime and does not create a durable response.
 - Browser diagnostics request same-origin `/api/dashboard`; the Go dashboard
   authenticates its own `GET /v1/dashboard` to the gateway. Gateway tokens never
   enter browser storage.
-- With `--capture-dir`, the gateway attaches opt-in request evidence to a
-  metadata observation. The dashboard proxies only validated read-only
-  `/api/inspection` routes, and the capture store keeps its own retention
-  independent of the statistics file. Provider response bodies are not captured.
+- With the default `--capture-dir`, the gateway attaches request evidence to a
+  metadata observation. An empty `--capture-dir` disables capture. The dashboard
+  proxies only validated read-only `/api/inspection` routes, and the capture
+  store keeps its own retention independent of the statistics file. Provider
+  response bodies are not captured.
 - `/api/system` and approved control POSTs go to the optional private supervisor
   Unix socket. They do not depend on gateway availability. Controls remain
   disabled when the supervisor is absent, stale, unmanaged, or does not support
@@ -166,7 +168,7 @@ no worker and no lock.
 | Remote-provider plugin | v1 JSON envelope and required/optional operations. |
 | Supervisor status | v1 payloads are normalized at the compatibility boundary; current responses are v2. |
 | Dashboard history | v1 metadata-only statistics snapshot. Optional `capture_id` links and the `inspection` snapshot block are additive; older gateways and saved history remain valid. |
-| Request inspection | Optional and off by default. A gateway without capture omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
+| Request inspection | Optional and enabled by default. A gateway with an empty `--capture-dir` omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
 | Persisted state | Mailbox identity/records/frames, exclusive journal markers, client relay pin, download checkpoints, and cancellation outbox use their existing formats. No storage migration is planned. |
 | Private execution paths | `deploy/supervisor.py`, `deploy/start_supervisor.py`, `deploy/start_dashboard.py`, `deploy/recover_*.py`, and provider executable paths remain usable without rewriting private configuration. |
 

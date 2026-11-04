@@ -35,7 +35,8 @@ Important compatibility distinctions:
   strictly ordered and within their declared retention; when absent, the
   dashboard falls back to retained request entries.
 - `inspection` is optional for compatibility with gateways that predate payload
-  capture. It appears only when capture is enabled. `recent_requests[].capture_id`
+  capture. It appears only when capture is enabled (the CLI default).
+  `recent_requests[].capture_id`
   is also optional; an absent ID means content was not retained, not that it was
   empty.
 - Raw legacy supervisor v1 uses `codespace_state`. Only the Go boundary normalizes

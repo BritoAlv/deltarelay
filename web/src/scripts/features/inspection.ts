@@ -34,8 +34,8 @@ export function mountInspection(root: HTMLElement, options: { onStageChange?: (s
   const view = root.ownerDocument.defaultView ?? globalThis
 
   function notice(): string {
-    if (!status) return `<p class="inspect-notice">Payload capture is off or not reported by this gateway. Start the gateway with <code>--capture-dir</code> to capture future requests. Existing counters cannot reconstruct request content; this stores sensitive prompts/code on private disk.</p>`
-    if (!status.enabled) return `<p class="inspect-notice">Payload capture is off. Enable the gateway’s <code>--capture-dir</code> for future requests. This stores sensitive prompts/code on private disk; older requests cannot be reconstructed.</p>`
+    if (!status) return `<p class="inspect-notice">Payload capture is off or not reported by this gateway. Rebuild and restart the gateway to use the default capture directory. Existing counters cannot reconstruct request content.</p>`
+    if (!status.enabled) return `<p class="inspect-notice">Payload capture is off. Restart the gateway with its default capture directory to capture future requests. This stores sensitive prompts/code on private disk; older requests cannot be reconstructed.</p>`
     return `<p class="inspect-notice${status.storage_error ? " warning" : ""}">Private disk capture enabled · ${status.captures.toLocaleString()}/${status.max_captures.toLocaleString()} requests retained · ${escape(bytes(status.used_bytes))} of ${escape(bytes(status.max_bytes))} used · ${escape(bytes(status.max_capture_bytes))} per capture · ${(status.max_age_seconds/3600).toLocaleString()} h retention. ${status.storage_error ? "Capture storage/admission errors observed; evidence may be incomplete. " : ""}Captured bodies may contain secrets. Capture retention is independent of statistics.</p>`
   }
 

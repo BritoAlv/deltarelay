@@ -1,4 +1,4 @@
-// Package inspection records opt-in, private application-payload evidence. It is
+// Package inspection records private application-payload evidence. It is
 // deliberately separate from metadata-only telemetry and from durable dispatch.
 package inspection
 

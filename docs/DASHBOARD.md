@@ -32,8 +32,8 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   original-versus-encoded comparison, and an expandable per-request ledger with
   cache reuse, raw chunk uploads, encoded bytes, HTTP attempts, and response
   bytes that are excluded from upload savings.
-- With explicit gateway payload capture enabled, select a request to inspect its
-  actual decoded body (UTF-8, hex + ASCII, lossless JSON formatting, or exact
+- With gateway payload capture enabled (the default), select a request to inspect
+  its actual decoded body (UTF-8, hex + ASCII, lossless JSON formatting, or exact
   download), ordered chunk-presence rectangles with byte ranges, prepared upload
   batches and frame offsets, and each counted HTTP attempt with its encoding,
   prepared/consumed lengths, and validated acknowledgment. Requests predating
@@ -191,16 +191,16 @@ optional predefined POST service controls are documented in
 provider credentials. Existing gateway authentication and browser-origin rejection remain
 intact.
 
-Request evidence capture is **off by default** and is a separate, explicit
-tradeoff. When `--capture-dir` is set, the gateway stores application request
-bodies (which can contain prompts, source code, tool output, and other secrets)
-and encoded RPC payloads on private local disk. The loopback dashboard then
+Request evidence capture is **enabled by default** and is a separate tradeoff.
+Unless `--capture-dir` is empty, the gateway stores application request bodies
+(which can contain prompts, source code, tool output, and other secrets) and
+encoded RPC payloads on private local disk. The loopback dashboard then
 serves those captures through its authenticated, route-validated inspection
 proxy. The browser never receives the local token. That proxy accepts only
 bounded capture routes and endpoint-specific query parameters; unknown
-parameters and arbitrary paths are rejected. Do not enable capture on a shared
-or untrusted machine. Provider response
-bodies are still never captured. The routing target (`X-DeltaRelay-Target`) and
+parameters and arbitrary paths are rejected. Do not keep capture enabled on a
+shared or untrusted machine. Provider response bodies are still never captured.
+The routing target (`X-DeltaRelay-Target`) and
 credential-bearing forwarding headers are omitted from the retained dispatch
 projection, which is replaced by an allowlisted redacted representation. The
 request's `Content-Type` is retained only as a label. Known captured protocol
@@ -266,7 +266,7 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
   shown and the capture is marked interrupted; bytes written after the last
   checkpoint are not silently claimed. A normal shutdown flushes before releasing
   the directory lock.
-- Capture writes happen on the request path, so enabling capture can reduce
+- Capture writes happen on the request path, so capture can reduce
   throughput on a slow disk. Capture failure never changes the transferred source
   bytes: the real transfer continues, retained evidence may be a contiguous
   labeled prefix, the UI labels storage errors/truncation, and an incomplete body
@@ -314,9 +314,9 @@ interrupted requests keep their measured partial values. If request entries were
 bounded history, the page states how many retained entries the ledger covers and
 does not imply the visible requests reconcile to the session totals.
 
-### Opt-in request evidence capture
+### Request evidence capture
 
-Capture is enabled only by passing a private directory:
+Capture is enabled by default with a private directory:
 
 ```sh
 ./bin/deltarelay gateway \
@@ -324,21 +324,21 @@ Capture is enabled only by passing a private directory:
   --token-file /path/to/private/relay.token \
   --local-token-file /path/to/private/local.token \
   --upstreams /path/to/private/upstreams.json \
-  --stats-file .runtime/dashboard-stats.json \
-  --capture-dir .runtime/dashboard-captures
+  --stats-file .runtime/dashboard-stats.json
 ```
 
-`DELTARELAY_CAPTURE_DIR` can supply the directory instead. An empty
+The default directory is `.runtime/dashboard-captures`.
+`DELTARELAY_CAPTURE_DIR` can supply a different directory instead. An empty
 `--capture-dir` disables capture. The optional limits are
 `--capture-max-bytes` (default 536870912, including metadata),
 `--capture-max-request-bytes` (default 67108864, including metadata),
 `--capture-max-requests` (default 100), and
 `--capture-max-age` (default 24h). They are validated at gateway startup.
 Capture applies only to future requests. The dashboard displays the active
-limits, retained-capture count, used bytes, and any storage/admission error. If a
-supervisor generates the gateway command, add the same `--capture-dir` flag to
-its private profile configuration and restart the gateway; the dashboard does not
-enable capture by itself.
+limits, retained-capture count, used bytes, and any storage/admission error. A
+supervisor-generated gateway command uses a private capture directory inside its
+profile; restart the gateway after changing capture settings. The dashboard does
+not enable or disable capture by itself.
 
 The inspector separates evidence by meaning:
 

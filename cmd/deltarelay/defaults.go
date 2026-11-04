@@ -18,6 +18,7 @@ const (
 	defaultCacheBytes      int64 = 10 << 30
 	defaultAssets                = "web/dist"
 	defaultStatsFile             = ".runtime/dashboard-stats.json"
+	defaultCaptureDir            = ".runtime/dashboard-captures"
 	defaultTransferTimeout       = 4 * time.Hour
 	defaultDoctorTimeout         = 10 * time.Second
 

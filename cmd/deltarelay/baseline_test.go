@@ -64,7 +64,7 @@ func TestCLIBaselineDefaults(t *testing.T) {
 		{[]string{"gateway"}, map[string]string{
 			"listen": `"127.0.0.1:8788"`, "server": `"http://127.0.0.1:8787"`, "workers": "4", "batch-bytes": "262144", "concurrency": "8",
 			"max-body-bytes": "268435456", "max-upload-bytes": "-1", "request-timeout": "", "header-timeout": "2m0s", "stats-file": `".runtime/dashboard-stats.json"`,
-			"capture-dir": "", "capture-max-bytes": "536870912", "capture-max-request-bytes": "67108864", "capture-max-requests": "100", "capture-max-age": "24h0m0s",
+			"capture-dir": `".runtime/dashboard-captures"`, "capture-max-bytes": "536870912", "capture-max-request-bytes": "67108864", "capture-max-requests": "100", "capture-max-age": "24h0m0s",
 		}},
 		{[]string{"sync"}, map[string]string{"server": `"http://127.0.0.1:8787"`, "timeout": "4h0m0s", "workers": "4", "batch-bytes": "262144", "max-upload-bytes": "-1", "input": `"-"`, "state-dir": ""}},
 		{[]string{"fetch"}, map[string]string{"server": `"http://127.0.0.1:8787"`, "timeout": "4h0m0s", "output": "", "state-dir": ""}},
