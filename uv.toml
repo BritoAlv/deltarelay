@@ -1,0 +1,3 @@
+offline = true
+python-downloads = "never"
+python-preference = "only-managed"
