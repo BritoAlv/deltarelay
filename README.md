@@ -113,7 +113,8 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/deltarelay-linux
 
 The optional **Astro + TypeScript** dashboard shows per-session bandwidth savings,
 active and recent requests, cache reuse, multi-day upload traffic, VPS/storage/
-mailbox health, pending cancellations, and observed provider results. Traffic
+mailbox health, pending cancellations, and observed provider results. Failed and
+client-cancelled requests are counted separately. Traffic
 ranges cover 24 hours, 7, 30, or 90 days, or a custom date range, with composition
 and trend views for bandwidth saved and relay cache reuse. A separate Measurement
 page traces a retained session from original body to encoded wire bytes, request

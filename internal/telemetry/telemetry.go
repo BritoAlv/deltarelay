@@ -49,6 +49,7 @@ type Totals struct {
 	Requests           int64 `json:"requests"`
 	Active             int64 `json:"active"`
 	Failed             int64 `json:"failed"`
+	Cancelled          int64 `json:"cancelled"`
 	BodyBytes          int64 `json:"body_bytes"`
 	UploadedChunkBytes int64 `json:"uploaded_chunk_bytes"`
 	EncodedUploadBytes int64 `json:"encoded_upload_bytes"`
@@ -90,6 +91,7 @@ type TrafficBucket struct {
 	Start              time.Time `json:"start"`
 	Requests           int64     `json:"requests"`
 	Failed             int64     `json:"failed"`
+	Cancelled          int64     `json:"cancelled"`
 	BodyBytes          int64     `json:"body_bytes"`
 	UploadedChunkBytes int64     `json:"uploaded_chunk_bytes"`
 	EncodedUploadBytes int64     `json:"encoded_upload_bytes"`
@@ -297,7 +299,7 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 }
 
 func validTotals(t Totals) bool {
-	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Active+t.Failed <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
+	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Cancelled >= 0 && t.Active+t.Failed+t.Cancelled <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
 }
 
 func newTraffic(since time.Time) Traffic {
@@ -349,7 +351,7 @@ func validTrafficSeries(series TrafficSeries, bucketSeconds, retentionSeconds in
 }
 
 func validTrafficBucket(bucket TrafficBucket) bool {
-	return bucket.Requests >= 0 && bucket.Failed >= 0 && bucket.Failed <= bucket.Requests &&
+	return bucket.Requests >= 0 && bucket.Failed >= 0 && bucket.Cancelled >= 0 && bucket.Failed+bucket.Cancelled <= bucket.Requests &&
 		bucket.BodyBytes >= 0 && bucket.UploadedChunkBytes >= 0 && bucket.EncodedUploadBytes >= 0 &&
 		bucket.ReusedBodyBytes >= 0 && bucket.ResponseBytes >= 0 && bucket.DurationMillis >= 0
 }
@@ -364,29 +366,32 @@ func dailyTrafficStart(at time.Time) time.Time {
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
 }
 
-func addTrafficBucket(buckets *[]TrafficBucket, start time.Time, stats transfer.Stats, responseBytes, duration int64, failed bool) {
+func addTrafficBucket(buckets *[]TrafficBucket, start time.Time, stats transfer.Stats, responseBytes, duration int64, failed, cancelled bool) {
 	list := *buckets
 	index := len(list) - 1
 	for index >= 0 && list[index].Start.After(start) {
 		index--
 	}
 	if index >= 0 && list[index].Start.Equal(start) {
-		addTrafficResult(&list[index], stats, responseBytes, duration, failed)
+		addTrafficResult(&list[index], stats, responseBytes, duration, failed, cancelled)
 		*buckets = list
 		return
 	}
 	bucket := TrafficBucket{Start: start}
-	addTrafficResult(&bucket, stats, responseBytes, duration, failed)
+	addTrafficResult(&bucket, stats, responseBytes, duration, failed, cancelled)
 	list = append(list, TrafficBucket{})
 	copy(list[index+2:], list[index+1:])
 	list[index+1] = bucket
 	*buckets = list
 }
 
-func addTrafficResult(bucket *TrafficBucket, stats transfer.Stats, responseBytes, duration int64, failed bool) {
+func addTrafficResult(bucket *TrafficBucket, stats transfer.Stats, responseBytes, duration int64, failed, cancelled bool) {
 	bucket.Requests++
 	if failed {
 		bucket.Failed++
+	}
+	if cancelled {
+		bucket.Cancelled++
 	}
 	bucket.BodyBytes += stats.BodyBytes
 	bucket.UploadedChunkBytes += stats.UploadedChunkBytes
@@ -396,9 +401,9 @@ func addTrafficResult(bucket *TrafficBucket, stats transfer.Stats, responseBytes
 	bucket.DurationMillis += duration
 }
 
-func (r *Recorder) addTrafficLocked(at time.Time, stats transfer.Stats, responseBytes, duration int64, failed bool) {
-	addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(at), stats, responseBytes, duration, failed)
-	addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(at), stats, responseBytes, duration, failed)
+func (r *Recorder) addTrafficLocked(at time.Time, stats transfer.Stats, responseBytes, duration int64, failed, cancelled bool) {
+	addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(at), stats, responseBytes, duration, failed, cancelled)
+	addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(at), stats, responseBytes, duration, failed, cancelled)
 	r.trimTrafficLocked(at)
 }
 
@@ -426,12 +431,13 @@ func (r *Recorder) backfillTrafficLocked(now time.Time) {
 		if request.FinishedAt == nil || request.State == "running" {
 			continue
 		}
-		failed := request.State != "completed"
+		failed := request.State == "failed" || request.State == "interrupted"
+		cancelled := request.State == "cancelled"
 		if earliest.IsZero() || request.FinishedAt.Before(earliest) {
 			earliest = *request.FinishedAt
 		}
-		addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed)
-		addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed)
+		addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed, cancelled)
+		addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed, cancelled)
 	}
 	if earliest.IsZero() {
 		earliest = now
@@ -562,30 +568,37 @@ func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string,
 			continue
 		}
 		now := time.Now().UTC()
+		cancelled := status == 499
+		if cancelled {
+			failed = false
+		}
 		request.FinishedAt, request.Status, request.ErrorCode = &now, status, code
 		request.Transfer, request.ResponseBytes, request.DurationMillis = stats, responseBytes, duration
 		request.State = "completed"
 		if failed {
 			request.State = "failed"
 		}
-		if status == 499 {
+		if cancelled {
 			request.State = "cancelled"
 		}
 		s := &r.data.Sessions[r.sessionIndex(request.SessionID)]
 		s.UpdatedAt, s.LastStatus, s.LastError = now, status, code
-		addResult(&s.Totals, failed, stats, responseBytes, duration)
-		addResult(&r.data.Totals, failed, stats, responseBytes, duration)
-		r.addTrafficLocked(now, stats, responseBytes, duration, failed)
+		addResult(&s.Totals, failed, cancelled, stats, responseBytes, duration)
+		addResult(&r.data.Totals, failed, cancelled, stats, responseBytes, duration)
+		r.addTrafficLocked(now, stats, responseBytes, duration, failed, cancelled)
 		r.revision++
 		r.markDirty()
 		return
 	}
 }
 
-func addResult(t *Totals, failed bool, stats transfer.Stats, responseBytes, duration int64) {
+func addResult(t *Totals, failed, cancelled bool, stats transfer.Stats, responseBytes, duration int64) {
 	t.Active--
 	if failed {
 		t.Failed++
+	}
+	if cancelled {
+		t.Cancelled++
 	}
 	t.BodyBytes += stats.BodyBytes
 	t.UploadedChunkBytes += stats.UploadedChunkBytes

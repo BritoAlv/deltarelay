@@ -1,9 +1,9 @@
 import type { Snapshot } from "./types.js"
 import { counters, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
 
-const totalKeys = ["requests", "active", "failed", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
+const totalKeys = ["requests", "active", "failed", "cancelled", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
 const transferKeys = ["body_bytes", "chunks", "unique_chunks", "uploaded_chunks", "uploaded_chunk_bytes", "missing_chunk_bytes", "reused_body_bytes", "request_body_bytes_sent", "requests", "duration_ms"]
-const trafficBucketKeys = ["requests", "failed", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
+const trafficBucketKeys = ["requests", "failed", "cancelled", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
 
 function session(value: unknown): boolean {
   return object(value) && counters(value, totalKeys) && typeof value.id === "string" && typeof value.upstream === "string" &&
@@ -20,7 +20,7 @@ function request(value: unknown): boolean {
 }
 
 function trafficBucket(value: unknown): boolean {
-  return object(value) && timestamp(value.start) && counters(value, trafficBucketKeys) && (value.failed as number) <= (value.requests as number)
+  return object(value) && timestamp(value.start) && counters(value, trafficBucketKeys) && (value.failed as number) + (value.cancelled as number) <= (value.requests as number)
 }
 
 function trafficSeries(value: unknown, expectedSeconds: number): boolean {
@@ -51,6 +51,7 @@ export function isSnapshot(value: unknown): value is Snapshot {
   if (!object(relay) || typeof relay.reachable !== "boolean" || !counters(relay, ["latency_ms"]) || !object(relay.health)) return false
   if (!counters(relay.health, ["version", "cache_bytes", "max_cache_bytes", "response_storage_bytes", "max_response_storage_bytes", "pending_cancellations"]) || typeof relay.health.forwarding !== "boolean" || typeof relay.health.state_id !== "string" || !optionalString(relay.health.control_error)) return false
   if (!object(history) || history.version !== 1 || !timestamp(history.since) || !object(history.totals) || !counters(history.totals, totalKeys)) return false
+  if ((history.totals.active as number) + (history.totals.failed as number) + (history.totals.cancelled as number) > (history.totals.requests as number)) return false
   if (!counters(history, ["session_limit", "request_limit", "evicted_sessions", "dropped_requests"]) || typeof history.persistent !== "boolean" || typeof history.persistence_error !== "boolean") return false
   if ((history.session_limit as number) > 256 || (history.request_limit as number) > 1000) return false
   if (!Array.isArray(history.sessions) || history.sessions.length > (history.session_limit as number) || !history.sessions.every(session)) return false

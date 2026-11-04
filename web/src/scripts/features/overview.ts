@@ -77,7 +77,7 @@ export function mountOverview({ root, navCount, onRefresh, onPauseToggle }: Over
     setText("stat-sessions-foot", `${activeSessions} active · ${snapshot.history.evicted_sessions ? `${integer(snapshot.history.evicted_sessions)} older evicted` : "retained history"}`)
     requiredById<HTMLElement>(root, "active-session-dot").style.opacity = activeSessions ? "1" : ".3"
     setText("stat-requests", integer(totals.requests))
-    setText("stat-requests-foot", `${totals.active} running · ${integer(totals.failed)} unsuccessful`)
+    setText("stat-requests-foot", `${totals.active} running · ${integer(totals.failed)} failed · ${integer(totals.cancelled)} cancelled`)
     navCount.textContent = String(snapshot.history.sessions.length)
   }
 

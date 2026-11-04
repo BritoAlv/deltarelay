@@ -27,7 +27,9 @@ Important compatibility distinctions:
 
 - Dashboard/history stay v1; relay health uses v2 or zero/empty values when no
   discovery result is available. Running requests legitimately have zero transfer
-  counters and an empty hash.
+  counters and an empty hash. Client cancellations are a separate `cancelled`
+  counter in global/session totals and traffic buckets; rebuild the gateway and
+  dashboard together when upgrading because the browser validator requires it.
 - `history.traffic` is optional for compatibility with gateways that predate
   traffic aggregates. When present, hourly and daily bucket arrays must be
   strictly ordered and within their declared retention; when absent, the

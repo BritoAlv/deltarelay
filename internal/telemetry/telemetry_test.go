@@ -121,8 +121,12 @@ func TestPrivatePersistenceAndRestart(t *testing.T) {
 		t.Fatal("request sequence reused after restart")
 	}
 	reopened.Finish(newID, 499, true, "", transferstats.Stats{}, 0, 30)
-	if reopened.Snapshot().RecentRequests[2].State != "cancelled" {
+	final := reopened.Snapshot()
+	if final.RecentRequests[2].State != "cancelled" {
 		t.Fatal("cancellation not recorded")
+	}
+	if final.Totals.Failed != 1 || final.Totals.Cancelled != 1 || final.Sessions[0].Failed != 1 || final.Sessions[0].Cancelled != 1 {
+		t.Fatalf("cancellation was counted as a failure: totals=%+v session=%+v", final.Totals, final.Sessions[0].Totals)
 	}
 }
 
@@ -375,20 +379,25 @@ func TestTrafficAggregatesFinishedRequests(t *testing.T) {
 	r.Finish(sequence, 200, false, "", sampleTransfer, 25, 100)
 	failed := r.Begin("request-00000000002", "ses_1", "mock", "primary")
 	r.Finish(failed, 503, true, "relay_unreachable", sampleTransfer, 30, 120)
+	cancelled := r.Begin("request-00000000003", "ses_1", "mock", "primary")
+	r.Finish(cancelled, 499, true, "request_cancelled", sampleTransfer, 5, 40)
 	s := r.Snapshot()
+	if s.Totals.Failed != 1 || s.Totals.Cancelled != 1 || s.Totals.Active != 0 {
+		t.Fatalf("unexpected totals: %+v", s.Totals)
+	}
 	for _, series := range []TrafficSeries{s.Traffic.Hourly, s.Traffic.Daily} {
 		if len(series.Buckets) != 1 {
 			t.Fatalf("expected one traffic bucket, got %+v", series.Buckets)
 		}
 		bucket := series.Buckets[0]
-		if bucket.Requests != 2 || bucket.Failed != 1 || bucket.BodyBytes != sampleTransfer.BodyBytes*2 ||
-			bucket.EncodedUploadBytes != sampleTransfer.RequestBodyBytesSent*2 || bucket.ReusedBodyBytes != sampleTransfer.ReusedBodyBytes*2 ||
-			bucket.ResponseBytes != 55 || bucket.DurationMillis != 220 {
+		if bucket.Requests != 3 || bucket.Failed != 1 || bucket.Cancelled != 1 || bucket.BodyBytes != sampleTransfer.BodyBytes*3 ||
+			bucket.EncodedUploadBytes != sampleTransfer.RequestBodyBytesSent*3 || bucket.ReusedBodyBytes != sampleTransfer.ReusedBodyBytes*3 ||
+			bucket.ResponseBytes != 60 || bucket.DurationMillis != 260 {
 			t.Fatalf("unexpected traffic bucket: %+v", bucket)
 		}
 	}
 	s.Traffic.Hourly.Buckets[0].BodyBytes = -1
-	if r.Snapshot().Traffic.Hourly.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 {
+	if r.Snapshot().Traffic.Hourly.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*3 {
 		t.Fatal("snapshot shared mutable traffic buckets")
 	}
 }
@@ -396,15 +405,15 @@ func TestTrafficAggregatesFinishedRequests(t *testing.T) {
 func TestTrafficBucketInsertionMergesAndOrders(t *testing.T) {
 	start := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	var buckets []TrafficBucket
-	addTrafficBucket(&buckets, start, sampleTransfer, 1, 2, false)
-	addTrafficBucket(&buckets, start.Add(2*time.Hour), sampleTransfer, 3, 4, true)
-	addTrafficBucket(&buckets, start.Add(time.Hour), sampleTransfer, 5, 6, false)
-	addTrafficBucket(&buckets, start, sampleTransfer, 7, 8, false)
+	addTrafficBucket(&buckets, start, sampleTransfer, 1, 2, false, false)
+	addTrafficBucket(&buckets, start.Add(2*time.Hour), sampleTransfer, 3, 4, false, true)
+	addTrafficBucket(&buckets, start.Add(time.Hour), sampleTransfer, 5, 6, false, false)
+	addTrafficBucket(&buckets, start, sampleTransfer, 7, 8, false, false)
 	if len(buckets) != 3 || !buckets[0].Start.Equal(start) || !buckets[1].Start.Equal(start.Add(time.Hour)) || !buckets[2].Start.Equal(start.Add(2*time.Hour)) {
 		t.Fatalf("traffic buckets are not ordered: %+v", buckets)
 	}
-	if buckets[0].Requests != 2 || buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 || buckets[1].Requests != 1 || buckets[2].Failed != 1 {
-		t.Fatalf("traffic buckets did not merge or retain failures: %+v", buckets)
+	if buckets[0].Requests != 2 || buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 || buckets[1].Requests != 1 || buckets[2].Cancelled != 1 || buckets[2].Failed != 0 {
+		t.Fatalf("traffic buckets did not merge or retain cancellations: %+v", buckets)
 	}
 }
 
@@ -431,6 +440,8 @@ func TestTrafficBackfillsLegacyHistory(t *testing.T) {
 	r.Finish(sequence, 200, false, "", sampleTransfer, 25, 100)
 	failed := r.Begin("request-00000000002", "ses_1", "mock", "primary")
 	r.Finish(failed, 503, true, "relay_unreachable", sampleTransfer, 30, 120)
+	cancelled := r.Begin("request-00000000003", "ses_1", "mock", "primary")
+	r.Finish(cancelled, 499, true, "request_cancelled", sampleTransfer, 5, 40)
 	legacy := r.Snapshot()
 	legacy.Traffic = Traffic{}
 	data, err := json.Marshal(legacy)
@@ -443,7 +454,7 @@ func TestTrafficBackfillsLegacyHistory(t *testing.T) {
 	reopened := recorder(t, path)
 	s := reopened.Snapshot()
 	for _, series := range []TrafficSeries{s.Traffic.Hourly, s.Traffic.Daily} {
-		if series.Since.IsZero() || len(series.Buckets) != 1 || series.Buckets[0].Requests != 2 || series.Buckets[0].Failed != 1 || series.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 {
+		if series.Since.IsZero() || len(series.Buckets) != 1 || series.Buckets[0].Requests != 3 || series.Buckets[0].Failed != 1 || series.Buckets[0].Cancelled != 1 || series.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*3 {
 			t.Fatalf("legacy traffic was not backfilled: %+v", series.Buckets)
 		}
 	}

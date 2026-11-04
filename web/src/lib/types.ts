@@ -2,6 +2,7 @@ export interface Totals {
   requests: number
   active: number
   failed: number
+  cancelled: number
   body_bytes: number
   uploaded_chunk_bytes: number
   encoded_upload_bytes: number
@@ -54,6 +55,7 @@ export interface TrafficBucket {
   start: string
   requests: number
   failed: number
+  cancelled: number
   body_bytes: number
   uploaded_chunk_bytes: number
   encoded_upload_bytes: number

@@ -30,15 +30,17 @@ export function mountHealth(root: HTMLElement): HealthFeature {
     const cacheRatio = health.max_cache_bytes > 0 ? health.cache_bytes / health.max_cache_bytes : 0
     const responseRatio = health.max_response_storage_bytes > 0 ? health.response_storage_bytes / health.max_response_storage_bytes : 0
     const storageIssue = Math.max(cacheRatio, responseRatio) >= .85
-    const providerIssue = data.providers.some((provider) => provider.last_status >= 400 || provider.last_error)
+    const providerIssue = data.providers.some((provider) => provider.last_status !== 499 && (provider.last_status >= 400 || provider.last_error))
     const remoteStopped = !relay.reachable && networkConnection === "remote_stopped"
     const noInternet = !relay.reachable && networkConnection === "no_internet"
     const vpsUnreachable = !relay.reachable && networkConnection === "vps_unreachable"
     setText("system-summary", stale ? "Stale · last observed states below" : remoteStopped ? "Remote host stopped" : noInternet ? "No internet" : vpsUnreachable ? "VPS needs attention" : !relay.reachable ? "VPS needs attention" : !health.forwarding ? "Forwarding is disabled" : controlIssue || storageIssue ? "Attention needed" : "Relay checks passed")
     const statePill = (label: string, status: string) => pill(stale ? "Stale" : label, stale ? "warning" : status)
     const providers = data.providers.map((provider) => {
-      const status = provider.active > 0 ? "active" : provider.last_status >= 400 || provider.last_error ? "warning" : provider.last_seen ? "good" : "neutral"
-      const label = provider.active > 0 ? `${provider.active} running` : provider.last_seen ? provider.last_error || `HTTP ${provider.last_status}` : "Unobserved"
+      const cancelled = provider.last_status === 499
+      const issue = !cancelled && (provider.last_status >= 400 || Boolean(provider.last_error))
+      const status = provider.active > 0 ? "active" : issue ? "warning" : cancelled ? "neutral" : provider.last_seen ? "good" : "neutral"
+      const label = provider.active > 0 ? `${provider.active} running` : cancelled ? "cancelled" : provider.last_seen ? provider.last_error || `HTTP ${provider.last_status}` : "Unobserved"
       return `<div class="provider-item"><span title="${escape(provider.last_seen ? `Last result ${new Date(provider.last_seen).toLocaleString()}` : "No retained requests")}">${escape(provider.name)}</span>${pill(label, status)}</div>`
     }).join("")
     cards.innerHTML = `

@@ -174,7 +174,7 @@ lowercase 64-hex strings; request IDs currently use `upstream.ValidRequestID`
 | `protocol.Receipt` | `size,hash`; ACK requires the exact completed length/hash |
 | Relay errors | `{error:string,code?:string}`; stable codes distinguish conflict, changed state, gone response, integrity, and storage failures |
 | `client.Stats` | `hash,body_bytes,chunks,unique_chunks,uploaded_chunks,uploaded_chunk_bytes,missing_chunk_bytes,reused_body_bytes,request_body_bytes_sent,requests,duration_ms` |
-| `gateway.Result` | `request_id,upstream,status,transfer:Stats,response_bytes,duration_ms,failed,error_code?,session_id?` |
+| `gateway.Result` | `request_id,upstream,status,transfer:Stats,response_bytes,duration_ms,failed,cancelled?,error_code?,session_id?` |
 | `sync` stdout | One `Stats` object, including partial progress on transfer error |
 | Diagnostic `fetch` stdout | `hash,output,verified` |
 | `request info/status` stdout | `Info` / `RequestStatus` |
@@ -202,12 +202,12 @@ TypeScript types in `web/src/lib/{types,system}.ts`.
 
 | Shape | Existing fields |
 | --- | --- |
-| Gateway health / metrics | Health `{ready,version,vps:Health}`; metrics `requests,active,failed,body_bytes,uploaded_chunk_bytes,encoded_upload_bytes,response_bytes,pending_cancellations,control_error` |
+| Gateway health / metrics | Health `{ready,version,vps:Health}`; metrics `requests,active,failed,cancelled,body_bytes,uploaded_chunk_bytes,encoded_upload_bytes,response_bytes,pending_cancellations,control_error` |
 | `client.Health` | `version,state_id,forwarding,cache_bytes,max_cache_bytes,response_storage_bytes,max_response_storage_bytes,pending_cancellations,control_error?` |
 | Dashboard snapshot | `version,collected_at,gateway:{started_at,active,concurrency,pending_cancellations,control_error?},relay:{reachable,latency_ms,health},providers,history` |
 | Provider observation | `name,active,last_status,last_error?,last_seen?` |
 | History | `version,since,totals,sessions,recent_requests,session_limit,request_limit,evicted_sessions,dropped_requests,persistent,persistence_error` |
-| Telemetry totals | `requests,active,failed,body_bytes,uploaded_chunk_bytes,encoded_upload_bytes,reused_body_bytes,response_bytes,duration_ms` |
+| Telemetry totals | `requests,active,failed,cancelled,body_bytes,uploaded_chunk_bytes,encoded_upload_bytes,reused_body_bytes,response_bytes,duration_ms` |
 | Telemetry session | Totals plus `id,started_at,updated_at,upstream,last_status,last_error?,last_request_id` |
 | Telemetry request | `sequence,id,session_id,upstream,kind,started_at,finished_at?,state,status,error_code?,transfer:Stats,response_bytes,duration_ms` |
 | Supervisor status | `version,managed,collected_at,settings:{auto_reconnect,auto_wake},recovery:{busy,phase,attempts,last_error,last_connected_at,next_retry_at},relay_state,internet_state,internet_checked_at,remote:{id,label,host_state,capabilities},components:[{id,label,state,can_start,can_restart}]` |

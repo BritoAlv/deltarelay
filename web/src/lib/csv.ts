@@ -8,13 +8,14 @@ export function csvCell(value: string | number): string {
 
 export function sessionCsv(sessions: Session[]): string {
   const rows: (string | number)[][] = [
-    ["session_id", "upstream", "requests", "active", "failed", "body_bytes", "encoded_upload_bytes", "saved_bytes", "reduction_percent", "last_activity"],
+    ["session_id", "upstream", "requests", "active", "failed", "cancelled", "body_bytes", "encoded_upload_bytes", "saved_bytes", "reduction_percent", "last_activity"],
     ...sessions.map((session) => [
       session.id || "unattributed",
       session.upstream,
       session.requests,
       session.active,
       session.failed,
+      session.cancelled,
       session.body_bytes,
       session.encoded_upload_bytes,
       session.body_bytes - session.encoded_upload_bytes,

@@ -21,6 +21,7 @@ export interface TrafficPoint {
   end: number
   requests: number
   failed: number
+  cancelled: number
   body: number
   encoded: number
   reused: number
@@ -32,6 +33,7 @@ export interface TrafficPoint {
 export interface TrafficTotals {
   requests: number
   failed: number
+  cancelled: number
   body: number
   encoded: number
   reused: number
@@ -139,12 +141,13 @@ function parseDateInput(value: string, endOfDay: boolean): number | null {
 }
 
 function emptyPoint(at: number, end: number): TrafficPoint {
-  return { at, end, requests: 0, failed: 0, body: 0, encoded: 0, reused: 0, uploadedChunkBytes: 0, response: 0, duration: 0 }
+  return { at, end, requests: 0, failed: 0, cancelled: 0, body: 0, encoded: 0, reused: 0, uploadedChunkBytes: 0, response: 0, duration: 0 }
 }
 
 function addBucket(point: TrafficPoint, bucket: TrafficBucket): void {
   point.requests += bucket.requests
   point.failed += bucket.failed
+  point.cancelled += bucket.cancelled
   point.body += bucket.body_bytes
   point.encoded += bucket.encoded_upload_bytes
   point.reused += bucket.reused_body_bytes
@@ -155,7 +158,8 @@ function addBucket(point: TrafficPoint, bucket: TrafficBucket): void {
 
 function addRequest(point: TrafficPoint, request: RelayRequest): void {
   point.requests++
-  if (request.state !== "completed") point.failed++
+  if (request.state === "cancelled") point.cancelled++
+  else if (request.state !== "completed") point.failed++
   point.body += request.transfer.body_bytes
   point.encoded += request.transfer.request_body_bytes_sent
   point.reused += request.transfer.reused_body_bytes
@@ -219,6 +223,7 @@ export function trafficTotals(points: TrafficPoint[]): TrafficTotals {
   const totals = points.reduce((sum, point) => {
     sum.requests += point.requests
     sum.failed += point.failed
+    sum.cancelled += point.cancelled
     sum.body += point.body
     sum.encoded += point.encoded
     sum.reused += point.reused
@@ -226,7 +231,7 @@ export function trafficTotals(points: TrafficPoint[]): TrafficTotals {
     sum.response += point.response
     sum.duration += point.duration
     return sum
-  }, { requests: 0, failed: 0, body: 0, encoded: 0, reused: 0, uploadedChunkBytes: 0, response: 0, duration: 0 })
+  }, { requests: 0, failed: 0, cancelled: 0, body: 0, encoded: 0, reused: 0, uploadedChunkBytes: 0, response: 0, duration: 0 })
   return {
     ...totals,
     saved: totals.body - totals.encoded,

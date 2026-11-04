@@ -8,11 +8,12 @@ function bucketAt(value: number, daily: boolean): number {
   return date.getTime()
 }
 
-function addFixtureBucket(buckets: Map<number, TrafficBucket>, at: number, daily: boolean, body: number, encoded: number, reused: number, failed = false, response = 8_192, duration = 5_000): void {
+function addFixtureBucket(buckets: Map<number, TrafficBucket>, at: number, daily: boolean, body: number, encoded: number, reused: number, failed = false, response = 8_192, duration = 5_000, cancelled = false): void {
   const key = bucketAt(at, daily)
-  const bucket = buckets.get(key) ?? { start: new Date(key).toISOString(), requests: 0, failed: 0, body_bytes: 0, uploaded_chunk_bytes: 0, encoded_upload_bytes: 0, reused_body_bytes: 0, response_bytes: 0, duration_ms: 0 }
+  const bucket = buckets.get(key) ?? { start: new Date(key).toISOString(), requests: 0, failed: 0, cancelled: 0, body_bytes: 0, uploaded_chunk_bytes: 0, encoded_upload_bytes: 0, reused_body_bytes: 0, response_bytes: 0, duration_ms: 0 }
   bucket.requests++
   bucket.failed += Number(failed)
+  bucket.cancelled += Number(cancelled)
   bucket.body_bytes += body
   bucket.encoded_upload_bytes += encoded
   bucket.reused_body_bytes += reused
@@ -36,15 +37,17 @@ export function makeSnapshot(now = Date.now()): Snapshot {
     const body = (3 + i % 8) * 1024 * 1024 + i * 7919
     const encoded = Math.round(body * (i < 6 ? .19 : .012 + (i % 7) * .003))
     const failed = i === 64
+    const cancelled = i === 70
     const at = now - (72 - i) * 18 * 60_000
     const transfer = { hash: "0".repeat(64), body_bytes: body, chunks: Math.ceil(body / 16384), unique_chunks: Math.ceil(body / 16384), uploaded_chunks: 8, uploaded_chunk_bytes: encoded * 2, missing_chunk_bytes: encoded * 2, reused_body_bytes: Math.round(body * .965), request_body_bytes_sent: encoded, requests: 5, duration_ms: 1700 + i * 11 }
-    const request: RelayRequest = { sequence: i + 1, id: `fixture-request-${String(i + 1).padStart(4, "0")}`, session_id: session.id, upstream: session.upstream, kind: i % 12 === 0 ? "compaction" : "primary", started_at: new Date(at).toISOString(), finished_at: new Date(at + 17_000).toISOString(), state: failed ? "failed" : "completed", status: failed ? 503 : 200, error_code: failed ? "relay_unreachable" : undefined, transfer, response_bytes: 42_000, duration_ms: 17_000 + i * 327 }
+    const request: RelayRequest = { sequence: i + 1, id: `fixture-request-${String(i + 1).padStart(4, "0")}`, session_id: session.id, upstream: session.upstream, kind: i % 12 === 0 ? "compaction" : "primary", started_at: new Date(at).toISOString(), finished_at: new Date(at + 17_000).toISOString(), state: failed ? "failed" : cancelled ? "cancelled" : "completed", status: failed ? 503 : cancelled ? 499 : 200, error_code: failed ? "relay_unreachable" : cancelled ? "request_cancelled" : undefined, transfer, response_bytes: 42_000, duration_ms: 17_000 + i * 327 }
     requests.push(request)
-    addFixtureBucket(hourly, at + 17_000, false, body, encoded, transfer.reused_body_bytes, failed, request.response_bytes, request.duration_ms)
-    addFixtureBucket(daily, at + 17_000, true, body, encoded, transfer.reused_body_bytes, failed, request.response_bytes, request.duration_ms)
+    addFixtureBucket(hourly, at + 17_000, false, body, encoded, transfer.reused_body_bytes, failed, request.response_bytes, request.duration_ms, cancelled)
+    addFixtureBucket(daily, at + 17_000, true, body, encoded, transfer.reused_body_bytes, failed, request.response_bytes, request.duration_ms, cancelled)
     for (const target of [session, totals]) {
       target.requests++
       target.failed += Number(failed)
+      target.cancelled += Number(cancelled)
       target.body_bytes += body
       target.encoded_upload_bytes += encoded
       target.uploaded_chunk_bytes += transfer.uploaded_chunk_bytes

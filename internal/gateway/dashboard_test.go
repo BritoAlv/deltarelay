@@ -73,7 +73,7 @@ func TestDashboardSessionSavingsAndFailureAccounting(t *testing.T) {
 		response.Body.Close()
 	}
 	s := readDashboard(t, f.gateway.URL)
-	if s.Version != 1 || !s.Relay.Reachable || !s.Relay.Health.Forwarding || len(s.History.Sessions) != 2 || s.History.Totals.Requests != 3 || s.History.Totals.Active != 0 || s.History.Totals.Failed != 1 || s.History.Totals.BodyBytes != int64(len(body)*3) {
+	if s.Version != 1 || !s.Relay.Reachable || !s.Relay.Health.Forwarding || len(s.History.Sessions) != 2 || s.History.Totals.Requests != 3 || s.History.Totals.Active != 0 || s.History.Totals.Failed != 1 || s.History.Totals.Cancelled != 0 || s.History.Totals.BodyBytes != int64(len(body)*3) {
 		t.Fatalf("wrong session diagnostics: %+v", s)
 	}
 	if s.History.Totals.EncodedUploadBytes <= 0 || s.History.Totals.EncodedUploadBytes >= s.History.Totals.BodyBytes || s.History.Totals.ReusedBodyBytes == 0 {
@@ -134,8 +134,8 @@ func TestDashboardShowsRunningRequestsWithoutReadingTheirBodies(t *testing.T) {
 	close(release)
 	_, _ = io.Copy(io.Discard, response.Body)
 	response.Body.Close()
-	if final := readDashboard(t, f.gateway.URL); final.History.Totals.Active != 0 || final.History.Totals.Requests != 1 {
-		t.Fatal("completed stream still appears active")
+	if final := readDashboard(t, f.gateway.URL); final.History.Totals.Active != 0 || final.History.Totals.Requests != 1 || final.History.Totals.Failed != 0 || final.History.Totals.Cancelled != 0 {
+		t.Fatalf("completed stream still appears active or unsuccessful: %+v", final.History.Totals)
 	}
 }
 

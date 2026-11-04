@@ -129,7 +129,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     setText("chart-reuse-rate", percentage(totals.reuse))
     requiredById(root, "chart-saved").classList.toggle("negative", totals.saved < 0)
     requiredById(root, "chart-saved-rate").classList.toggle("negative", totals.saved < 0)
-    setText("chart-count", `${integer(totals.requests)} requests${totals.failed ? ` · ${integer(totals.failed)} failed` : ""} in this window`)
+    setText("chart-count", `${integer(totals.requests)} requests${totals.failed ? ` · ${integer(totals.failed)} failed` : ""}${totals.cancelled ? ` · ${integer(totals.cancelled)} cancelled` : ""} in this window`)
     setText("reuse-value", percentage(totals.reuse))
     setText("reuse-bytes", bytes(totals.reused))
     setText("uploaded-bytes", bytes(totals.uploadedChunkBytes))
@@ -201,7 +201,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
       ["Bandwidth saved", `${bytes(saved)} (${percentage(savedRate)})`, saved < 0],
       ["Relay cache reuse", `${bytes(point.reused)} (${percentage(reuseRate)})`, false],
       ["Other savings", bytes(other), other < 0],
-      ["Requests", `${integer(point.requests)}${point.failed ? ` · ${integer(point.failed)} failed` : ""}`, false],
+      ["Requests", `${integer(point.requests)}${point.failed ? ` · ${integer(point.failed)} failed` : ""}${point.cancelled ? ` · ${integer(point.cancelled)} cancelled` : ""}`, false],
     ] as const
     return `<div class="tooltip-time">${escapeHtml(formatBucketWindow(point.at, point.end, range.bucketMs))}</div><dl>${rows.map(([label, value, negative]) => `<dt>${escapeHtml(label)}</dt><dd${negative ? ' class="negative"' : ""}>${escapeHtml(value)}</dd>`).join("")}</dl>`
   }
@@ -210,7 +210,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     const saved = point.body - point.encoded
     const savedRate = point.body > 0 ? saved / point.body * 100 : null
     const reuseRate = point.body > 0 ? point.reused / point.body * 100 : null
-    return `${formatBucketWindow(point.at, point.end, range.bucketMs)}: ${integer(point.requests)} requests${point.failed ? `, ${integer(point.failed)} failed` : ""}. Original ${bytes(point.body)}; uploaded ${bytes(point.encoded)}; saved ${bytes(saved)} (${percentage(savedRate)}); cache reuse ${bytes(point.reused)} (${percentage(reuseRate)}).`
+    return `${formatBucketWindow(point.at, point.end, range.bucketMs)}: ${integer(point.requests)} requests${point.failed ? `, ${integer(point.failed)} failed` : ""}${point.cancelled ? `, ${integer(point.cancelled)} cancelled` : ""}. Original ${bytes(point.body)}; uploaded ${bytes(point.encoded)}; saved ${bytes(saved)} (${percentage(savedRate)}); cache reuse ${bytes(point.reused)} (${percentage(reuseRate)}).`
   }
 
   function drawComposition(data: TrafficData, range: TrafficRange, left: number, top: number, bottom: number, slot: number, y: (value: number) => number, barWidth: number): string {
@@ -332,8 +332,9 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${uncovered}${grid}${zero}${bars}${labels}${cursor}${empty}</svg>`
     chart.setAttribute("data-view", view)
     const failed = data.totals.failed ? `, ${integer(data.totals.failed)} failed` : ""
+    const cancelled = data.totals.cancelled ? `, ${integer(data.totals.cancelled)} cancelled` : ""
     const coverageText = data.truncated && data.coverageStart !== null ? ` Coverage starts ${formatDate(data.coverageStart)}.` : ""
-    chart.setAttribute("aria-label", `${range.label}: ${integer(data.totals.requests)} requests${failed}, ${bytes(data.totals.body)} original bodies, ${bytes(data.totals.encoded)} uploaded, ${bytes(data.totals.saved)} bandwidth saved (${percentage(data.totals.reduction)}), ${bytes(data.totals.reused)} relay cache reuse (${percentage(data.totals.reuse)}). ${view === "composition" ? "Composition" : "Trends"} view.${coverageText}`)
+    chart.setAttribute("aria-label", `${range.label}: ${integer(data.totals.requests)} requests${failed}${cancelled}, ${bytes(data.totals.body)} original bodies, ${bytes(data.totals.encoded)} uploaded, ${bytes(data.totals.saved)} bandwidth saved (${percentage(data.totals.reduction)}), ${bytes(data.totals.reused)} relay cache reuse (${percentage(data.totals.reuse)}). ${view === "composition" ? "Composition" : "Trends"} view.${coverageText}`)
     cursorLine = chart.querySelector<SVGLineElement>("line.chart-cursor")
     cursorDot = chart.querySelector<SVGCircleElement>("circle.chart-cursor-dot")
     layout = { left, right, top, bottom, slot, points, y }

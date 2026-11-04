@@ -17,7 +17,10 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   Desktop instance without restarting other services. The button explains when
   its launcher is unavailable or Desktop is already running.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
-  upload reduction, including failed attempts and negative savings.
+  upload reduction, including failed and cancelled attempts and negative savings.
+  Failed and cancelled requests are counted separately; a client that closes
+  after the terminal stream event is reconciled against the relay and recorded
+  as completed when the full response was delivered.
 - Upload traffic over 24 hours, 7, 30, or 90 days, or a custom date range.
   Composition and trend views plot bandwidth saved and relay cache reuse with a
   legend, range summary, tooltips, and responsive axes. Cache reuse versus raw
@@ -201,6 +204,8 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
   its own aggregates and can cover a longer window than the request list.
 - Statistics start when the new gateway first runs. Existing logs, old sessions,
   standalone `sync` calls, and activity bypassing this gateway are not imported.
+  A history file written before separate cancellation counters cannot distinguish
+  old cancellations from failures; new observations use the separate counters.
 - Byte totals appear after a request finishes; active requests still show their
   IDs, kinds, upstreams, and elapsed time. They are local gateway states, not a
   list of all saved VPS jobs or OpenCode's current agent/tool states.
@@ -239,7 +244,8 @@ attempts counted by the Go transport. They exclude response/download traffic,
 HTTP headers, TLS/TCP/IP overhead, and retransmissions. They are not packet-level
 counters. A failed call can have partial progress, and small calls or retries can
 have **negative savings**. Zero original bytes produces an unavailable percentage,
-not a fabricated 100%. Failed attempts are included in totals.
+not a fabricated 100%. Failed and cancelled attempts are included in totals and
+reported as separate counters.
 
 This is a comparison with uncompressed original bodies, **not** a measured direct
 provider-upload baseline. Cache reuse is inventory-time content reuse, not
@@ -255,8 +261,8 @@ request. The session summary shows original bytes, encoded uploads, saved bytes,
 reduction, and relay content reuse. The request ledger expands each retained
 request into chunks, unique chunks, uploaded chunks, missing and reused bytes,
 actual HTTP attempts, encoded bytes, and response bytes. Running requests show
-pending transfer totals instead of fabricated zeros; failed and interrupted
-requests keep their measured partial values. If request entries were trimmed from
+pending transfer totals instead of fabricated zeros; failed, cancelled, and
+interrupted requests keep their measured partial values. If request entries were trimmed from
 bounded history, the page states how many retained entries the ledger covers and
 does not imply the visible requests reconcile to the session totals.
 

@@ -66,7 +66,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     }
     const signature = sessions.map((session) => {
       const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
-      return [session.id, session.upstream, sessionState(session), reduction ?? "none", session.requests, session.active, session.failed, session.updated_at].join("\u0000")
+      return [session.id, session.upstream, sessionState(session), reduction ?? "none", session.requests, session.active, session.failed, session.cancelled, session.updated_at].join("\u0000")
     }).join("\u0001")
     if (signature !== optionsSignature) {
       optionsSignature = signature
@@ -106,7 +106,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   function renderRequest(request: RelayRequest, snapshot: Snapshot): string {
     const measured = requestMeasurement(request, snapshot.collected_at)
     const bars = barComparison(measured.original, measured.encoded)
-    const tone = request.state === "completed" ? "good" : request.state === "running" ? "active" : "warning"
+    const tone = request.state === "completed" ? "good" : request.state === "running" ? "active" : request.state === "cancelled" ? "neutral" : "warning"
     const reductionTone = measured.reduction !== null && measured.reduction < 0 ? "negative" : "accent"
     const status = request.status ? ` · HTTP ${request.status}` : ""
     const open = openRequests.has(request.id) ? " open" : ""
@@ -138,7 +138,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
             ${detail("Response download", bytes(request.response_bytes))}
           </div>
           <p class="trace-formula"><code>${escape(formula)}</code></p>
-          <p class="trace-request-note">Response bytes are shown for context but never subtracted from upload savings. Failed attempts remain included in session totals.</p>
+          <p class="trace-request-note">Response bytes are shown for context but never subtracted from upload savings. Failed and cancelled attempts remain included in session totals.</p>
           ${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}
         </div>`
     return `<details class="trace-request" data-request-id="${escape(request.id)}"${open}>
@@ -207,7 +207,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     trace.innerHTML = `<div class="trace-session-head">
         <div>
           <div class="trace-session-title"><code>${escape(current.id || "Unattributed requests")}</code>${pill(stateTone === "active" ? `${current.active} active` : stateTone === "attention" ? "Attention" : "Idle", stateTone)}</div>
-          <p>${escape(current.upstream || "Unknown upstream")} · ${integer(summary.totalRequests)} model requests · ${integer(current.failed)} unsuccessful · last activity ${escape(relativeTime(current.updated_at))}</p>
+          <p>${escape(current.upstream || "Unknown upstream")} · ${integer(summary.totalRequests)} model requests · ${integer(current.failed)} failed · ${integer(current.cancelled)} cancelled · last activity ${escape(relativeTime(current.updated_at))}</p>
         </div>
         <div class="trace-session-formula"><span>Upload reduction for this session</span><code>${escape(reduced)}</code></div>
       </div>

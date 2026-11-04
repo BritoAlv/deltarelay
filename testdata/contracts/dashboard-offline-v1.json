@@ -6,7 +6,7 @@
   "providers": [{"name": "example", "active": 0, "last_status": 0}],
   "history": {
     "version": 1, "since": "2026-11-01T11:00:00Z",
-    "totals": {"requests": 0, "active": 0, "failed": 0, "body_bytes": 0, "uploaded_chunk_bytes": 0, "encoded_upload_bytes": 0, "reused_body_bytes": 0, "response_bytes": 0, "duration_ms": 0},
+    "totals": {"requests": 0, "active": 0, "failed": 0, "cancelled": 0, "body_bytes": 0, "uploaded_chunk_bytes": 0, "encoded_upload_bytes": 0, "reused_body_bytes": 0, "response_bytes": 0, "duration_ms": 0},
     "sessions": [], "recent_requests": [],
     "traffic": {
       "hourly": {"since": "2026-11-01T11:00:00Z", "bucket_seconds": 3600, "retention_seconds": 2678400, "buckets": []},

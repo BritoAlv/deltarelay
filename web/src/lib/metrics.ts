@@ -37,7 +37,8 @@ export function relativeTime(value: string, now = Date.now()): string {
 
 export function sessionState(session: Session): "active" | "attention" | "idle" {
   if (session.active > 0) return "active"
-  if (session.last_status >= 400 || session.last_error) return "attention"
+  // 499 records a client-closed request, not a provider or relay failure.
+  if (session.last_status !== 499 && (session.last_status >= 400 || session.last_error)) return "attention"
   return "idle"
 }
 
@@ -50,5 +51,5 @@ export function filterSessions(sessions: Session[], query: string, state: string
 }
 
 export function emptyTotals(): Totals {
-  return { requests: 0, active: 0, failed: 0, body_bytes: 0, uploaded_chunk_bytes: 0, encoded_upload_bytes: 0, reused_body_bytes: 0, response_bytes: 0, duration_ms: 0 }
+  return { requests: 0, active: 0, failed: 0, cancelled: 0, body_bytes: 0, uploaded_chunk_bytes: 0, encoded_upload_bytes: 0, reused_body_bytes: 0, response_bytes: 0, duration_ms: 0 }
 }

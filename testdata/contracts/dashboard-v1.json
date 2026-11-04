@@ -9,18 +9,18 @@
   "providers": [{"name": "example", "active": 1, "last_status": 429, "last_error": "upstream_http_error", "last_seen": "2026-11-01T11:59:00Z"}],
   "history": {
     "version": 1, "since": "2026-11-01T11:00:00Z",
-    "totals": {"requests": 2, "active": 1, "failed": 1, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000},
-    "sessions": [{"id": "session-example", "started_at": "2026-11-01T11:58:00Z", "updated_at": "2026-11-01T11:59:30Z", "upstream": "example", "last_status": 429, "last_error": "upstream_http_error", "last_request_id": "contract-request-0002", "requests": 2, "active": 1, "failed": 1, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000}],
+    "totals": {"requests": 2, "active": 1, "failed": 1, "cancelled": 0, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000},
+    "sessions": [{"id": "session-example", "started_at": "2026-11-01T11:58:00Z", "updated_at": "2026-11-01T11:59:30Z", "upstream": "example", "last_status": 429, "last_error": "upstream_http_error", "last_request_id": "contract-request-0002", "requests": 2, "active": 1, "failed": 1, "cancelled": 0, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000}],
     "recent_requests": [
       {"sequence": 1, "id": "contract-request-0001", "session_id": "session-example", "upstream": "example", "kind": "primary", "started_at": "2026-11-01T11:58:58Z", "finished_at": "2026-11-01T11:59:00Z", "state": "failed", "status": 429, "error_code": "upstream_http_error", "transfer": {"hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "body_bytes": 100, "chunks": 1, "unique_chunks": 1, "uploaded_chunks": 1, "uploaded_chunk_bytes": 100, "missing_chunk_bytes": 100, "reused_body_bytes": 0, "request_body_bytes_sent": 150, "requests": 3, "duration_ms": 5}, "response_bytes": 10, "duration_ms": 2000},
       {"sequence": 2, "id": "contract-request-0002", "session_id": "session-example", "upstream": "example", "kind": "compaction", "started_at": "2026-11-01T11:59:30Z", "state": "running", "status": 0, "transfer": {"hash": "", "body_bytes": 0, "chunks": 0, "unique_chunks": 0, "uploaded_chunks": 0, "uploaded_chunk_bytes": 0, "missing_chunk_bytes": 0, "reused_body_bytes": 0, "request_body_bytes_sent": 0, "requests": 0, "duration_ms": 0}, "response_bytes": 0, "duration_ms": 0}
     ],
     "traffic": {
       "hourly": {"since": "2026-11-01T11:00:00Z", "bucket_seconds": 3600, "retention_seconds": 2678400, "buckets": [
-        {"start": "2026-11-01T11:00:00Z", "requests": 1, "failed": 1, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000}
+        {"start": "2026-11-01T11:00:00Z", "requests": 1, "failed": 1, "cancelled": 0, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000}
       ]},
       "daily": {"since": "2026-11-01T00:00:00Z", "bucket_seconds": 86400, "retention_seconds": 7862400, "buckets": [
-        {"start": "2026-11-01T00:00:00Z", "requests": 1, "failed": 1, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000}
+        {"start": "2026-11-01T00:00:00Z", "requests": 1, "failed": 1, "cancelled": 0, "body_bytes": 100, "uploaded_chunk_bytes": 100, "encoded_upload_bytes": 150, "reused_body_bytes": 0, "response_bytes": 10, "duration_ms": 2000}
       ]}
     },
     "session_limit": 256, "request_limit": 1000, "evicted_sessions": 2, "dropped_requests": 3, "persistent": true, "persistence_error": false

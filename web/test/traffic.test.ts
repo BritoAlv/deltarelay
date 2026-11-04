@@ -32,7 +32,7 @@ function floorDay(value: number): number {
 }
 
 function point(overrides: Partial<TrafficPoint> = {}): TrafficPoint {
-  return { at: now, end: now + HOUR_MS, requests: 1, failed: 0, body: 0, encoded: 0, reused: 0, uploadedChunkBytes: 0, response: 0, duration: 0, ...overrides }
+  return { at: now, end: now + HOUR_MS, requests: 1, failed: 0, cancelled: 0, body: 0, encoded: 0, reused: 0, uploadedChunkBytes: 0, response: 0, duration: 0, ...overrides }
 }
 
 test("preset ranges align to local boundaries and choose readable bucket sizes", () => {
@@ -76,6 +76,7 @@ test("traffic data aggregates hourly and daily buckets across ranges", () => {
   assert.equal(day.source, "hourly")
   assert.equal(day.totals.requests, 72)
   assert.equal(day.totals.failed, 1)
+  assert.equal(day.totals.cancelled, 1)
   assert.equal(day.totals.body, snapshot.history.totals.body_bytes)
   assert.equal(day.totals.encoded, snapshot.history.totals.encoded_upload_bytes)
   assert.equal(day.totals.reused, snapshot.history.totals.reused_body_bytes)
@@ -114,7 +115,9 @@ test("traffic data falls back to retained requests for older gateways", () => {
 })
 
 test("totals and composition preserve savings and negative overshoot", () => {
-  const totals = trafficTotals([point({ body: 1_000, encoded: 100, reused: 800, requests: 2, failed: 1 })])
+  const totals = trafficTotals([point({ body: 1_000, encoded: 100, reused: 800, requests: 2, failed: 1, cancelled: 1 })])
+  assert.equal(totals.failed, 1)
+  assert.equal(totals.cancelled, 1)
   assert.equal(totals.saved, 900)
   assert.equal(totals.reduction, 90)
   assert.equal(totals.reuse, 80)

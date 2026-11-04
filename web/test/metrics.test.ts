@@ -25,7 +25,8 @@ test("session filtering is case insensitive and active has priority", () => {
   assert.equal(filterSessions(data.history.sessions, "no match", "all").length, 0)
   const active = data.history.sessions[0]!
   assert.equal(sessionState({ ...active, last_status: 500 }), "active")
-  assert.equal(sessionState({ ...active, active: 0, last_status: 499 }), "attention")
+  assert.equal(sessionState({ ...active, active: 0, last_status: 500 }), "attention")
+  assert.equal(sessionState({ ...active, active: 0, last_status: 499, last_error: "request_cancelled" }), "idle")
 })
 
 test("relative time is clamped for future timestamps", () => {
@@ -40,6 +41,7 @@ test("API validation refuses incomplete, invalid, and incompatible diagnostics",
   assert.equal(isSnapshot({ ...data, collected_at: "invalid" }), false)
   assert.equal(isSnapshot({ ...data, gateway: { active: 0 } }), false)
   assert.equal(isSnapshot({ ...data, history: { ...data.history, totals: { ...data.history.totals, encoded_upload_bytes: NaN } } }), false)
+  assert.equal(isSnapshot({ ...data, history: { ...data.history, totals: { ...data.history.totals, cancelled: 72, failed: 1 } } }), false)
   assert.equal(isSnapshot(null), false)
   assert.equal(isSnapshot({}), false)
 })
