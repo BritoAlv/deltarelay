@@ -284,7 +284,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   function renderChart(data: TrafficData, range: TrafficRange): void {
     const width = Math.max(200, chart.clientWidth || chart.parentElement?.clientWidth || 800)
     const height = Math.max(180, chart.clientHeight || 260)
-    const left = width < 520 ? 54 : 64
+    const left = width < 520 ? 64 : 70
     const right = width - 16
     const top = 18
     const bottom = height - 32
@@ -318,7 +318,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
       if (!point) return ""
       const x = position === 0 ? left : position === all.length - 1 ? right : left + (index + 0.5) * slot
       const anchor = position === 0 ? "start" : position === all.length - 1 ? "end" : "middle"
-      return `<text class="chart-axis" x="${x.toFixed(1)}" y="${height - 10}" text-anchor="${anchor}">${escapeHtml(formatAxisLabel(point.at, span))}</text>`
+      return `<text class="chart-axis" x="${x.toFixed(1)}" y="${height - 12}" text-anchor="${anchor}">${escapeHtml(formatAxisLabel(point.at, span))}</text>`
     }).join("")
     const bars = view === "composition" ? drawComposition(data, range, left, top, bottom, slot, y, barWidth) : drawTrends(data, range, left, top, bottom, slot, y)
     const empty = data.totals.requests === 0 ? `<text class="chart-empty-label" x="${((left + right) / 2).toFixed(1)}" y="${((top + bottom) / 2).toFixed(1)}" text-anchor="middle">No finished requests in this range</text>` : ""
