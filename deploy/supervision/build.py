@@ -46,7 +46,7 @@ def prepare_build(project):
         'web/package.json', 'web/astro.config.mjs', 'web/tsconfig.json',
     )]
     for directory in ('src', 'public'):
-        web_sources.extend((project / directory).rglob('*'))
+        web_sources.extend((project / 'web' / directory).rglob('*'))
     if needs_build(assets / 'index.html', web_sources):
         if shutil.which('pnpm') is None:
             raise RecoveryError('pnpm is required to build web/dist; run the offline dashboard build first')

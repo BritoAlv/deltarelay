@@ -70,3 +70,42 @@ class BuildTest(unittest.TestCase):
         with self.assertRaises(build.RecoveryError):
             build.prepare_build(self.project)
         self.assertEqual(target.read_text(), 'keep')
+
+    @patch.object(build.subprocess, 'run')
+    @patch.object(build.shutil, 'which', return_value='/local/tool')
+    @patch('builtins.print')
+    def test_dashboard_source_and_public_asset_changes_rebuild_stale_bundle(self, output, which, run):
+        binary = self.project / 'bin/deltarelay'
+        binary.parent.mkdir()
+        binary.write_text('current binary')
+        binary.chmod(0o700)
+        index = self.project / 'web/dist/index.html'
+        index.parent.mkdir(parents=True)
+        index.write_text('<title>Current bundle</title>')
+
+        def compile(command, **kwargs):
+            self.assertEqual(kwargs['cwd'], self.project)
+            if command == ['pnpm', 'build']:
+                index.write_text('<title>Rebuilt bundle</title>')
+            else:
+                self.assertEqual(command, ['pnpm', 'install', '--offline', '--frozen-lockfile', '--trust-lockfile'])
+
+        run.side_effect = compile
+        build.prepare_build(self.project)
+        run.assert_not_called()
+        for name in ('src/lib/system.ts', 'src/pages/controls.astro', 'src/styles/global.css', 'public/icon.svg'):
+            with self.subTest(source=name):
+                source = self.project / 'web' / name
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text('changed dashboard source')
+                # Explicit timestamps avoid depending on filesystem clock resolution.
+                before = index.stat().st_mtime_ns - 1
+                for path in (self.project / 'web').rglob('*'):
+                    if path.is_file() and path != index:
+                        os.utime(path, ns=(before, before))
+                changed = index.stat().st_mtime_ns + 1
+                os.utime(source, ns=(changed, changed))
+                run.reset_mock()
+                build.prepare_build(self.project)
+                self.assertEqual(run.call_count, 2, 'changed dashboard source did not rebuild the bundle')
+                self.assertEqual(index.read_text(), '<title>Rebuilt bundle</title>')

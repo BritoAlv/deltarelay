@@ -420,6 +420,7 @@ Common checks:
 | Symptom | Check |
 | --- | --- |
 | Local 401 | Plugin and gateway must read the same private `local.token` |
+| 404 after upgrading DeltaRelay | Deploy the relay, gateway, dashboard, and OpenCode plugin from the same revision. The plugin calls `/proxy` and the relay health route is `/info`; old version-prefixed routes are not aliases. If the profile uses a copied plugin directory, update that copy or point its existing entry at this checkout's `integration/opencode`, then reload that profile. `doctor` cannot verify which plugin OpenCode loaded. |
 | `doctor` fails | Tunnel/TLS, relay token, server process, and VPS `--upstreams` |
 | 403 | Original API origin/path must match both allowlists |
 | 415 | A provider/model/variant still sends unsupported request encoding |

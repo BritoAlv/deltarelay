@@ -65,12 +65,14 @@ export function recoveryStatus(system: SystemStatus): string {
   if (system.recovery.busy) return `In progress: ${system.recovery.phase.replaceAll("_", " ")}`
   const connection = connectionState(system)
   if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake remote host to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
-  if (connection === "no_internet") return controlError("no_internet")
+  const paused = !system.settings.auto_reconnect ? " Automatic reconnect is off. Use Recover All for a one-time repair, or enable Automatic reconnect for background recovery." : ""
+  if (connection === "no_internet") return controlError("no_internet") + paused
   const error = system.recovery.last_error
-  if (error && error !== "unreachable") return controlError(error)
-  if (connection === "vps_unreachable") return "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host."
-  if (error) return controlError(error)
-  return connection === "connected" ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Monitoring relay connectivity."
+  if (error && error !== "unreachable") return controlError(error) + paused
+  if (connection === "vps_unreachable") return "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." + paused
+  if (error) return controlError(error) + paused
+  if (connection === "connected") return system.settings.auto_reconnect ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Authenticated relay is reachable. Automatic reconnect is off; a dropped connection will not be repaired automatically."
+  return "Monitoring relay connectivity." + paused
 }
 
 export function desktopLaunchState(system: SystemStatus | null, stale = false, pending = false): { disabled: boolean; detail: string } {
@@ -121,7 +123,7 @@ export function controlError(code: string): string {
     configuration_error: "Check the private relay configuration and token/state file permissions.",
     authentication_failed: "Relay authentication failed. Check the shared token; restarting will not repair credentials.",
     tls_verification_failed: "TLS verification failed. Repair the certificate; verification will not be bypassed.",
-    protocol_mismatch: "The remote relay does not match the expected protocol. No automatic restart was attempted.",
+    protocol_mismatch: "The remote relay API/protocol is incompatible. Deploy matching relay, gateway, OpenCode plugin, and dashboard revisions. No automatic restart was attempted.",
     forwarding_disabled: "The remote relay has forwarding disabled. Check its upstream allowlist.",
     graphical_session_required: "Desktop needs a graphical session. Start the supervisor from your desktop terminal.",
     graceful_stop_timeout: "The service did not stop gracefully. No forced kill or state reset was performed.",

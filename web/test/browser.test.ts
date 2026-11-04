@@ -725,6 +725,21 @@ test("controls page polls only the supervisor and keeps controls available", asy
   await page.close()
 })
 
+test("controls explain a stopped tunnel when internet works but automatic reconnect is off", async () => {
+  const page = openPage("controls")
+  const status = systemStatus({ relay_state: "unreachable", settings: { auto_reconnect: false, auto_wake: false } })
+  page.setFetch((url) => url.startsWith("/api/system/journal") ? json(activityPage()) : json(status))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "VPS unreachable")
+  assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /Automatic reconnect is off.*Recover All/)
+  assert.equal(page.document.querySelector<HTMLInputElement>("#auto-reconnect")?.checked, false)
+  assert.equal(page.document.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "displaying a paused link must not change recovery settings")
+  system.destroy()
+  await page.close()
+})
+
 test("pausing supervisor polling leaves manual refresh available", async () => {
   const page = openPage("controls")
   page.setFetch(() => json(systemStatus()))

@@ -63,6 +63,17 @@ test("intentional remote shutdown is shown as stopped, not a VPS fault", () => {
   assert.match(recoveryStatus({ ...status, remote: { ...status.remote, host_state: "stopping" }, recovery: { ...status.recovery, last_error: "host_stop_timeout" } }), /shutdown was not confirmed.*reconnect and wake remain off/)
 })
 
+test("paused recovery is explicit even after the host resumes or a provider check fails", () => {
+  const paused = { ...status, settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "running" as const } }
+  assert.equal(connectionState(paused), "vps_unreachable")
+  assert.match(recoveryStatus(paused), /Internet works.*Automatic reconnect is off.*Recover All/)
+  assert.match(recoveryStatus({ ...paused, recovery: { ...paused.recovery, last_error: "provider_timeout" } }), /plugin timed out.*Automatic reconnect is off/)
+  assert.match(recoveryStatus({ ...paused, relay_state: "protocol_mismatch", recovery: { ...paused.recovery, last_error: "protocol_mismatch" } }), /Deploy matching relay, gateway, OpenCode plugin, and dashboard/)
+  assert.match(recoveryStatus({ ...paused, relay_state: "connected" }), /reachable.*Automatic reconnect is off/)
+  assert.doesNotMatch(recoveryStatus({ ...paused, relay_state: "connected" }), /monitored in the background/)
+  assert.doesNotMatch(recoveryStatus(status), /Automatic reconnect is off/)
+})
+
 test("remote stop sends an explicitly confirmed action through the protected control API", async (t) => {
   const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
     assert.equal(input, "/api/system/action")

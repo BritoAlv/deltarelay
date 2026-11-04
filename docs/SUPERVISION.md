@@ -172,6 +172,17 @@ reports an unrecognized occupied port rather than replacing its owner.
   respond). The check runs only during a relay outage, at most every 15 seconds,
   sends no relay/provider credentials, and makes no model request. A successful
   relay check confirms internet reachability without the external probe.
+- If the host is running but the tunnel is stopped, check **Automatic reconnect**.
+  A remote-stop action saves it as off, even if the stop later fails; waking the
+  host or running startup again does not re-enable it. Use **Recover all** for a
+  one-time repair or explicitly turn reconnect back on. This does not enable
+  automatic wake. The connection explanation shows when recovery is paused.
+
+A 404 after an upgrade is not an internet outage. The current relay health route
+is `/info`, and the OpenCode plugin submits to the gateway's `/proxy`. Deploy
+matching revisions on both machines and update any private copied plugin directory;
+reload only the affected OpenCode profile. Do not delete the identity pin or relay
+store, or add a direct-provider fallback. See the [404 setup check](SETUP.md#disable-or-troubleshoot).
 
 Network recovery never restarts a healthy gateway merely because a tunnel failed.
 The existing Go request recovery retains the same request ID, uploads only missing
