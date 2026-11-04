@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"deltarelay/internal/client"
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/server"
 	"deltarelay/internal/store"
@@ -299,9 +300,32 @@ func TestInterruptedUploadReinventoriesPersistedChunks(t *testing.T) {
 	config.NoCompression, config.Workers, config.BatchBytes = true, 1, 256<<10
 	c := newClient(t, config)
 	body := data(768 << 10)
+	evidence, err := inspection.Open(inspection.Config{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer evidence.Close()
+	capture := evidence.Begin("interrupted-upload-0001", 1, "application/octet-stream")
+	ctx = inspection.WithCapture(ctx, capture)
 	stats, err := c.Sync(ctx, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
+	}
+	capture.Finish(stats, "completed")
+	detail := captureDetail(t, evidence, capture.ID())
+	if len(detail.Inventories) < 2 || detail.Inventories[0].Kind != "initial" || detail.Inventories[1].Kind != "recovery" {
+		t.Fatalf("recovery inventories not recorded independently: %+v", detail.Inventories)
+	}
+	var observedBytes int64
+	var ambiguous bool
+	for _, attempt := range detail.Attempts {
+		observedBytes += attempt.ConsumedBytes
+		if attempt.Operation == "chunks" && attempt.Outcome == "transport_error" && !attempt.AcknowledgmentOK {
+			ambiguous = true
+		}
+	}
+	if !ambiguous || observedBytes != stats.RequestBodyBytesSent {
+		t.Fatal("lost acknowledgment or retry byte accounting was fabricated")
 	}
 	uploadsMu.Lock()
 	defer uploadsMu.Unlock()

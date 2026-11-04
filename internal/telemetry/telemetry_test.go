@@ -94,6 +94,29 @@ func TestAggregationAndConcurrentRequests(t *testing.T) {
 	}
 }
 
+func TestCaptureLinkPersistenceAndValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	r := recorder(t, path)
+	captureID := strings.Repeat("a", 32)
+	sequence := r.Begin("captured-request-0001", "ses_capture", "mock", "primary")
+	r.AttachCapture(sequence, captureID)
+	r.Finish(sequence, 200, false, "", sampleTransfer, 1, 1)
+	r.Close()
+	if saved := readSnapshot(t, path); saved.RecentRequests[0].CaptureID != captureID {
+		t.Fatal("capture link was not persisted")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(string(data), captureID, "not-a-capture-id", 1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Fatal("malformed capture ID accepted from history")
+	}
+}
+
 func TestPrivatePersistenceAndRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.json")
 	r := recorder(t, path)

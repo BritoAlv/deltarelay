@@ -15,6 +15,7 @@ import (
 
 	"deltarelay/internal/client"
 	"deltarelay/internal/gateway"
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/upstream"
 )
@@ -39,6 +40,11 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	recovery := bindRecovery(flags, true)
 	quiet := flags.Bool("quiet", false, "disable per-request metadata-only statistics logs")
 	statsFile := flags.String("stats-file", defaultEnv("DELTARELAY_STATS_FILE", defaultStatsFile), "private bounded session statistics; empty disables persistence")
+	captureDir := flags.String("capture-dir", os.Getenv("DELTARELAY_CAPTURE_DIR"), "opt-in private request/payload captures (sensitive prompts/code); empty disables capture")
+	captureBytes := flags.Int64("capture-max-bytes", inspection.DefaultMaxBytes, "maximum retained inspection bytes, including metadata")
+	captureRequestBytes := flags.Int64("capture-max-request-bytes", inspection.DefaultMaxCaptureBytes, "maximum inspection bytes per request including its evidence index; excess is explicitly truncated")
+	captureCount := flags.Int("capture-max-requests", inspection.DefaultMaxCaptures, "maximum retained inspection captures")
+	captureAge := flags.Duration("capture-max-age", inspection.DefaultMaxAge, "maximum age of retained inspection captures")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -80,7 +86,8 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	handler, err := gateway.New(gateway.Config{
 		Client: c, LocalToken: localToken, Upstreams: rules, AllowPrivateUpstreams: *allowPrivate,
 		MaxBodySize: *maxBody, MaxConcurrent: *concurrent, RequestTimeout: *requestTimeout,
-		StatsFile: *statsFile,
+		StatsFile:  *statsFile,
+		Inspection: inspection.Config{Dir: *captureDir, MaxBytes: *captureBytes, MaxCaptureBytes: *captureRequestBytes, MaxCaptures: *captureCount, MaxAge: *captureAge},
 		OnStart: func(id string) {
 			if !*quiet {
 				logMu.Lock()

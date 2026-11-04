@@ -1,4 +1,5 @@
 import type { Snapshot } from "./types.js"
+import { captureID, isCaptureStatus } from "./inspection.js"
 import { counters, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
 
 const totalKeys = ["requests", "active", "failed", "cancelled", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
@@ -16,7 +17,7 @@ function request(value: unknown): boolean {
     typeof value.kind === "string" && typeof value.state === "string" && ["running", "completed", "failed", "cancelled", "interrupted"].includes(value.state) &&
     timestamp(value.started_at) && optionalTimestamp(value.finished_at) && optionalString(value.error_code) &&
     counters(value, ["sequence", "status", "response_bytes", "duration_ms"]) && object(value.transfer) &&
-    typeof value.transfer.hash === "string" && counters(value.transfer, transferKeys)
+    typeof value.transfer.hash === "string" && counters(value.transfer, transferKeys) && (value.capture_id === undefined || captureID(value.capture_id))
 }
 
 function trafficBucket(value: unknown): boolean {
@@ -46,6 +47,7 @@ function traffic(value: unknown): boolean {
 // Reject incompatible/partial diagnostics rather than quietly showing false 0s.
 export function isSnapshot(value: unknown): value is Snapshot {
   if (!object(value) || value.version !== 1 || !timestamp(value.collected_at)) return false
+  if (value.inspection !== undefined && !isCaptureStatus(value.inspection)) return false
   const { gateway, relay, history, providers } = value
   if (!object(gateway) || !counters(gateway, ["active", "concurrency", "pending_cancellations"]) || !timestamp(gateway.started_at) || !optionalString(gateway.control_error)) return false
   if (!object(relay) || typeof relay.reachable !== "boolean" || !counters(relay, ["latency_ms"]) || !object(relay.health)) return false

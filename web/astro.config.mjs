@@ -12,6 +12,7 @@ export default defineConfig({
     server: {
       proxy: {
         "/api/dashboard": "http://127.0.0.1:8790",
+        "/api/inspection": "http://127.0.0.1:8790",
         "/api/system": "http://127.0.0.1:8790",
       },
     },

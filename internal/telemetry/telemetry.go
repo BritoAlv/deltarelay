@@ -70,6 +70,7 @@ type Session struct {
 }
 
 type Request struct {
+	CaptureID      string         `json:"capture_id,omitempty"`
 	Sequence       uint64         `json:"sequence"`
 	ID             string         `json:"id"`
 	SessionID      string         `json:"session_id"`
@@ -251,7 +252,7 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 	var running int64
 	for i := range r.data.RecentRequests {
 		request := &r.data.RecentRequests[i]
-		if request.Sequence == 0 || sequences[request.Sequence] || request.StartedAt.IsZero() || request.SessionID != "" && !ValidLabel(request.SessionID) {
+		if request.Sequence == 0 || sequences[request.Sequence] || request.StartedAt.IsZero() || request.SessionID != "" && !ValidLabel(request.SessionID) || request.CaptureID != "" && !validCaptureID(request.CaptureID) {
 			return nil, errors.New("invalid statistics request")
 		}
 		sequences[request.Sequence] = true
@@ -477,6 +478,20 @@ func (r *Recorder) Close() {
 
 // ValidLabel deliberately accepts only short opaque identifiers, not titles,
 // filesystem paths, URLs, or arbitrary header values.
+// validCaptureID mirrors the capture store's opaque random identifier format.
+// It is deliberately not a general label: malformed history must fail startup.
+func validCaptureID(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func ValidLabel(value string) bool {
 	if len(value) == 0 || len(value) > 128 {
 		return false
@@ -589,6 +604,24 @@ func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string,
 		r.revision++
 		r.markDirty()
 		return
+	}
+}
+
+// AttachCapture links an optional content capture without moving payloads into
+// the metadata-only history file. A capture has its own independent retention.
+func (r *Recorder) AttachCapture(sequence uint64, id string) {
+	if sequence == 0 || id == "" || !validCaptureID(id) {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := range r.data.RecentRequests {
+		if r.data.RecentRequests[i].Sequence == sequence {
+			r.data.RecentRequests[i].CaptureID = id
+			r.revision++
+			r.markDirty()
+			return
+		}
 	}
 }
 

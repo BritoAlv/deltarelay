@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"deltarelay/internal/client"
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/telemetry"
 	"deltarelay/internal/transfer"
@@ -55,6 +56,7 @@ type Config struct {
 	OnResult              func(Result)
 	OnStart               func(string)
 	StatsFile             string
+	Inspection            inspection.Config
 }
 
 type Result struct {
@@ -77,6 +79,7 @@ type Gateway struct {
 	mux                                                                                        *http.ServeMux
 	slots                                                                                      chan struct{}
 	history                                                                                    *telemetry.Recorder
+	inspection                                                                                 *inspection.Store
 	startedAt                                                                                  time.Time
 	requests, active, failed, cancelled, bodyBytes, uploadedBytes, encodedBytes, responseBytes atomic.Int64
 }
@@ -108,11 +111,17 @@ func New(config Config) (*Gateway, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent), history: history, startedAt: time.Now().UTC()}
+	captures, err := inspection.Open(config.Inspection)
+	if err != nil {
+		history.Close()
+		return nil, err
+	}
+	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent), history: history, inspection: captures, startedAt: time.Now().UTC()}
 	g.mux.HandleFunc("POST /v1/proxy", g.proxy)
 	g.mux.HandleFunc("GET /healthz", g.health)
 	g.mux.HandleFunc("GET /metrics", g.metrics)
 	g.mux.HandleFunc("GET /v1/dashboard", g.dashboard)
+	g.mux.Handle("GET /v1/inspection/{rest...}", captures)
 	return g, nil
 }
 
@@ -132,7 +141,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Close releases the optional statistics-file lock after HTTP shutdown.
-func (g *Gateway) Close() { g.history.Close() }
+func (g *Gateway) Close() { g.history.Close(); g.inspection.Close() }
 
 func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	select {
@@ -146,6 +155,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	g.active.Add(1)
 	result := Result{Status: http.StatusBadGateway, Failed: true}
 	var observation uint64
+	var capture *inspection.Capture
 	defer func() {
 		g.active.Add(-1)
 		result.DurationMillis = time.Since(started).Milliseconds()
@@ -167,6 +177,14 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		g.encodedBytes.Add(result.Stats.RequestBodyBytesSent)
 		g.responseBytes.Add(result.ResponseBytes)
 		g.history.Finish(observation, result.Status, result.Failed, result.ErrorCode, result.Stats, result.ResponseBytes, result.DurationMillis)
+		captureState := "completed"
+		if result.Failed {
+			captureState = "failed"
+		}
+		if result.Cancelled {
+			captureState = "cancelled"
+		}
+		capture.Finish(result.Stats, captureState)
 		if g.config.OnResult != nil {
 			g.config.OnResult(result)
 		}
@@ -216,7 +234,10 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		gatewayError(w, result.Status, err.Error())
 		return
 	}
+	capture = g.inspection.Begin(id, observation, r.Header.Get("Content-Type"))
+	g.history.AttachCapture(observation, capture.ID())
 	ctx := r.Context()
+	ctx = inspection.WithCapture(ctx, capture)
 	if g.config.RequestTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, g.config.RequestTimeout)

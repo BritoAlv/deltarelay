@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"deltarelay/internal/chunker"
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/transfer"
 )
@@ -53,7 +54,8 @@ func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (tran
 	hash := sha256.New()
 	manifest = protocol.Manifest{Version: protocol.Version, Chunks: make([]protocol.Chunk, 0)}
 	local := make(map[string]localChunk)
-	reader := &contextReader{ctx: ctx, reader: source}
+	capture := inspection.FromContext(ctx)
+	reader := &contextReader{ctx: ctx, reader: inspection.ObserveBody(ctx, source)}
 	err = chunker.Split(reader, c.config.Chunking, func(data []byte) error {
 		if int64(len(data)) > c.config.MaxBodySize-manifest.Size || len(manifest.Chunks) >= protocol.DefaultMaxChunks {
 			return ErrBodyLimit
@@ -67,6 +69,7 @@ func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (tran
 			local[chunk.Hash] = localChunk{chunk: chunk, offset: manifest.Size}
 		}
 		manifest.Chunks = append(manifest.Chunks, chunk)
+		capture.Chunk(chunk, manifest.Size)
 		manifest.Size += chunk.Size
 		return nil
 	})
@@ -97,13 +100,17 @@ func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (tran
 		missingBytes += chunk.Size
 	}
 	stats.MissingChunkBytes = missingBytes
-	if c.config.MaxUploadBytes != nil && missingBytes > *c.config.MaxUploadBytes {
-		return finish(fmt.Errorf("%w: server needs %d raw chunk bytes, limit is %d; no chunks uploaded", ErrUploadBudget, missingBytes, *c.config.MaxUploadBytes))
-	}
+	c.stateMu.Lock()
+	stateID := c.stateID
+	c.stateMu.Unlock()
+	capture.Inventory("initial", stateID, nil, missing.Missing)
 	for _, chunk := range manifest.Chunks {
 		if !seen[chunk.Hash] {
 			stats.ReusedBodyBytes += chunk.Size
 		}
+	}
+	if c.config.MaxUploadBytes != nil && missingBytes > *c.config.MaxUploadBytes {
+		return finish(fmt.Errorf("%w: server needs %d raw chunk bytes, limit is %d; no chunks uploaded", ErrUploadBudget, missingBytes, *c.config.MaxUploadBytes))
 	}
 	// Batching avoids one network round trip per chunk. Parallel workers reuse
 	// pooled HTTP connections; each worker holds at most one bounded batch.

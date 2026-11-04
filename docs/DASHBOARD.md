@@ -32,6 +32,13 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   original-versus-encoded comparison, and an expandable per-request ledger with
   cache reuse, raw chunk uploads, encoded bytes, HTTP attempts, and response
   bytes that are excluded from upload savings.
+- With explicit gateway payload capture enabled, select a request to inspect its
+  actual decoded body (UTF-8, hex + ASCII, lossless JSON formatting, or exact
+  download), ordered chunk-presence rectangles with byte ranges, prepared upload
+  batches and frame offsets, and each counted HTTP attempt with its encoding,
+  prepared/consumed lengths, and validated acknowledgment. Requests predating
+  capture, or excluded by retention, say **Not captured**; their content is never
+  reconstructed.
 - Gateway concurrency and uptime; relay reachability, identity, protocol and
   health-check latency; chunk-cache and durable-response-mailbox usage/capacity;
   pending cancellations and control errors.
@@ -175,13 +182,32 @@ history; authentication failures and invalid/disallowed targets do not.
 
 For statistics, the browser requests `GET /api/dashboard`. The Go dashboard authenticates
 its own `GET /v1/dashboard` to the local gateway; it does not forward browser
-headers, cookies, arbitrary routes, or query parameters. Gateway and VPS tokens,
-provider credentials, target URLs, prompts, and response bodies are not exposed.
-The dashboard makes no model requests and has no cancellation, ACK, or replay
-controls. Its separate `/api/system` metadata and optional predefined POST service
-controls are documented in [SUPERVISION.md](SUPERVISION.md); they never proxy
-arbitrary routes or expose provider credentials. Existing gateway authentication and browser-origin rejection remain
+headers, cookies, arbitrary routes, or query parameters. Statistics remain
+metadata-only: gateway and VPS tokens, provider credentials, target URLs, and
+response bodies are not included. The dashboard makes no model requests and has
+no cancellation, ACK, or replay controls. Its separate `/api/system` metadata and
+optional predefined POST service controls are documented in
+[SUPERVISION.md](SUPERVISION.md); they never proxy arbitrary routes or expose
+provider credentials. Existing gateway authentication and browser-origin rejection remain
 intact.
+
+Request evidence capture is **off by default** and is a separate, explicit
+tradeoff. When `--capture-dir` is set, the gateway stores application request
+bodies (which can contain prompts, source code, tool output, and other secrets)
+and encoded RPC payloads on private local disk. The loopback dashboard then
+serves those captures through its authenticated, route-validated inspection
+proxy. The browser never receives the local token. That proxy accepts only
+bounded capture routes and endpoint-specific query parameters; unknown
+parameters and arbitrary paths are rejected. Do not enable capture on a shared
+or untrusted machine. Provider response
+bodies are still never captured. The routing target (`X-DeltaRelay-Target`) and
+credential-bearing forwarding headers are omitted from the retained dispatch
+projection, which is replaced by an allowlisted redacted representation. The
+request's `Content-Type` is retained only as a label. Known captured protocol
+payloads (manifests, inventories, assemblies, and raw chunk batches) contain chunk
+hashes, sizes, and the uploaded chunk bytes. Unknown future counted operations
+retain only lengths and outcomes, never their payloads. Captured request bodies are stored
+as-is and may themselves contain URLs, credentials, prompts, or source code.
 
 Both listeners are loopback-only. The dashboard rejects non-loopback Host values,
 cross-origin/cross-site requests and unapproved writes, and sends restrictive CSP/frame
@@ -229,6 +255,22 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
 - One gateway owns each statistics file. Keep different deployments' histories
   separate. Back up/rename an existing history while its gateway is stopped if
   intentionally starting a new history; do not edit it while the gateway runs.
+- Captured evidence has its own retention, independent of the statistics file.
+  Defaults are **100 request captures**, **512 MiB total**, **64 MiB per request
+  including its evidence index**, and **24 hours**; all are configurable. The directory and files are private
+  (`0700`/`0600`), symlinks are refused, one gateway owns the directory, and
+  unexpected entries or malformed capture metadata fail startup rather than being
+  adopted or overwritten. Use a dedicated directory.
+  Running captures expose their current in-memory evidence and are checkpointed
+  about once per second. After an abrupt crash, only checkpointed evidence is
+  shown and the capture is marked interrupted; bytes written after the last
+  checkpoint are not silently claimed. A normal shutdown flushes before releasing
+  the directory lock.
+- Capture writes happen on the request path, so enabling capture can reduce
+  throughput on a slow disk. Capture failure never changes the transferred source
+  bytes: the real transfer continues, retained evidence may be a contiguous
+  labeled prefix, the UI labels storage errors/truncation, and an incomplete body
+  is not presented as complete.
 
 `.runtime/`, `web/dist/`, `.astro/`, `node_modules/`, and test output are ignored
 by Git. CSV exports contain session metadata; store them privately too.
@@ -258,15 +300,80 @@ relay cache reuse, and other savings; negative savings appear as a red overshoot
 Trend view plots original, uploaded, saved, and reused bytes separately.
 
 The separate **Measurement** page (`/measurement`) applies these definitions to a
-session selected from retained history. It uses no separate data source or model
-request. The session summary shows original bytes, encoded uploads, saved bytes,
-reduction, and relay content reuse. The request ledger expands each retained
+session selected from retained history. Its summary and ledger use the same
+snapshot; the optional evidence inspector loads captured artifacts on demand
+through validated read-only routes. Neither view sends a model request. The
+session summary shows original bytes, encoded uploads, saved bytes, reduction,
+and relay content reuse. The request ledger expands each retained
 request into chunks, unique chunks, uploaded chunks, missing and reused bytes,
-actual HTTP attempts, encoded bytes, and response bytes. Running requests show
+actual HTTP attempts, encoded bytes, and response bytes. Uploaded-chunk counters
+follow logical batches; after an ambiguous failure and recovery inventory, use
+the attempt evidence to distinguish listed chunks from retransmitted frames. Running requests show
 pending transfer totals instead of fabricated zeros; failed, cancelled, and
 interrupted requests keep their measured partial values. If request entries were trimmed from
 bounded history, the page states how many retained entries the ledger covers and
 does not imply the visible requests reconcile to the session totals.
+
+### Opt-in request evidence capture
+
+Capture is enabled only by passing a private directory:
+
+```sh
+./bin/deltarelay gateway \
+  --server https://relay.example \
+  --token-file /path/to/private/relay.token \
+  --local-token-file /path/to/private/local.token \
+  --upstreams /path/to/private/upstreams.json \
+  --stats-file .runtime/dashboard-stats.json \
+  --capture-dir .runtime/dashboard-captures
+```
+
+`DELTARELAY_CAPTURE_DIR` can supply the directory instead. An empty
+`--capture-dir` disables capture. The optional limits are
+`--capture-max-bytes` (default 536870912, including metadata),
+`--capture-max-request-bytes` (default 67108864, including metadata),
+`--capture-max-requests` (default 100), and
+`--capture-max-age` (default 24h). They are validated at gateway startup.
+Capture applies only to future requests. The dashboard displays the active
+limits, retained-capture count, used bytes, and any storage/admission error. If a
+supervisor generates the gateway command, add the same `--capture-dir` flag to
+its private profile configuration and restart the gateway; the dashboard does not
+enable capture by itself.
+
+The inspector separates evidence by meaning:
+
+| View | Actual source | Important limit |
+| --- | --- | --- |
+| Original body | Bytes read by the chunker, after gateway `Content-Encoding: gzip` decoding, before chunking | Not the raw incoming HTTP request; headers are excluded; incomplete means EOF was not reached |
+| Relay inventory | The relay's validated response at that inventory time | Hash-based chunk availability, not a textual diff; a missing chunk does not prove every byte is new |
+| Raw chunks uploaded | Unique chunks selected for upload batches, with frame offsets | Not every repeated body occurrence is uploaded |
+| Encoded upload | Each counted HTTP attempt: known protocol payloads, redacted dispatch, or a length-only record for an unknown future operation | `Consumed` is Go transport consumption, not packet capture or proof of receipt; status/polling is excluded; attempt HTTP statuses are relay RPC statuses, not provider status |
+| Saved / extra upload | Arithmetic over the recorded transfer counters | Responses, HTTP headers, TLS/TCP/IP overhead, and retransmissions are excluded |
+
+The body hash and source length are checked against the transfer counters when
+both are available. Captured transfer counters are checked against the retained
+request ledger. Attempt consumption is checked against
+`request_body_bytes_sent`, and the inspector explicitly says when the retained
+evidence does not reconcile. A lost upload acknowledgment is shown as a failed
+or ambiguous attempt; it is not rewritten as success by a later inventory. A
+validated chunk acknowledgment means the client received HTTP 200 with the
+expected chunk count and raw length; it is not an independent audit that the
+relay persisted every frame.
+Recovery inventories have their own byte scope, so chunks outside that scope are
+marked **unknown**, not present or missing. The inventory view reports
+present/missing/unknown **manifest-occurrence bytes** separately from unique
+missing chunk bytes; repeated missing hashes make those two counts differ. For a
+completed request, the initial inventory's present and unique-missing totals are
+cross-checked against the transfer's reused and missing-byte counters, with any
+disagreement shown explicitly. JSON formatting validates the complete
+artifact and re-indents its original tokens; it is not a reserialized substitute,
+and duplicate keys or large numeric literals are preserved. A representation
+that is not valid UTF-8 JSON is rejected from the JSON view; use text/hex.
+
+The saved **original body** comparison is against decoded request bodies.
+`request_body_bytes_sent` includes manifests, framing, compression when chosen,
+and counted retries. It excludes responses and HTTP/TLS/packet overhead. It is
+not a provider-token-cache measurement or a billing guarantee.
 
 ## Development
 

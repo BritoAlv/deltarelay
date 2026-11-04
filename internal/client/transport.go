@@ -10,10 +10,12 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 )
 
@@ -41,9 +43,10 @@ type attemptSpec struct {
 // attemptResponse is a fully read, bounded response. Keeping the complete body
 // here lets every caller release its connection and watchdog before proceeding.
 type attemptResponse struct {
-	status int
-	header http.Header
-	body   []byte
+	inspectionIndex int
+	status          int
+	header          http.Header
+	body            []byte
 }
 
 func acceptedOK(status int) bool  { return status == http.StatusOK }
@@ -102,8 +105,10 @@ func (c *Client) execute(ctx context.Context, spec attemptSpec) (attemptResponse
 		}
 	}()
 	var reader io.Reader
+	var observed *countingReader
 	if spec.data != nil {
-		reader = &countingReader{reader: bytes.NewReader(data), count: spec.sent, touch: touch}
+		observed = &countingReader{reader: bytes.NewReader(data), count: spec.sent, touch: touch, inspectionIndex: -1}
+		reader = observed
 	}
 	req, err := http.NewRequestWithContext(attemptCtx, spec.method, c.base+spec.path, reader)
 	if err != nil {
@@ -128,6 +133,34 @@ func (c *Client) execute(ctx context.Context, spec attemptSpec) (attemptResponse
 	if spec.requests != nil {
 		spec.requests.Add(1)
 	}
+	capture := inspection.FromContext(ctx)
+	inspectionIndex, observedStatus, outcome := -1, 0, "transport_error"
+	if capture != nil && spec.sent != nil && spec.requests != nil {
+		operation := "control"
+		switch spec.path {
+		case "/v2/missing":
+			operation = "inventory"
+		case "/v2/chunks":
+			operation = "chunks"
+		case "/v2/assemble":
+			operation = "assemble"
+		default:
+			// Path-based rather than method-based: a future dispatch method must
+			// still get the redacted projection, never an accidental raw capture.
+			if strings.HasPrefix(spec.path, "/v2/requests/") {
+				operation = "dispatch"
+			}
+		}
+		encoding := "identity"
+		if compressed {
+			encoding = "gzip"
+		}
+		inspectionIndex = capture.BeginAttempt(ctx, operation, spec.method, spec.path, spec.contentType, encoding, spec.data, data, true)
+		if observed != nil {
+			observed.capture, observed.inspectionIndex = capture, inspectionIndex
+		}
+		defer func() { capture.EndAttempt(inspectionIndex, observedStatus, outcome) }()
+	}
 	response, err := c.http.Do(req)
 	if err != nil {
 		// Do not expose request URLs, transport credentials, or response bodies.
@@ -137,23 +170,28 @@ func (c *Client) execute(ctx context.Context, spec attemptSpec) (attemptResponse
 		return attemptResponse{}, &TransportError{Err: err}
 	}
 	haveResponse = true
+	observedStatus = response.StatusCode
 	response.Body = &activityReader{ReadCloser: response.Body, touch: touch}
 	response.Body = &releaseBody{ReadCloser: response.Body, release: release}
 	defer response.Body.Close()
 	if spec.acceptedStatus != nil && !spec.acceptedStatus(response.StatusCode) {
+		outcome = "http_error"
 		return attemptResponse{}, responseError(response)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, spec.responseLimit+1))
 	if err != nil {
+		outcome = "response_read_error"
 		return attemptResponse{}, &TransportError{Err: err}
 	}
 	if int64(len(body)) > spec.responseLimit {
+		outcome = "response_limit"
 		if spec.responseLimitError != nil {
 			return attemptResponse{}, spec.responseLimitError
 		}
 		return attemptResponse{}, errors.New("relay response exceeds size limit")
 	}
-	return attemptResponse{status: response.StatusCode, header: response.Header, body: body}, nil
+	outcome = "response_ok"
+	return attemptResponse{inspectionIndex: inspectionIndex, status: response.StatusCode, header: response.Header, body: body}, nil
 }
 
 func (c *Client) addState(req *http.Request) {
@@ -224,14 +262,17 @@ func (r *activityReader) Read(p []byte) (int, error) {
 }
 
 type countingReader struct {
-	reader io.Reader
-	count  *atomic.Int64
-	touch  func()
+	reader          io.Reader
+	count           *atomic.Int64
+	touch           func()
+	capture         *inspection.Capture
+	inspectionIndex int
 }
 
 func (r *countingReader) Read(p []byte) (int, error) {
 	n, err := r.reader.Read(p)
 	if n > 0 {
+		r.capture.Consume(r.inspectionIndex, n)
 		if r.count != nil {
 			r.count.Add(int64(n))
 		}

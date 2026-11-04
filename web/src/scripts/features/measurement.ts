@@ -4,9 +4,12 @@ import { barComparison, requestMeasurement, sessionMeasurement } from "../../lib
 import type { DashboardViewState } from "../../lib/state.js"
 import type { RelayRequest, Session, Snapshot } from "../../lib/types.js"
 import { requiredById } from "../dom.js"
+import { mountInspection } from "./inspection.js"
+import type { InspectionStage } from "../../lib/inspection.js"
 
 export interface MeasurementFeature {
   render(state: DashboardViewState): void
+  destroy(): void
 }
 
 const requestPageSize = 8
@@ -30,8 +33,13 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   const trace = requiredById(root, "measurement-trace")
   const retention = requiredById(root, "retention-note")
   const doc = root.ownerDocument
+  const inspectorRoot = requiredById<HTMLElement>(root, "request-inspector")
+  const inspector = mountInspection(inspectorRoot, {
+    onStageChange: (next) => trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.pipelineStage === next))),
+  })
   let state: DashboardViewState | null = null
   let selectedSession: string | null = null
+  let selectedRequest: number | null = null
   let showAll = false
   let optionsSignature = ""
   const openRequests = new Set<string>()
@@ -90,6 +98,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   function empty(message: string): void {
     trace.innerHTML = `<div class="empty-state"><h3>No retained sessions</h3><p>${escape(message)}</p></div>`
     select.disabled = true
+    inspector.update(null, state?.snapshot?.inspection, state?.snapshot?.collected_at ?? "")
   }
 
   function renderUnavailable(): void {
@@ -101,6 +110,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     select.disabled = true
     retention.textContent = "History retains up to 256 sessions and 1,000 requests. Global totals survive retention trimming. Earlier history is not imported from logs."
     trace.innerHTML = `<div class="empty-state"><h3>Waiting for local gateway</h3><p>Start the local gateway and dashboard server to trace retained sessions. No provider requests are sent by this page.</p></div>`
+    inspector.update(null, undefined, "")
   }
 
   function renderRequest(request: RelayRequest, snapshot: Snapshot): string {
@@ -116,7 +126,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         ? `1 − ${bytes(measured.encoded)} ÷ ${bytes(measured.original)} = ${percentage(measured.reduction)}`
         : "Original body is zero; reduction is unavailable."
     const body = measured.pending
-      ? `<div class="trace-request-body"><p class="trace-request-note">Transfer totals are written when this request finishes. Elapsed time comes from the latest local gateway observation.</p></div>`
+      ? `<div class="trace-request-body"><p class="trace-request-note">Transfer totals are written when this request finishes. Elapsed time comes from the latest local gateway observation.</p><button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect request evidence</button></div>`
       : `<div class="trace-request-body">
           <div class="trace-request-bar" role="img" aria-label="Original body ${escape(bytes(measured.original))}, encoded upload ${escape(bytes(measured.encoded))}, saved ${escape(bytes(measured.saved))}">
             ${barRow("Original", bytes(measured.original), bars.originalPercent, "original")}
@@ -126,7 +136,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
           <div class="trace-request-grid">
             ${detail("Original body", bytes(measured.original))}
             ${detail("Encoded upload", bytes(measured.encoded))}
-            ${detail("Saved", bytes(measured.saved), measured.saved < 0 ? "negative" : "accent")}
+            ${detail(measured.saved < 0 ? "Extra upload" : "Saved", bytes(Math.abs(measured.saved)), measured.saved < 0 ? "negative" : "accent")}
             ${detail("Reduction", percentage(measured.reduction), reductionTone)}
             ${detail("Reused content", bytes(measured.reused))}
             ${detail("Missing content", bytes(measured.missing))}
@@ -138,10 +148,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
             ${detail("Response download", bytes(request.response_bytes))}
           </div>
           <p class="trace-formula"><code>${escape(formula)}</code></p>
-          <p class="trace-request-note">Response bytes are shown for context but never subtracted from upload savings. Failed and cancelled attempts remain included in session totals.</p>
+          <p class="trace-request-note">Response bytes are shown for context but never subtracted from upload savings. Failed and cancelled attempts remain included in session totals. Uploaded-chunk counters follow logical batches; after recovery, inspect attempt evidence for actual retransmissions.</p>
           ${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}
+          <button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect request evidence</button>
         </div>`
-    return `<details class="trace-request" data-request-id="${escape(request.id)}"${open}>
+    return `<details class="trace-request${selectedRequest === request.sequence ? " selected" : ""}" data-request-id="${escape(request.id)}"${open}>
       <summary>
         <div class="trace-request-heading">
           <code>${escape(request.id)}</code>
@@ -187,6 +198,16 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const current = selected(snapshot)
     if (!current) return
     const requests = sessionRequests(snapshot, current)
+    if (!requests.some((request) => request.sequence === selectedRequest)) selectedRequest = requests[0]?.sequence ?? null
+    const inspected = requests.find((request) => request.sequence === selectedRequest) ?? null
+    const measured = inspected ? requestMeasurement(inspected, snapshot.collected_at) : null
+    const pipeline = [
+      ["body", "Original body", "Decoded source, before chunking. Inspect bytes or JSON.", measured ? bytes(measured.original) : "—"],
+      ["inventory", "Relay inventory", "Inspect actual chunk availability at an observed inventory.", measured ? bytes(measured.reused) : "—"],
+      ["upload", "Raw chunks uploaded", "Prepared batches and validated acknowledgments; recovery may re-inventory instead of retransmitting.", measured ? bytes(measured.uploaded) : "—"],
+      ["encoded", "Encoded upload", "Inspect counted transport attempts, encoding and payloads.", measured ? bytes(measured.encoded) : "—"],
+      ["savings", measured && measured.saved < 0 ? "Extra upload" : "Saved", "Calculated original minus encoded; not another byte stream.", measured ? bytes(Math.abs(measured.saved)) : "—"],
+    ] as const
     const summary = sessionMeasurement(current, requests)
     const bars = barComparison(summary.original, summary.encoded)
     const visible = showAll ? requests : requests.slice(0, requestPageSize)
@@ -213,41 +234,61 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       </div>
       <div class="trace-summary-grid">
         ${stat("Upload reduction", percentage(summary.reduction), "of original body bytes", reductionTone)}
-        ${stat("Bandwidth saved", bytes(summary.saved), "original − encoded", savedTone)}
+        ${stat(summary.saved < 0 ? "Extra upload" : "Bandwidth saved", bytes(Math.abs(summary.saved)), summary.saved < 0 ? "encoded − original" : "original − encoded", savedTone)}
         ${stat("Original body", bytes(summary.original), "100% baseline")}
         ${stat("Encoded upload", bytes(summary.encoded), "manifests, framing, compression, retries")}
       </div>
       <div class="trace-visual">
         <div class="trace-bars" role="img" aria-label="Original body ${escape(bytes(summary.original))}, encoded upload ${escape(bytes(summary.encoded))}, saved ${escape(bytes(summary.saved))}">
+          <h3 class="trace-scope">Session upload totals</h3>
           ${barRow("Original", bytes(summary.original), bars.originalPercent, "original")}
           ${barRow("Sent", bytes(summary.encoded), bars.encodedPercent, "accent")}
           ${barRow(bars.negative ? "Extra sent" : "Saved", bytes(Math.abs(summary.saved)), bars.savedPercent, bars.negative ? "danger" : "saved")}
         </div>
         <div class="trace-pipeline">
           <h3>From body to wire</h3>
+          <label class="trace-request-picker">Selected request <select data-measurement-request aria-label="Selected request for body-to-wire inspection"${requests.length ? "" : " disabled"}>${requests.length ? requests.map((request) => `<option value="${request.sequence}"${request.sequence === selectedRequest ? " selected" : ""}>${escape(request.id)} · ${escape(request.kind)} · ${escape(request.state)}${request.capture_id ? "" : " · not captured"}</option>`).join("") : "<option>No retained request entries</option>"}</select></label>
+          <p class="trace-request-note">Request-level application payload, not packet capture. Select a stage to inspect evidence below.</p>
           <ol>
-            <li><span>1</span><div><strong>Original body</strong><p>Read from the client before chunking or compression.</p></div><code>${escape(bytes(summary.original))}</code></li>
-            <li><span>2</span><div><strong>Relay inventory</strong><p>Already present at inventory time; not provider token-cache reuse.</p></div><code>${escape(bytes(summary.reused))} (${escape(percentage(summary.reusedPercent))})</code></li>
-            <li><span>3</span><div><strong>Raw chunks uploaded</strong><p>Only content the relay did not already hold.</p></div><code>${escape(bytes(summary.uploaded))}</code></li>
-            <li><span>4</span><div><strong>Encoded upload</strong><p>Control bodies, framing, compression, and retries actually sent.</p></div><code>${escape(bytes(summary.encoded))}</code></li>
-            <li class="${bars.negative ? "negative" : "accent"}"><span>5</span><div><strong>${bars.negative ? "Extra upload" : "Saved"}</strong><p>Original body minus encoded upload. Responses and packet overhead are excluded.</p></div><code>${escape(bytes(summary.saved))} (${escape(percentage(summary.reduction))})</code></li>
+            ${pipeline.map(([id, label, note, value], i) => `<li><span>${i+1}</span><div><button type="button" data-pipeline-stage="${id}" aria-pressed="${inspector.stage === id}"${inspected ? "" : " disabled"}>${label}</button><p>${note}</p></div><code>${escape(measured?.pending ? "Pending" : value)}</code></li>`).join("")}
           </ol>
         </div>
       </div>
-      <p class="trace-caveat">Content reuse and wire upload are separate views. Duplicate chunks and control RPCs mean reused content plus raw uploads is not necessarily a single additive stack.</p>
+      <p class="trace-caveat">The comparison bars show session totals; the clickable stages show the selected request. Content reuse and encoded upload are separate views, not an additive stack.</p>
       <div class="trace-requests">
         <div class="trace-requests-head"><div><h3>Request ledger</h3><p>Retained request entries, newest first. Expand one to see its full byte accounting.</p></div><span class="section-meta">${integer(requests.length)} retained${summary.missingRequests ? ` · ${integer(summary.missingRequests)} trimmed` : ""}</span></div>
         ${ledger}
       </div>`
     bindOpenState()
+    inspector.update(inspected, snapshot.inspection, snapshot.collected_at)
   }
 
   select.addEventListener("change", () => {
     selectedSession = select.value
+    selectedRequest = null
     showAll = false
     renderTrace()
   })
+  trace.addEventListener("change", (event) => {
+    const picker = event.target as HTMLSelectElement
+    if (!picker.matches("[data-measurement-request]")) return
+    selectedRequest = Number(picker.value)
+    renderTrace()
+  })
   root.addEventListener("click", (event) => {
+    const inspect = (event.target as Element).closest<HTMLButtonElement>("[data-inspect-request], [data-pipeline-stage]")
+    if (inspect?.dataset.inspectRequest) {
+      selectedRequest = Number(inspect.dataset.inspectRequest)
+      renderTrace()
+      inspectorRoot.scrollIntoView?.({ block: "start" })
+      return
+    }
+    if (inspect?.dataset.pipelineStage) {
+      inspector.open(inspect.dataset.pipelineStage as InspectionStage)
+      trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.pipelineStage === inspector.stage)))
+      inspectorRoot.scrollIntoView?.({ block: "start" })
+      return
+    }
     const button = (event.target as Element).closest<HTMLButtonElement>("[data-trace-more]")
     if (!button) return
     showAll = !showAll
@@ -255,6 +296,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   })
 
   return {
+    destroy() { inspector.destroy() },
     render(nextState) {
       state = nextState
       const snapshot = nextState.snapshot

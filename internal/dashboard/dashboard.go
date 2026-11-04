@@ -141,6 +141,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.snapshot(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/api/inspection/") {
+		h.inspect(w, r)
+		return
+	}
 	if r.URL.Path == "/api/system" {
 		h.system(w, r)
 		return

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 )
 
@@ -90,7 +91,11 @@ func (c *Client) jsonRPC(ctx context.Context, method, path string, data []byte, 
 		if err != nil {
 			return err
 		}
-		return json.Unmarshal(response.body, result)
+		err = json.Unmarshal(response.body, result)
+		if err != nil {
+			inspection.FromContext(ctx).RefineOutcome(response.inspectionIndex, "invalid_response")
+		}
+		return err
 	})
 }
 

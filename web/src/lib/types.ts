@@ -1,3 +1,5 @@
+import type { CaptureStatus } from "./inspection.js"
+
 export interface Totals {
   requests: number
   active: number
@@ -36,6 +38,7 @@ export interface Transfer {
 }
 
 export interface RelayRequest {
+  capture_id?: string
   sequence: number
   id: string
   session_id: string
@@ -77,6 +80,7 @@ export interface Traffic {
 }
 
 export interface Snapshot {
+  inspection?: CaptureStatus
   version: 1
   collected_at: string
   gateway: {

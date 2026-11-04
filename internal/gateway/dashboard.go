@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"deltarelay/internal/client"
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 	"deltarelay/internal/telemetry"
 )
@@ -20,8 +21,9 @@ type ProviderStatus struct {
 }
 
 type DashboardSnapshot struct {
-	Version     int       `json:"version"`
-	CollectedAt time.Time `json:"collected_at"`
+	Inspection  *inspection.Status `json:"inspection,omitempty"`
+	Version     int                `json:"version"`
+	CollectedAt time.Time          `json:"collected_at"`
 	Gateway     struct {
 		StartedAt            time.Time `json:"started_at"`
 		Active               int64     `json:"active"`
@@ -41,6 +43,9 @@ type DashboardSnapshot struct {
 func (g *Gateway) dashboard(w http.ResponseWriter, r *http.Request) {
 	var result DashboardSnapshot
 	result.Version, result.CollectedAt = 1, time.Now().UTC()
+	if status := g.inspection.Status(); status.Enabled {
+		result.Inspection = &status
+	}
 	result.Gateway.StartedAt, result.Gateway.Active, result.Gateway.Concurrency = g.startedAt, g.active.Load(), g.config.MaxConcurrent
 	result.Gateway.PendingCancellations, result.Gateway.ControlError = g.config.Client.ControlStatus()
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)

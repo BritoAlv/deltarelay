@@ -119,14 +119,19 @@ ranges cover 24 hours, 7, 30, or 90 days, or a custom date range, with compositi
 and trend views for bandwidth saved and relay cache reuse. The dashboard is split
 into Overview, Sessions, System controls, and System health pages; a separate
 Measurement page traces a retained session from original body to encoded wire
-bytes, request by request. Each page polls only the API it needs and has its own
-refresh/pause state.
+bytes, request by request. With explicit opt-in request capture, selecting a
+request exposes the actual decoded body, ordered chunk availability, prepared
+upload batches, counted HTTP attempts, and the exact savings calculation. Each
+page polls only the API it needs and has its own refresh/pause state.
 Optional supervisor integration adds service Start/Restart controls, automatic
 network recovery, capability-based remote host wake/stop controls, and a ChatGPT
 access-token expiry countdown.
 It distinguishes **no internet** from an **unreachable VPS**. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.
+Request-evidence capture is off by default. When explicitly enabled with a
+private `--capture-dir`, it stores request payloads on the gateway and exposes
+them only through the loopback dashboard; see [measurement details](docs/DASHBOARD.md).
 
 ```sh
 pnpm install --offline --frozen-lockfile --trust-lockfile
@@ -282,9 +287,10 @@ logic. Small changes can still require uploading a whole affected chunk.
 | JSON field | Meaning |
 | --- | --- |
 | `hash`, `body_bytes` | SHA-256 and length of the complete original body |
+| `capture_id` | Optional link to an opt-in private evidence capture; absent means content was not retained |
 | `chunks`, `unique_chunks` | Ordered references and distinct chunks in this body |
-| `uploaded_chunks` | Chunks in successfully acknowledged upload batches |
-| `uploaded_chunk_bytes` | Raw bytes in those acknowledged batches |
+| `uploaded_chunks` | Chunks in successfully completed logical upload batches; recovery can mean not every listed frame was retransmitted |
+| `uploaded_chunk_bytes` | Raw bytes in those logical batches; the evidence inspector shows actual counted attempt consumption |
 | `missing_chunk_bytes` | Raw bytes required by inventory, including when a budget rejects the upload |
 | `reused_body_bytes` | Body bytes represented by chunks present at inventory time |
 | `request_body_bytes_sent` | Encoded request-body bytes consumed by Go's HTTP transport, including manifests, framing, and gzip where used |

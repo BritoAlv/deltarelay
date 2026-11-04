@@ -35,7 +35,7 @@ type fixture struct {
 	directory    string
 }
 
-func newFixture(t *testing.T, provider *httptest.Server, idle time.Duration) fixture {
+func newFixture(t *testing.T, provider *httptest.Server, idle time.Duration, configure ...func(*gateway.Config)) fixture {
 	t.Helper()
 	directory := t.TempDir()
 	storage, err := store.OpenLimited(directory, 64<<20)
@@ -55,10 +55,15 @@ func newFixture(t *testing.T, provider *httptest.Server, idle time.Duration) fix
 		t.Fatal(err)
 	}
 	t.Cleanup(c.Close)
-	g, err := gateway.New(gateway.Config{Client: c, LocalToken: localToken, Upstreams: rules, AllowPrivateUpstreams: true})
+	config := gateway.Config{Client: c, LocalToken: localToken, Upstreams: rules, AllowPrivateUpstreams: true}
+	for _, apply := range configure {
+		apply(&config)
+	}
+	g, err := gateway.New(config)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(g.Close)
 	local := httptest.NewServer(g)
 	t.Cleanup(local.Close)
 	return fixture{gateway: local, vps: remote, storage: storage, directory: directory}

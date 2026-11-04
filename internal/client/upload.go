@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync/atomic"
 
+	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
 )
 
@@ -48,6 +49,10 @@ func (c *Client) upload(ctx context.Context, spool *os.File, local map[string]lo
 				}
 				seen[chunk.Hash] = true
 			}
+			c.stateMu.Lock()
+			stateID := c.stateID
+			c.stateMu.Unlock()
+			inspection.FromContext(ctx).Inventory("recovery", stateID, original, missing.Missing)
 			chunks = missing.Missing
 		}
 		attempted = true
@@ -87,9 +92,14 @@ func (c *Client) uploadOnce(ctx context.Context, spool *os.File, local map[strin
 		expectedBytes += chunk.Size
 	}
 	var result protocol.UploadResponse
-	err := c.postOnce(ctx, "/v2/chunks", protocol.BatchContentType, batch.Bytes(), &result, sent, requests)
+	ctx = inspection.WithChunks(ctx, chunks)
+	attempt, err := c.postOnceObserved(ctx, "/v2/chunks", protocol.BatchContentType, batch.Bytes(), &result, sent, requests)
 	if err == nil && (result.Chunks != len(chunks) || result.Bytes != expectedBytes) {
 		err = errors.New("server chunk acknowledgment does not match uploaded batch")
+		inspection.FromContext(ctx).RefineOutcome(attempt, "ack_mismatch")
+	}
+	if err == nil {
+		inspection.FromContext(ctx).AckBatch(attempt)
 	}
 	return result, err
 }
@@ -107,6 +117,11 @@ func (c *Client) post(ctx context.Context, path, contentType string, data []byte
 }
 
 func (c *Client) postOnce(ctx context.Context, path, contentType string, data []byte, result any, sent, requests *atomic.Int64) error {
+	_, err := c.postOnceObserved(ctx, path, contentType, data, result, sent, requests)
+	return err
+}
+
+func (c *Client) postOnceObserved(ctx context.Context, path, contentType string, data []byte, result any, sent, requests *atomic.Int64) (int, error) {
 	response, err := c.execute(ctx, attemptSpec{
 		method:             "POST",
 		path:               path,
@@ -123,7 +138,11 @@ func (c *Client) postOnce(ctx context.Context, path, contentType string, data []
 		requests:           requests,
 	})
 	if err != nil {
-		return err
+		return -1, err
 	}
-	return json.Unmarshal(response.body, result)
+	err = json.Unmarshal(response.body, result)
+	if err != nil {
+		inspection.FromContext(ctx).RefineOutcome(response.inspectionIndex, "invalid_response")
+	}
+	return response.inspectionIndex, err
 }

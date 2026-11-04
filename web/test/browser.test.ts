@@ -11,6 +11,14 @@ import type { SystemStatus } from "../src/lib/system.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
 
+async function waitForText(node: Element | null, pattern: RegExp, label: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (pattern.test(node?.textContent ?? "")) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  assert.fail(`${label}: ${node?.textContent ?? ""}`)
+}
+
 function systemStatus(overrides: Partial<SystemStatus> = {}): SystemStatus {
   return {
     version: 2, managed: true, collected_at: new Date(now).toISOString(), csrf_token: "a".repeat(64),
@@ -76,10 +84,119 @@ test("measurement page renders definitions and traces a selected session", async
   assert.match(trace.textContent ?? "", /Request ledger/)
   assert.match(trace.textContent ?? "", /Transfer totals pending/)
   assert.match(trace.textContent ?? "", /Show all .* retained requests/)
+  assert.match(trace.textContent ?? "", /not captured/)
+  assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Payload capture is off or not reported/)
+  assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Not captured/)
   assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 sessions and 1,000 requests/)
   select.value = snapshot.history.sessions[1]!.id
   page.fire(select, "change")
   assert.match(trace.textContent ?? "", /api-refactor/)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement inspector shows captured body, chunk availability, attempts and exact calculations", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  const session = snapshot.history.sessions[0]!
+  const request = snapshot.history.recent_requests.find((item) => item.session_id === session.id && item.state === "completed")!
+  const captureID = "a".repeat(32)
+  const bodyText = '{"z":1,"z":2,"big":9007199254740993,"message":"héllo"}'
+  const body = new TextEncoder().encode(bodyText)
+  const chunkHash = "c".repeat(64)
+  const hash = "d".repeat(64)
+  const chunksPrepared = body.length + 48
+  const dispatchPrepared = 77
+  const encoded = chunksPrepared + dispatchPrepared
+  request.capture_id = captureID
+  request.transfer = { ...request.transfer, hash, body_bytes: body.length, chunks: 1, unique_chunks: 1, uploaded_chunks: 1, uploaded_chunk_bytes: body.length, missing_chunk_bytes: body.length, reused_body_bytes: 0, request_body_bytes_sent: encoded, requests: 2 }
+  snapshot.inspection = { enabled: true, max_bytes: 64 << 20, max_capture_bytes: 16 << 20, max_captures: 100, max_age_seconds: 86_400, captures: 1, used_bytes: 4096, storage_error: false }
+  const artifact = (id: string, source: number, captured: number, contentType: string, representation: "captured" | "redacted" = "captured") => ({ id, representation, content_type: contentType, encoding: "identity" as const, source_bytes: source, captured_bytes: captured, sha256: hash, complete: true, truncated: false, write_error: false })
+  const attempt0 = { index: 0, operation: "chunks", method: "POST", path: "/v2/chunks", started_at: new Date(now - 20_000).toISOString(), finished_at: new Date(now - 19_000).toISOString(), encoding: "identity" as const, content_type: "application/vnd.deltarelay.chunks.v1", decoded_bytes: chunksPrepared, prepared_bytes: chunksPrepared, consumed_bytes: chunksPrepared, counted: true, status: 0, outcome: "transport_error", acknowledgment_ok: false, payload: artifact("attempt-0", chunksPrepared, chunksPrepared, "application/vnd.deltarelay.chunks.v1"), chunk_count: 1 }
+  const attempt1 = { index: 1, operation: "dispatch", method: "PUT", path: `/v2/requests/${request.id}`, started_at: new Date(now - 18_000).toISOString(), finished_at: new Date(now - 17_000).toISOString(), encoding: "identity" as const, content_type: "application/json", decoded_bytes: dispatchPrepared, prepared_bytes: dispatchPrepared, consumed_bytes: dispatchPrepared, counted: true, status: 200, outcome: "response_ok", acknowledgment_ok: false, payload: artifact("attempt-1", dispatchPrepared, dispatchPrepared, "application/json", "redacted"), chunk_count: 0 }
+  const capture = {
+    version: 1, id: captureID, request_id: request.id, sequence: request.sequence, started_at: new Date(now - 21_000).toISOString(), finished_at: new Date(now - 16_000).toISOString(), state: "completed",
+    body: artifact("body", body.length, body.length, "application/json"), chunk_count: 1,
+    inventories: [{ index: 0, kind: "initial", observed_at: new Date(now - 20_500).toISOString(), state_id: "b".repeat(64), scope_chunks: 1, missing_chunks: 1, missing_bytes: body.length, present_body_bytes: 0, missing_body_bytes: body.length, unknown_body_bytes: 0 }],
+    attempts: [attempt0, attempt1], dropped_events: 0, storage_error: false, transfer: request.transfer,
+  }
+  const pageData = (id: string, offset: number, limit: number) => {
+    const content = id === "body" ? body : new Uint8Array(id === "attempt-0" ? chunksPrepared : dispatchPrepared).fill(120)
+    const wanted = content.subarray(offset, Math.min(content.length, offset + limit))
+    return json({ offset, total: content.length, data: Buffer.from(wanted).toString("base64"), decoded: false, artifact: id === "body" ? capture.body : id === "attempt-0" ? attempt0.payload : attempt1.payload })
+  }
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url === `/api/inspection/${captureID}`) return json(capture)
+    if (url.startsWith(`/api/inspection/${captureID}/artifacts/`)) {
+      const parsed = new URL(url, "http://127.0.0.1")
+      const id = parsed.pathname.split("/").at(-1)!
+      return pageData(id, Number(parsed.searchParams.get("offset") ?? 0), Number(parsed.searchParams.get("limit") ?? 4096))
+    }
+    if (url.startsWith(`/api/inspection/${captureID}/chunks`)) return json({ start: 0, total: 1, inventory: 0, chunks: [{ index: 0, offset: 0, size: body.length, hash: chunkHash, availability: "missing", occurrences: 1 }] })
+    if (url === `/api/inspection/${captureID}/attempts/0`) return json({ ...attempt0, chunks: [{ hash: chunkHash, size: body.length }] })
+    if (url === `/api/inspection/${captureID}/attempts/1`) return json(attempt1)
+    throw new Error(`Unexpected inspection URL ${url}`)
+  })
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  const picker = doc.querySelector<HTMLSelectElement>("[data-measurement-request]")!
+  picker.value = String(request.sequence)
+  page.fire(picker, "change")
+  const inspector = doc.querySelector("#request-inspector")!
+  await waitForText(inspector, /Captured bytes/, "body evidence did not load")
+  assert.match(inspector.textContent ?? "", /Private disk capture enabled/)
+  assert.match(inspector.textContent ?? "", /héllo/)
+  assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()} B`))
+  doc.querySelector<HTMLButtonElement>('[data-inspect-mode="json"]')!.click()
+  await waitForText(inspector, /9007199254740993/, "lossless JSON presentation did not load")
+  assert.match(inspector.textContent ?? "", /"z": 1,\s*"z": 2/)
+  assert.match(inspector.textContent ?? "", /Formatting is not the captured byte layout/)
+
+  doc.querySelector<HTMLButtonElement>('[data-inspect-stage="inventory"]')!.click()
+  await waitForText(inspector, /This page: chunks 0–0/, "inventory did not load")
+  assert.equal(inspector.querySelectorAll(".inspect-chunk.missing").length, 1)
+  inspector.querySelector<HTMLButtonElement>(".inspect-chunk.missing")!.click()
+  await waitForText(inspector, /Selected chunk #0/, "chunk selection did not render")
+  await waitForText(inspector, /c3 a9/, "chunk bytes did not load")
+  assert.match(inspector.textContent ?? "", /00000030/)
+  assert.match(inspector.textContent ?? "", new RegExp(`byte range \\[0, ${body.length.toLocaleString()}\\)`))
+
+  doc.querySelector<HTMLButtonElement>('[data-inspect-stage="upload"]')!.click()
+  await waitForText(inspector, /Prepared frame layout/, "upload attempt did not load")
+  assert.match(inspector.textContent ?? "", /DRLY0001/)
+  assert.match(inspector.textContent ?? "", /validated chunk ACK|Not validated/)
+
+  doc.querySelector<HTMLButtonElement>('[data-inspect-stage="savings"]')!.click()
+  await waitForText(inspector, /Retained attempts reconcile to transfer counter/, "attempt accounting did not reconcile")
+  assert.match(inspector.textContent ?? "", /Body SHA-256 vs transfer hashMatch/)
+  assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()} − ${encoded.toLocaleString()}`))
+  assert.match(inspector.textContent ?? "", /Extra upload/)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement inspector never substitutes content for a missing capture", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  const session = snapshot.history.sessions[0]!
+  const request = snapshot.history.recent_requests.find((item) => item.session_id === session.id && item.state === "completed")!
+  request.capture_id = "e".repeat(32)
+  snapshot.inspection = { enabled: true, max_bytes: 1024, max_capture_bytes: 512, max_captures: 2, max_age_seconds: 3600, captures: 0, used_bytes: 0, storage_error: false }
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(snapshot)
+    return json({ error: "capture_not_retained" }, 404)
+  })
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const picker = page.document.querySelector<HTMLSelectElement>("[data-measurement-request]")!
+  picker.value = String(request.sequence)
+  page.fire(picker, "change")
+  const inspector = page.document.querySelector("#request-inspector")!
+  await waitForText(inspector, /Capture not retained/, "missing capture not reported")
+  assert.equal(inspector.querySelector(".inspect-code"), null)
+  assert.match(inspector.textContent ?? "", /No payload has been substituted or reconstructed/)
   measurement.destroy()
   await page.close()
 })

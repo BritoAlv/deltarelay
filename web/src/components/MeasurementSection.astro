@@ -6,13 +6,13 @@ import Icon from "./Icon.astro"
     <article class="panel method-card">
       <span class="method-icon"><Icon name="activity" size={18} /></span>
       <h2>Original body</h2>
-      <p>Uncompressed request-body bytes read from the client before chunking or compression. This is the 100% baseline for every comparison.</p>
+      <p>Decoded request-body bytes read by the chunker, before chunking or upload compression. If the incoming request was gzip-encoded, this is after gateway decoding. It is the 100% baseline.</p>
       <code>body_bytes</code>
     </article>
     <article class="panel method-card">
       <span class="method-icon"><Icon name="arrow" size={18} /></span>
       <h2>Encoded upload</h2>
-      <p>Request-body bytes actually sent: manifests, control RPCs, chunk framing, gzip when smaller, and retry attempts. HTTP/TLS headers, responses, and packet overhead are excluded.</p>
+      <p>Selected RPC request-body bytes consumed by the Go transport: manifests, dispatch, chunk framing, gzip when smaller, and retries. Not packet capture or proof of relay receipt; headers and responses are excluded.</p>
       <code>request_body_bytes_sent</code>
     </article>
     <article class="panel method-card">
@@ -33,7 +33,7 @@ import Icon from "./Icon.astro"
     <div class="measurement-toolbar">
       <div>
         <h2>Trace a retained session</h2>
-        <p>Pick one of the sessions retained by the gateway. Every value below comes from the same local dashboard snapshot.</p>
+        <p>Pick a session for its aggregate measurements, then a request for its body-to-wire evidence. Payloads are available only when explicitly captured.</p>
       </div>
       <div class="measurement-picker">
         <label for="measurement-session">Session</label>
@@ -41,6 +41,7 @@ import Icon from "./Icon.astro"
       </div>
     </div>
     <div class="measurement-trace" id="measurement-trace"></div>
+    <section class="request-inspector" id="request-inspector" aria-label="Selected request evidence"></section>
     <p class="measurement-retention" id="retention-note">History retains up to 256 sessions and 1,000 requests. Traffic charts keep hourly aggregates for 31 days and daily aggregates for 91 days. Global totals survive retention trimming. Earlier history is not imported from logs.</p>
   </article>
 

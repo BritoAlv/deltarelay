@@ -34,6 +34,10 @@ Important compatibility distinctions:
   traffic aggregates. When present, hourly and daily bucket arrays must be
   strictly ordered and within their declared retention; when absent, the
   dashboard falls back to retained request entries.
+- `inspection` is optional for compatibility with gateways that predate payload
+  capture. It appears only when capture is enabled. `recent_requests[].capture_id`
+  is also optional; an absent ID means content was not retained, not that it was
+  empty.
 - Raw legacy supervisor v1 uses `codespace_state`. Only the Go boundary normalizes
   it to `remote`, retaining **version 1** for `codespace` action targets. Older v1
   snapshots without an internet probe become `unknown`/`null`, not a failed probe.

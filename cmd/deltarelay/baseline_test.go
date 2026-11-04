@@ -46,7 +46,7 @@ func assertHelpDefault(t *testing.T, help, name, want string) {
 }
 
 func TestCLIBaselineDefaults(t *testing.T) {
-	for _, name := range []string{"DELTARELAY_SERVER", "DELTARELAY_TOKEN_FILE", "DELTARELAY_LOCAL_TOKEN_FILE", "DELTARELAY_UPSTREAMS_FILE", "DELTARELAY_STATS_FILE"} {
+	for _, name := range []string{"DELTARELAY_SERVER", "DELTARELAY_TOKEN_FILE", "DELTARELAY_LOCAL_TOKEN_FILE", "DELTARELAY_UPSTREAMS_FILE", "DELTARELAY_STATS_FILE", "DELTARELAY_CAPTURE_DIR"} {
 		t.Setenv(name, "")
 	}
 	state := filepath.Join(t.TempDir(), "state")
@@ -64,6 +64,7 @@ func TestCLIBaselineDefaults(t *testing.T) {
 		{[]string{"gateway"}, map[string]string{
 			"listen": `"127.0.0.1:8788"`, "server": `"http://127.0.0.1:8787"`, "workers": "4", "batch-bytes": "262144", "concurrency": "8",
 			"max-body-bytes": "268435456", "max-upload-bytes": "-1", "request-timeout": "", "header-timeout": "2m0s", "stats-file": `".runtime/dashboard-stats.json"`,
+			"capture-dir": "", "capture-max-bytes": "536870912", "capture-max-request-bytes": "67108864", "capture-max-requests": "100", "capture-max-age": "24h0m0s",
 		}},
 		{[]string{"sync"}, map[string]string{"server": `"http://127.0.0.1:8787"`, "timeout": "4h0m0s", "workers": "4", "batch-bytes": "262144", "max-upload-bytes": "-1", "input": `"-"`, "state-dir": ""}},
 		{[]string{"fetch"}, map[string]string{"server": `"http://127.0.0.1:8787"`, "timeout": "4h0m0s", "output": "", "state-dir": ""}},
@@ -93,6 +94,7 @@ func TestCLIEnvironmentPrecedence(t *testing.T) {
 	t.Setenv("DELTARELAY_LOCAL_TOKEN_FILE", filepath.Join(root, "local.token"))
 	t.Setenv("DELTARELAY_UPSTREAMS_FILE", filepath.Join(root, "upstreams.json"))
 	t.Setenv("DELTARELAY_STATS_FILE", filepath.Join(root, "stats.json"))
+	t.Setenv("DELTARELAY_CAPTURE_DIR", filepath.Join(root, "captures"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "xdg-state"))
 	t.Setenv("HOME", filepath.Join(root, "home"))
 	for _, command := range [][]string{{"gateway"}, {"request", "info"}} {
@@ -102,7 +104,7 @@ func TestCLIEnvironmentPrecedence(t *testing.T) {
 		assertHelpDefault(t, help, "state-dir", strconv.Quote(filepath.Join(root, "xdg-state", "deltarelay")))
 	}
 	help := baselineHelp(t, "gateway")
-	for name, file := range map[string]string{"local-token-file": "local.token", "upstreams": "upstreams.json", "stats-file": "stats.json"} {
+	for name, file := range map[string]string{"local-token-file": "local.token", "upstreams": "upstreams.json", "stats-file": "stats.json", "capture-dir": "captures"} {
 		assertHelpDefault(t, help, name, strconv.Quote(filepath.Join(root, file)))
 	}
 	for _, command := range []string{"dashboard", "doctor"} {

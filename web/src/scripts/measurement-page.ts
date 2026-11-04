@@ -111,6 +111,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     destroy() {
       destroyed = true
       poller.stop()
+      measurement.destroy()
     },
     get paused() { return state.paused },
   }
