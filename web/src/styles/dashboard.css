@@ -230,7 +230,6 @@
   .empty-state h3 { font-weight: 450; margin-bottom: 7px; }
   .empty-state p { color: var(--subtle); font-size: 11px; line-height: 1.8; }
   .page-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--subtle); font-size: 9px; margin-top: 27px; padding: 4px 0; }
-  .page-footer > span { display: flex; gap: 6px; align-items: center; }
   .page-footer a:hover { color: var(--accent); }
   .page-footer a span { margin-left: 4px; }
   .page-subtitle { color: var(--subtle); font-size: 11px; line-height: 1.7; margin-top: 7px; max-width: 720px; }

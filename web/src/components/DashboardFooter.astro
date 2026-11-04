@@ -1,9 +1,8 @@
 ---
-import Icon from "./Icon.astro"
 interface Props {
-  href?: string
-  label?: string
+  href: string
+  label: string
 }
-const { href = "/measurement", label = "How savings are measured" } = Astro.props
+const { href, label } = Astro.props
 ---
-<footer class="page-footer"><span><Icon name="shield" size={14} /> Metadata only. No prompts, responses, or credentials.</span><a href={href}>{label} <span>↗</span></a></footer>
+<footer class="page-footer"><a href={href}>{label} <span>↗</span></a></footer>

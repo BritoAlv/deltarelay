@@ -24,7 +24,7 @@ through `web/src/scripts/dom.ts`; render paths do not use unscoped
 
 Matching Astro components now own the static markup:
 `Sidebar`, `OverviewSection`, `StatsGrid`, `TrafficPanel`, `SystemControls`,
-`SystemHealth`, `SessionsSection`, `SessionDialog`, and `DashboardFooter`.
+`SystemHealth`, `SessionsSection`, and `SessionDialog`.
 Pure formatting and calculations remain in `web/src/lib/`.
 
 ## Freshness and polling

@@ -1,5 +1,4 @@
 ---
-import DashboardFooter from "../components/DashboardFooter.astro"
 import DashboardHeader from "../components/DashboardHeader.astro"
 import SessionDialog from "../components/SessionDialog.astro"
 import SessionsSection from "../components/SessionsSection.astro"
@@ -13,7 +12,6 @@ import DashboardLayout from "../layouts/DashboardLayout.astro"
 >
   <DashboardHeader title="Sessions" subtitle="Retained request history grouped by session and upstream." />
   <SessionsSection />
-  <DashboardFooter />
 
   <Fragment slot="overlays">
     <SessionDialog />

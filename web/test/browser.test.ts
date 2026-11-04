@@ -123,7 +123,6 @@ test("overview refresh renders stats and an accessible chart without session or 
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 1)
   assert.equal(doc.querySelector("#session-rows"), null)
   assert.equal(doc.querySelector("#system-summary"), null)
-  assert.equal(doc.querySelector<HTMLAnchorElement>(".page-footer a")?.getAttribute("href"), "/measurement")
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard"])
   dashboard.destroy()
