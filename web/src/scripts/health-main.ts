@@ -6,7 +6,7 @@ import { startSystemStatus } from "./system.js"
 // poller, and pausing the page freezes both schedules.
 const system = startSystemStatus(document, { manageHeader: false })
 startDashboard(document, {
-  waitingLabel: "Waiting for local gateway",
+  waitingLabel: "Waiting for local gateway…",
   onPauseChange: (paused) => {
     if (paused) system.pause()
     else system.resume()

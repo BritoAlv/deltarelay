@@ -8,6 +8,7 @@ try { storage = window.localStorage } catch { /* The picker still works when sto
 function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme.id
   picker.value = theme.id
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme.colors.bg)
 }
 
 applyTheme(readTheme(storage))

@@ -3,6 +3,7 @@ import { bytes, duration, percentage, relativeTime, savings, sessionState } from
 import { barComparison, requestMeasurement, sessionMeasurement } from "../../lib/measurement.js"
 import type { DashboardViewState } from "../../lib/state.js"
 import type { RelayRequest, Session, Snapshot } from "../../lib/types.js"
+import { readParams, replaceParams } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 import { mountInspection } from "./inspection.js"
 import type { InspectionStage } from "../../lib/inspection.js"
@@ -21,7 +22,8 @@ function stat(label: string, value: string, detail: string, tone = ""): string {
 }
 
 function barRow(label: string, value: string, width: number, tone: string): string {
-  return `<div class="trace-bar-row"><span>${escape(label)}</span><div class="trace-bar-track"><span class="trace-bar-fill ${tone}" style="width:${Math.max(0, Math.min(100, width)).toFixed(2)}%"></span></div><strong>${escape(value)}</strong></div>`
+  const fill = Math.max(0, Math.min(100, width)) / 100
+  return `<div class="trace-bar-row"><span>${escape(label)}</span><div class="trace-bar-track"><span class="trace-bar-fill ${tone}" style="transform:scaleX(${fill.toFixed(4)})"></span></div><strong>${escape(value)}</strong></div>`
 }
 
 function detail(label: string, value: string, tone = ""): string {
@@ -37,12 +39,21 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   const inspector = mountInspection(inspectorRoot, {
     onStageChange: (next) => trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.pipelineStage === next))),
   })
+  const initial = readParams(doc)
+  const requestParam = Number(initial.get("request"))
   let state: DashboardViewState | null = null
-  let selectedSession: string | null = null
-  let selectedRequest: number | null = null
+  let selectedSession: string | null = initial.get("session")
+  let selectedRequest: number | null = Number.isSafeInteger(requestParam) && requestParam > 0 ? requestParam : null
   let showAll = false
   let optionsSignature = ""
   const openRequests = new Set<string>()
+
+  function syncTraceUrl(): void {
+    replaceParams(doc, {
+      session: selectedSession || null,
+      request: selectedRequest !== null ? String(selectedRequest) : null,
+    })
+  }
 
   function selected(snapshot: Snapshot): Session | undefined {
     return snapshot.history.sessions.find((session) => session.id === selectedSession)
@@ -102,14 +113,13 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   }
 
   function renderUnavailable(): void {
-    selectedSession = null
     optionsSignature = ""
     const option = doc.createElement("option")
     option.textContent = "Waiting for local gateway…"
     select.replaceChildren(option)
     select.disabled = true
     retention.textContent = "History retains up to 256 sessions and 1,000 requests. Global totals survive retention trimming. Earlier history is not imported from logs."
-    trace.innerHTML = `<div class="empty-state"><h3>Waiting for local gateway</h3><p>Start the local gateway and dashboard server to trace retained sessions. No provider requests are sent by this page.</p></div>`
+    trace.innerHTML = `<div class="empty-state"><h3>Waiting for local gateway…</h3><p>Start the local gateway and dashboard server to trace retained sessions. No provider requests are sent by this page.</p></div>`
     inspector.update(null, undefined, "")
   }
 
@@ -126,7 +136,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         ? `1 − ${bytes(measured.encoded)} ÷ ${bytes(measured.original)} = ${percentage(measured.reduction)}`
         : "Original body is zero; reduction is unavailable."
     const body = measured.pending
-      ? `<div class="trace-request-body"><p class="trace-request-note">Transfer totals are written when this request finishes. Elapsed time comes from the latest local gateway observation.</p><button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect request evidence</button></div>`
+      ? `<div class="trace-request-body"><p class="trace-request-note">Transfer totals are written when this request finishes. Elapsed time comes from the latest local gateway observation.</p><button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect Request Evidence</button></div>`
       : `<div class="trace-request-body">
           <div class="trace-request-bar" role="img" aria-label="Original body ${escape(bytes(measured.original))}, encoded upload ${escape(bytes(measured.encoded))}, saved ${escape(bytes(measured.saved))}">
             ${barRow("Original", bytes(measured.original), bars.originalPercent, "original")}
@@ -147,15 +157,15 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
             ${detail("Uploaded chunks", integer(request.transfer.uploaded_chunks))}
             ${detail("Response download", bytes(request.response_bytes))}
           </div>
-          <p class="trace-formula"><code>${escape(formula)}</code></p>
+          <p class="trace-formula"><code translate="no">${escape(formula)}</code></p>
           <p class="trace-request-note">Response bytes are shown for context but never subtracted from upload savings. Failed and cancelled attempts remain included in session totals. Uploaded-chunk counters follow logical batches; after recovery, inspect attempt evidence for actual retransmissions.</p>
           ${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}
-          <button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect request evidence</button>
+          <button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect Request Evidence</button>
         </div>`
     return `<details class="trace-request${selectedRequest === request.sequence ? " selected" : ""}" data-request-id="${escape(request.id)}"${open}>
       <summary>
         <div class="trace-request-heading">
-          <code>${escape(request.id)}</code>
+          <code translate="no">${escape(request.id)}</code>
           <span class="trace-request-meta">${escape(request.kind)} · ${escape(relativeTime(request.started_at))} · ${escape(duration(measured.elapsedMs))}${escape(status)}</span>
           ${request.error_code ? `<span class="trace-request-error">${escape(request.error_code)}</span>` : ""}
         </div>
@@ -179,6 +189,42 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     })
   }
 
+  interface TraceFocus {
+    picker: boolean
+    inspect?: string
+    stage?: string
+    more: boolean
+    requestId?: string
+    summary: boolean
+  }
+
+  function traceFocus(): TraceFocus | null {
+    const active = doc.activeElement as HTMLElement | null
+    if (!active || !trace.contains(active)) return null
+    return {
+      picker: active.matches("[data-measurement-request]"),
+      inspect: active.closest<HTMLElement>("[data-inspect-request]")?.dataset.inspectRequest,
+      stage: active.closest<HTMLElement>("[data-pipeline-stage]")?.dataset.pipelineStage,
+      more: Boolean(active.closest("[data-trace-more]")),
+      requestId: active.closest<HTMLDetailsElement>("details[data-request-id]")?.dataset.requestId,
+      summary: Boolean(active.closest("summary")),
+    }
+  }
+
+  function restoreTraceFocus(focus: TraceFocus | null): void {
+    if (!focus) return
+    let target: HTMLElement | null = null
+    if (focus.picker) target = trace.querySelector<HTMLElement>("[data-measurement-request]")
+    else if (focus.inspect) target = [...trace.querySelectorAll<HTMLElement>("[data-inspect-request]")].find((element) => element.dataset.inspectRequest === focus.inspect) ?? null
+    else if (focus.stage) target = [...trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]")].find((element) => element.dataset.pipelineStage === focus.stage) ?? null
+    else if (focus.more) target = trace.querySelector<HTMLElement>("[data-trace-more]")
+    else if (focus.requestId) {
+      const details = [...trace.querySelectorAll<HTMLDetailsElement>("details[data-request-id]")].find((element) => element.dataset.requestId === focus.requestId)
+      target = focus.summary ? details?.querySelector("summary") ?? null : details ?? null
+    }
+    target?.focus({ preventScroll: true })
+  }
+
   function renderTrace(): void {
     if (!state?.snapshot) return
     const snapshot = state.snapshot
@@ -194,6 +240,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       selectedSession = fallback.id
       showAll = false
       select.value = selectedSession
+      syncTraceUrl()
     }
     const current = selected(snapshot)
     if (!current) return
@@ -219,18 +266,19 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       ? `<p class="trace-coverage">Session totals include ${integer(summary.missingRequests)} request${summary.missingRequests === 1 ? "" : "s"} no longer retained. The ledger below covers ${integer(summary.retainedRequests)} retained entr${summary.retainedRequests === 1 ? "y" : "ies"}.</p>`
       : ""
     const more = requests.length > requestPageSize
-      ? `<button class="text-button trace-more" type="button" data-trace-more>${showAll ? `Show latest ${requestPageSize}` : `Show all ${integer(requests.length)} retained requests`}</button>`
+      ? `<button class="text-button trace-more" type="button" data-trace-more>${showAll ? `Show Latest ${requestPageSize}` : `Show All ${integer(requests.length)} Retained Requests`}</button>`
       : ""
     const ledger = requests.length === 0
       ? `<div class="empty-state trace-requests-empty"><h3>No retained request entries</h3><p>Session totals still include ${integer(summary.totalRequests)} request${summary.totalRequests === 1 ? "" : "s"}; their request-level entries were trimmed from history.</p></div>`
       : `${coverage}${visible.map((request) => renderRequest(request, snapshot)).join("")}${more}`
 
+    const focus = traceFocus()
     trace.innerHTML = `<div class="trace-session-head">
         <div>
-          <div class="trace-session-title"><code>${escape(current.id || "Unattributed requests")}</code>${pill(stateTone === "active" ? `${current.active} active` : stateTone === "attention" ? "Attention" : "Idle", stateTone)}</div>
+          <div class="trace-session-title"><code translate="no">${escape(current.id || "Unattributed requests")}</code>${pill(stateTone === "active" ? `${current.active} active` : stateTone === "attention" ? "Attention" : "Idle", stateTone)}</div>
           <p>${escape(current.upstream || "Unknown upstream")} · ${integer(summary.totalRequests)} model requests · ${integer(current.failed)} failed · ${integer(current.cancelled)} cancelled · last activity ${escape(relativeTime(current.updated_at))}</p>
         </div>
-        <div class="trace-session-formula"><span>Upload reduction for this session</span><code>${escape(reduced)}</code></div>
+        <div class="trace-session-formula"><span>Upload reduction for this session</span><code translate="no">${escape(reduced)}</code></div>
       </div>
       <div class="trace-summary-grid">
         ${stat("Upload reduction", percentage(summary.reduction), "of original body bytes", reductionTone)}
@@ -247,7 +295,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         </div>
         <div class="trace-pipeline">
           <h3>From body to wire</h3>
-          <label class="trace-request-picker">Selected request <select data-measurement-request aria-label="Selected request for body-to-wire inspection"${requests.length ? "" : " disabled"}>${requests.length ? requests.map((request) => `<option value="${request.sequence}"${request.sequence === selectedRequest ? " selected" : ""}>${escape(request.id)} · ${escape(request.kind)} · ${escape(request.state)}${request.capture_id ? "" : " · not captured"}</option>`).join("") : "<option>No retained request entries</option>"}</select></label>
+          <label class="trace-request-picker">Selected request <select data-measurement-request name="measurement-request" aria-label="Selected request for body-to-wire inspection"${requests.length ? "" : " disabled"}>${requests.length ? requests.map((request) => `<option value="${request.sequence}"${request.sequence === selectedRequest ? " selected" : ""}>${escape(request.id)} · ${escape(request.kind)} · ${escape(request.state)}${request.capture_id ? "" : " · not captured"}</option>`).join("") : "<option>No retained request entries</option>"}</select></label>
           <p class="trace-request-note">Request-level application payload, not packet capture. Select a stage to inspect evidence below.</p>
           <ol>
             ${pipeline.map(([id, label, note, value], i) => `<li><span>${i+1}</span><div><button type="button" data-pipeline-stage="${id}" aria-pressed="${inspector.stage === id}"${inspected ? "" : " disabled"}>${label}</button><p>${note}</p></div><code>${escape(measured?.pending ? "Pending" : value)}</code></li>`).join("")}
@@ -260,13 +308,16 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         ${ledger}
       </div>`
     bindOpenState()
+    restoreTraceFocus(focus)
     inspector.update(inspected, snapshot.inspection, snapshot.collected_at)
+    syncTraceUrl()
   }
 
   select.addEventListener("change", () => {
     selectedSession = select.value
     selectedRequest = null
     showAll = false
+    syncTraceUrl()
     renderTrace()
   })
   trace.addEventListener("change", (event) => {
@@ -317,6 +368,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         showAll = false
       }
       select.value = selectedSession
+      syncTraceUrl()
       renderTrace()
     },
   }

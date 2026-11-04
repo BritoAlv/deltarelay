@@ -18,13 +18,13 @@ import DashboardLayout from "../layouts/DashboardLayout.astro"
       <p class="page-subtitle">How original request bodies become smaller encoded uploads.</p>
     </div>
     <div class="heading-actions">
-      <button class="icon-button" id="measurement-pause-button" type="button" aria-label="Pause automatic refresh" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
+      <button class="icon-button" id="measurement-pause-button" type="button" aria-label="Pause automatic refresh" aria-pressed="false" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
       <button class="button button-secondary" id="measurement-refresh-button" type="button"><Icon name="refresh" size={16} />Refresh</button>
     </div>
   </div>
   <div class="connection-line">
-    <span class="live-badge" id="measurement-connection-badge"><span class="tiny-dot"></span><span id="measurement-connection-label">Connecting</span></span>
-    <span id="measurement-updated-at">Waiting for local gateway</span>
+    <span class="live-badge" id="measurement-connection-badge" role="status" aria-live="polite"><span class="tiny-dot" aria-hidden="true"></span><span id="measurement-connection-label">Connecting…</span></span>
+    <span id="measurement-updated-at">Waiting for local gateway…</span>
     <span class="refresh-note" id="measurement-refresh-note">Auto-refresh every 10s</span>
   </div>
   <div id="measurement-notice" class="notice" role="status" hidden></div>

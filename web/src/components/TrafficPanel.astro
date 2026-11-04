@@ -11,7 +11,7 @@ import Icon from "./Icon.astro"
       <div class="traffic-controls">
         <div class="traffic-range">
           <label class="sr-only" for="chart-range">Traffic time range</label>
-          <select id="chart-range">
+          <select id="chart-range" name="traffic-range" autocomplete="off">
             <option value="24h">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
@@ -19,9 +19,9 @@ import Icon from "./Icon.astro"
             <option value="custom">Custom range…</option>
           </select>
           <div id="chart-custom" class="custom-range" hidden>
-            <label>From <input type="date" id="chart-start" /></label>
-            <label>To <input type="date" id="chart-end" /></label>
-            <button type="button" class="text-button" id="chart-apply">Apply</button>
+            <label>From <input type="date" id="chart-start" name="traffic-start" autocomplete="off" aria-describedby="chart-notice" /></label>
+            <label>To <input type="date" id="chart-end" name="traffic-end" autocomplete="off" aria-describedby="chart-notice" /></label>
+            <button type="button" class="text-button" id="chart-apply">Apply Range</button>
           </div>
         </div>
         <div class="chart-view-toggle" role="group" aria-label="Traffic chart view">
@@ -31,19 +31,29 @@ import Icon from "./Icon.astro"
       </div>
     </div>
     <div class="traffic-summary">
-      <div><span class="legend-dot original"></span><span>Original</span><strong id="chart-original">—</strong></div>
-      <div><span class="legend-dot delta"></span><span>Uploaded</span><strong id="chart-encoded">—</strong></div>
-      <div><span class="legend-dot saved"></span><span>Bandwidth saved</span><strong id="chart-saved">—</strong><small id="chart-saved-rate">—</small></div>
-      <div><span class="legend-dot reuse"></span><span>Relay cache reuse</span><strong id="chart-reused">—</strong><small id="chart-reuse-rate">—</small></div>
+      <div><span class="legend-dot original" aria-hidden="true"></span><span>Original</span><strong id="chart-original">—</strong></div>
+      <div><span class="legend-dot delta" aria-hidden="true"></span><span>Uploaded</span><strong id="chart-encoded">—</strong></div>
+      <div><span class="legend-dot saved" aria-hidden="true"></span><span>Bandwidth saved</span><strong id="chart-saved">—</strong><small id="chart-saved-rate">—</small></div>
+      <div><span class="legend-dot reuse" aria-hidden="true"></span><span>Relay cache reuse</span><strong id="chart-reused">—</strong><small id="chart-reuse-rate">—</small></div>
     </div>
     <div id="chart-notice" class="chart-notice" role="status" hidden></div>
     <div class="chart-frame">
-      <div id="traffic-chart" class="traffic-chart" role="img" tabindex="0" aria-label="Upload traffic chart awaiting data"><div class="chart-placeholder">No finished requests in this window.</div></div>
-      <div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden></div>
+      <div id="traffic-chart" class="traffic-chart" role="img" tabindex="0" aria-label="Upload traffic chart awaiting data" aria-describedby="chart-keyboard-hint chart-tooltip"><div class="chart-placeholder">Waiting for local data…</div></div>
+      <span id="chart-keyboard-hint" class="sr-only">Focus the chart and use the left and right arrow keys, Home, and End to inspect data points.</span>
+      <div id="chart-tooltip" class="chart-tooltip" role="tooltip" aria-live="polite" aria-atomic="true" hidden></div>
     </div>
     <div id="chart-legend" class="chart-legend" role="list" aria-label="Chart legend"></div>
     <div class="panel-bottom"><span><Icon name="info" size={14} /> Finished requests only · aggregated locally</span><span id="chart-count">0 requests in this window</span></div>
   </article>
 
-  <article class="panel efficiency-panel"><div class="panel-heading"><div><h2>Relay cache reuse</h2><p id="reuse-scope">Selected range</p></div><span class="small-icon"><Icon name="bolt" size={18} /></span></div><div class="efficiency-ring"><svg viewBox="0 0 160 160" aria-hidden="true"><circle class="ring-track" cx="80" cy="80" r="66" /><circle id="reuse-ring" class="ring-value" cx="80" cy="80" r="66" /></svg><div><strong id="reuse-value">—</strong><span>cache reuse</span></div></div><div class="efficiency-row"><span><i class="legend-dot reuse"></i>Reused body bytes</span><strong id="reuse-bytes">—</strong></div><div class="efficiency-row"><span><i class="legend-dot delta"></i>Raw chunks uploaded</span><strong id="uploaded-bytes">—</strong></div><p class="efficiency-note">Cache reuse and compression reduce uploads; neither guarantees lower provider billing.</p></article>
+  <article class="panel efficiency-panel">
+    <div class="panel-heading"><div><h2>Relay cache reuse</h2><p id="reuse-scope">Selected range</p></div><span class="small-icon"><Icon name="bolt" size={18} /></span></div>
+    <div class="efficiency-ring">
+      <svg viewBox="0 0 160 160" aria-hidden="true"><g><circle class="ring-track" cx="80" cy="80" r="66" /><circle id="reuse-ring" class="ring-value" cx="80" cy="80" r="66" /></g></svg>
+      <div><strong id="reuse-value">—</strong><span>cache reuse</span></div>
+    </div>
+    <div class="efficiency-row"><span><i class="legend-dot reuse" aria-hidden="true"></i>Reused body bytes</span><strong id="reuse-bytes">—</strong></div>
+    <div class="efficiency-row"><span><i class="legend-dot delta" aria-hidden="true"></i>Raw chunks uploaded</span><strong id="uploaded-bytes">—</strong></div>
+    <p class="efficiency-note">Cache reuse and compression reduce uploads; neither guarantees lower provider billing.</p>
+  </article>
 </div>

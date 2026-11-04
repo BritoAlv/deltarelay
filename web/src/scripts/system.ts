@@ -31,7 +31,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     autoStart = true,
     manageHeader = true,
     refreshNote = "Auto-refresh every 5s",
-    waitingLabel = "Waiting for local supervisor",
+    waitingLabel = "Waiting for local supervisor…",
   } = options
   const view = doc.defaultView ?? globalThis
   const controlsRoot = doc.getElementById("controls")
@@ -76,7 +76,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
       ? "System status is stale. Controls are disabled until a fresh connection is available."
       : paused ? "Automatic status refresh is paused." : null
     header.render({
-      label: stale ? "Disconnected" : system ? paused ? "Paused" : "Live" : "Connecting",
+      label: stale ? "Disconnected" : system ? paused ? "Paused" : "Live" : "Connecting…",
       updatedAt: system ? `Updated ${relativeTime(system.collected_at)}` : waitingLabel,
       paused,
       stale,

@@ -2,26 +2,39 @@
 import Icon from "./Icon.astro"
 import ActivityConsole from "./ActivityConsole.astro"
 ---
-<section id="controls" class="system-section" aria-label="System controls">
-  <div class="section-heading"><div><p>Recovery runs independently of this page.</p></div><div class="heading-actions"><button class="button" id="open-desktop" type="button" aria-describedby="desktop-status" disabled><Icon name="desktop" size={16} />Open OpenCode Desktop</button><button class="button" id="recover-all" type="button" disabled>Recover all</button></div></div>
+<section id="controls" class="system-section" aria-labelledby="controls-title">
+  <h2 id="controls-title" class="sr-only">Recovery and services</h2>
+  <div class="section-heading">
+    <div><p>Recovery runs independently of this page.</p></div>
+    <div class="heading-actions">
+      <button class="button" id="open-desktop" type="button" aria-describedby="desktop-status" disabled><Icon name="desktop" size={16} />Open OpenCode Desktop</button>
+      <button class="button" id="recover-all" type="button" disabled>Recover All</button>
+    </div>
+  </div>
   <p id="desktop-status" class="control-detail" role="status">Checking the local Desktop launcher…</p>
   <ActivityConsole />
   <div class="control-overview">
     <article class="panel control-panel">
-      <div class="control-heading"><h3>PC → VPS connection</h3><span id="control-connection" class="status-pill neutral">Checking</span></div>
+      <div class="control-heading"><h3>PC → VPS connection</h3><span id="control-connection" class="status-pill neutral">Checking…</span></div>
       <p id="recovery-status" role="status">Connecting to the independent local supervisor…</p>
       <p id="network-detail" class="control-detail" role="status">Internet and VPS reachability are checked separately.</p>
       <p id="recovery-detail" class="control-detail"></p>
       <div class="control-settings">
-        <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic reconnect</label>
-        <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" disabled /> Automatic remote-host wake</label>
+        <label><input id="auto-reconnect" name="auto-reconnect" type="checkbox" disabled /> Automatic reconnect</label>
+        <label id="auto-wake-setting" hidden><input id="auto-wake" name="auto-wake" type="checkbox" disabled /> Automatic remote-host wake</label>
       </div>
-      <div class="control-wake"><span id="remote-state">Remote host state unknown</span><div class="remote-actions"><button id="wake-remote" class="button" type="button" disabled hidden>Wake remote host</button><button id="stop-remote" class="button button-danger" type="button" disabled hidden>Stop remote host…</button></div></div>
+      <div class="control-wake">
+        <span id="remote-state">Remote host state unknown</span>
+        <div class="remote-actions">
+          <button id="wake-remote" class="button" type="button" disabled hidden>Wake Remote Host</button>
+          <button id="stop-remote" class="button button-danger" type="button" disabled hidden>Stop Remote Host…</button>
+        </div>
+      </div>
       <p id="remote-power-notice" class="control-detail" hidden>Wake may resume compute billing. Availability depends on the provider.</p>
       <p class="control-detail">Stopping interrupts active requests and disables automatic reconnect and wake. Saved files and relay state are preserved.</p>
     </article>
     <article class="panel control-panel">
-      <div class="control-heading"><h3>ChatGPT sign-in</h3><span id="auth-state" class="status-pill neutral">Checking</span></div>
+      <div class="control-heading"><h3>ChatGPT sign-in</h3><span id="auth-state" class="status-pill neutral">Checking…</span></div>
       <p id="auth-countdown" class="auth-countdown">—</p>
       <p id="auth-deadline" class="control-detail">Reading local authentication metadata…</p>
       <p class="control-detail">This is the access token’s expiry, not a usage-limit reset. OpenCode may refresh it automatically.</p>
@@ -29,5 +42,9 @@ import ActivityConsole from "./ActivityConsole.astro"
     </article>
   </div>
   <div id="control-notice" class="notice" role="status" hidden></div>
-  <article class="panel service-panel"><div class="control-heading"><h3>Services</h3><button id="restart-all" class="text-button" type="button" disabled>Restart all…</button></div><div id="service-controls" class="service-controls"><p class="control-detail">Service controls are available even when the local gateway is down.</p></div><p class="control-detail">Restart preserves tokens, sessions, cached chunks, and saved responses. Active requests may be interrupted.</p></article>
+  <article class="panel service-panel">
+    <div class="control-heading"><h3>Services</h3><button id="restart-all" class="text-button" type="button" disabled>Restart All…</button></div>
+    <div id="service-controls" class="service-controls"><p class="control-detail">Service controls are available even when the local gateway is down.</p></div>
+    <p class="control-detail">Restart preserves tokens, sessions, cached chunks, and saved responses. Active requests may be interrupted.</p>
+  </article>
 </section>

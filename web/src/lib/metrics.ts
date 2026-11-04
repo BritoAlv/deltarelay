@@ -3,9 +3,9 @@ import type { Session, Totals } from "./types.js"
 export function bytes(value: number, precision = 1): string {
   if (!Number.isFinite(value)) return "—"
   const absolute = Math.abs(value)
-  if (absolute < 1024) return `${Math.round(value).toLocaleString()} B`
+  if (absolute < 1024) return `${Math.round(value).toLocaleString()}\u00A0B`
   const unit = Math.min(Math.floor(Math.log(absolute) / Math.log(1024)), 4)
-  return `${(value / 1024 ** unit).toLocaleString(undefined, { maximumFractionDigits: precision })} ${["B", "KiB", "MiB", "GiB", "TiB"][unit]}`
+  return `${(value / 1024 ** unit).toLocaleString(undefined, { maximumFractionDigits: precision })}\u00A0${["B", "KiB", "MiB", "GiB", "TiB"][unit]}`
 }
 
 // Keep negative savings: metadata and retries can exceed the original body.
@@ -19,10 +19,10 @@ export function percentage(value: number | null): string {
 
 export function duration(ms: number): string {
   ms = Math.max(0, ms)
-  if (ms < 1000) return `${Math.round(ms)} ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`
+  if (ms < 1000) return `${Math.round(ms)}\u00A0ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}\u00A0s`
   const seconds = Math.round(ms / 1000)
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  return `${Math.floor(seconds / 60)}m\u00A0${seconds % 60}s`
 }
 
 export function relativeTime(value: string, now = Date.now()): string {

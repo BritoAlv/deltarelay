@@ -25,7 +25,10 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   const desktopStatus = requiredById(root, "desktop-status")
   const controlNotice = requiredById<HTMLElement>(root, "control-notice")
   const serviceControls = requiredById(root, "service-controls")
-  const setText = (id: string, value: string) => { requiredById(root, id).textContent = value }
+  const setText = (id: string, value: string) => {
+    const element = requiredById(root, id)
+    if (element.textContent !== value) element.textContent = value
+  }
 
   let system: SystemStatus | null = null
   let stale = true
@@ -34,6 +37,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   let lastMessage = ""
   let desktopRequested = false
   let desktopError = ""
+  let serviceSignature = ""
 
   const badge = (id: string, value: string, good: boolean) => {
     setText(id, value)
@@ -63,7 +67,8 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       desktopError = system.recovery.last_error ? controlError(system.recovery.last_error) : ""
     }
     const desktopDetail = !desktop.disabled && desktopError ? desktopError : desktop.detail
-    desktopStatus.textContent = desktopRequested && !stale ? "Opening OpenCode Desktop…" : desktopDetail
+    const nextDesktopStatus = desktopRequested && !stale ? "Opening OpenCode Desktop…" : desktopDetail
+    if (desktopStatus.textContent !== nextDesktopStatus) desktopStatus.textContent = nextDesktopStatus
     for (const element of [recoverAll, restartAll, autoReconnect]) element.disabled = disabled
     const canWake = supportsRemote(system, "host.wake"), canStop = supportsRemote(system, "host.stop")
     autoWakeSetting.hidden = !canWake
@@ -83,31 +88,47 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       setText("network-detail", connection === "remote_stopped" ? "Remote shutdown confirmed. Automatic reconnect and wake are off." : connection === "no_internet" ? `Internet: no connection detected${internetDetail}. The VPS is not the problem yet.` : connection === "vps_unreachable" ? `Internet: reachable${internetDetail}. VPS/relay: no response.` : connection === "connected" ? `Internet: reachable · VPS: reachable${internetDetail}` : `Internet: unknown · VPS: not confirmed${internetDetail}`)
       setText("recovery-detail", `${system.recovery.attempts} automatic recovery attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
       setText("remote-state", `${system.remote.label}: ${system.remote.host_state}${!canWake && !canStop ? " · power management unavailable" : ""}`)
-      serviceControls.replaceChildren()
-      for (const service of system.components) {
-        const row = document.createElement("div")
-        row.className = "service-control"
-        const title = document.createElement("strong")
-        title.textContent = service.label
-        const serviceState = document.createElement("span")
-        serviceState.className = "section-meta"
-        serviceState.textContent = stale ? "Stale" : service.state === "unmanaged" ? "Not configured" : service.state.replaceAll("_", " ")
-        row.append(title, serviceState)
-        for (const action of ["start", "restart"] as const) {
-          const button = document.createElement("button")
-          button.type = "button"
-          button.className = "text-button"
-          button.textContent = action === "start" ? "Start" : "Restart…"
-          button.disabled = disabled || !(action === "start" ? service.can_start : service.can_restart)
-          button.setAttribute("aria-label", `${action} ${service.label}`)
-          button.addEventListener("click", () => void actionRequest(service.id, action))
-          row.append(button)
+      const nextSignature = JSON.stringify({
+        disabled,
+        stale,
+        components: system.components.map((service) => [service.id, service.label, service.state, service.can_start, service.can_restart]),
+      })
+      if (nextSignature !== serviceSignature) {
+        serviceSignature = nextSignature
+        const active = root.ownerDocument.activeElement as HTMLElement | null
+        const focusedLabel = active && serviceControls.contains(active) && active.matches("button[aria-label]") ? active.getAttribute("aria-label") : null
+        serviceControls.replaceChildren()
+        for (const service of system.components) {
+          const row = document.createElement("div")
+          row.className = "service-control"
+          const title = document.createElement("strong")
+          title.textContent = service.label
+          const serviceState = document.createElement("span")
+          serviceState.className = "section-meta"
+          serviceState.textContent = stale ? "Stale" : service.state === "unmanaged" ? "Not configured" : service.state.replaceAll("_", " ")
+          row.append(title, serviceState)
+          for (const action of ["start", "restart"] as const) {
+            const button = document.createElement("button")
+            button.type = "button"
+            button.className = "text-button"
+            button.textContent = action === "start" ? "Start" : "Restart…"
+            button.disabled = disabled || !(action === "start" ? service.can_start : service.can_restart)
+            button.setAttribute("aria-label", `${action} ${service.label}`)
+            button.addEventListener("click", () => void actionRequest(service.id, action))
+            row.append(button)
+          }
+          serviceControls.append(row)
         }
-        serviceControls.append(row)
+        if (focusedLabel) {
+          const replacement = [...serviceControls.querySelectorAll<HTMLButtonElement>("button[aria-label]")].find((button) => button.getAttribute("aria-label") === focusedLabel)
+          replacement?.focus({ preventScroll: true })
+        }
       }
     }
-    controlNotice.hidden = !lastMessage && !stale
-    controlNotice.textContent = lastMessage || (stale ? "System status is stale. Controls are disabled until a fresh connection is available." : "")
+    const noticeText = lastMessage || (stale ? "System status is stale. Controls are disabled until a fresh connection is available." : "")
+    const noticeWasHidden = controlNotice.hidden
+    controlNotice.hidden = !noticeText
+    if (noticeText && (noticeWasHidden || controlNotice.textContent !== noticeText)) controlNotice.textContent = noticeText
     renderAuth()
   }
 

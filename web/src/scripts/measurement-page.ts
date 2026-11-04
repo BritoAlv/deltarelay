@@ -43,20 +43,27 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
 
   function renderConnection() {
     const { snapshot, stale, paused } = state
+    const label = stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting…"
     refreshButton.disabled = state.busy
+    refreshButton.setAttribute("aria-busy", String(state.busy))
     connectionBadge.classList.toggle("stale", stale || paused)
-    connectionLabel.textContent = stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting"
-    updatedAt.textContent = snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : "Waiting for local gateway"
-    refreshNote.textContent = paused ? "Automatic refresh paused" : "Auto-refresh every 10s"
+    connectionBadge.classList.toggle("connecting", label === "Connecting…")
+    if (connectionLabel.textContent !== label) connectionLabel.textContent = label
+    const updated = snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : "Waiting for local gateway…"
+    if (updatedAt.textContent !== updated) updatedAt.textContent = updated
+    const note = paused ? "Automatic refresh paused" : "Auto-refresh every 10s"
+    if (refreshNote.textContent !== note) refreshNote.textContent = note
     pauseButton.setAttribute("aria-label", paused ? "Resume automatic refresh" : "Pause automatic refresh")
     pauseButton.title = paused ? "Resume automatic refresh" : "Pause automatic refresh"
     pauseButton.setAttribute("aria-pressed", String(paused))
     pauseButton.innerHTML = paused ? '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 5 12 7-12 7V5z"/></svg>' : pauseIcon
-    notice.hidden = false
-    if (state.error) notice.textContent = `${state.error}${snapshot ? " Showing the last successful snapshot; measurement values may be stale." : ""}`
-    else if (snapshot?.history.persistence_error) notice.textContent = "Statistics could not be saved to disk. Live observations still work, but new history may be lost on restart. Check permissions and free space for the gateway’s --stats-file."
-    else if (snapshot && !snapshot.history.persistent) notice.textContent = "History is in-memory only. Set the gateway’s --stats-file to retain session statistics across restarts."
-    else notice.hidden = true
+    let message = ""
+    if (state.error) message = `${state.error}${snapshot ? " Showing the last successful snapshot; measurement values may be stale." : ""}`
+    else if (snapshot?.history.persistence_error) message = "Statistics could not be saved to disk. Live observations still work, but new history may be lost on restart. Check permissions and free space for the gateway’s --stats-file."
+    else if (snapshot && !snapshot.history.persistent) message = "History is in-memory only. Set the gateway’s --stats-file to retain session statistics across restarts."
+    const wasHidden = notice.hidden
+    notice.hidden = !message
+    if (message && (wasHidden || notice.textContent !== message)) notice.textContent = message
   }
 
   function render() {

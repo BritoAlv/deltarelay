@@ -41,16 +41,20 @@ export function mountHeader({ doc, refreshNote, onRefresh, onPauseToggle }: Head
   return {
     render({ label, updatedAt: timestamp, paused, stale, busy = false, notice: message = null }) {
       refreshButton.disabled = busy
+      refreshButton.setAttribute("aria-busy", String(busy))
       connectionBadge.classList.toggle("stale", stale || paused)
-      connectionLabel.textContent = label
-      updatedAt.textContent = timestamp
-      refreshNoteElement.textContent = paused ? "Automatic refresh paused" : refreshNote
+      connectionBadge.classList.toggle("connecting", label === "Connecting…")
+      if (connectionLabel.textContent !== label) connectionLabel.textContent = label
+      if (updatedAt.textContent !== timestamp) updatedAt.textContent = timestamp
+      const note = paused ? "Automatic refresh paused" : refreshNote
+      if (refreshNoteElement.textContent !== note) refreshNoteElement.textContent = note
       pauseButton.setAttribute("aria-label", paused ? "Resume automatic refresh" : "Pause automatic refresh")
       pauseButton.title = paused ? "Resume automatic refresh" : "Pause automatic refresh"
       pauseButton.setAttribute("aria-pressed", String(paused))
       pauseButton.innerHTML = paused ? playIcon : pauseIcon
+      const wasHidden = notice.hidden
       notice.hidden = !message
-      if (message) notice.textContent = message
+      if (message && (wasHidden || notice.textContent !== message)) notice.textContent = message
     },
   }
 }

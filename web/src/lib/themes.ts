@@ -94,6 +94,7 @@ export function themeStylesheet(): string {
 // A parser-blocking external script restores the palette before first paint.
 // No inline JavaScript, eval, or relaxed script CSP is needed.
 export function themeInitializationScript(): string {
+  const backgrounds = Object.fromEntries(themes.map((theme) => [theme.id, theme.colors.bg]))
   return `(() => {
     let theme = ${JSON.stringify(defaultTheme.id)};
     try {
@@ -101,5 +102,8 @@ export function themeInitializationScript(): string {
       if (${JSON.stringify(themes.map((theme) => theme.id))}.includes(saved)) theme = saved;
     } catch {}
     document.documentElement.dataset.theme = theme;
+    const backgrounds = ${JSON.stringify(backgrounds)};
+    const meta = typeof document.querySelector === "function" ? document.querySelector('meta[name="theme-color"]') : null;
+    if (meta) meta.setAttribute("content", backgrounds[theme] || backgrounds[${JSON.stringify(defaultTheme.id)}]);
   })();`
 }

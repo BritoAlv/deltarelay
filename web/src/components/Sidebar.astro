@@ -6,14 +6,14 @@ interface Props {
 const { current = "overview" } = Astro.props
 ---
 <aside class="sidebar">
-  <a class="brand" href="/" aria-label="DeltaRelay overview"><span class="brand-symbol">Δ</span><span>delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span></a>
-  <p class="nav-label">MONITOR</p>
+  <a class="brand" href="/" title="DeltaRelay overview" translate="no"><span class="brand-symbol" aria-hidden="true">Δ</span><span>delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span><span class="sr-only">DeltaRelay overview</span></a>
+  <p class="nav-label" aria-hidden="true">MONITOR</p>
   <nav aria-label="Dashboard navigation">
-    <a class:list={["nav-link", { selected: current === "overview" }]} href="/" aria-current={current === "overview" ? "page" : undefined} aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span></a>
-    <a class:list={["nav-link", { selected: current === "sessions" }]} href="/sessions" aria-current={current === "sessions" ? "page" : undefined} aria-label="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
-    <a class:list={["nav-link", { selected: current === "measurement" }]} href="/measurement" aria-current={current === "measurement" ? "page" : undefined} aria-label="Measurement"><Icon name="measure" size={18} /><span>Measurement</span></a>
-    <a class:list={["nav-link", { selected: current === "controls" }]} href="/controls" aria-current={current === "controls" ? "page" : undefined} aria-label="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
-    <a class:list={["nav-link", { selected: current === "system" }]} href="/system" aria-current={current === "system" ? "page" : undefined} aria-label="System health"><Icon name="activity" size={18} /><span>System health</span></a>
+    <a class:list={["nav-link", { selected: current === "overview" }]} href="/" aria-current={current === "overview" ? "page" : undefined} title="Overview"><Icon name="overview" size={18} /><span>Overview</span></a>
+    <a class:list={["nav-link", { selected: current === "sessions" }]} href="/sessions" aria-current={current === "sessions" ? "page" : undefined} title="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
+    <a class:list={["nav-link", { selected: current === "measurement" }]} href="/measurement" aria-current={current === "measurement" ? "page" : undefined} title="Measurement"><Icon name="measure" size={18} /><span>Measurement</span></a>
+    <a class:list={["nav-link", { selected: current === "controls" }]} href="/controls" aria-current={current === "controls" ? "page" : undefined} title="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
+    <a class:list={["nav-link", { selected: current === "system" }]} href="/system" aria-current={current === "system" ? "page" : undefined} title="System health"><Icon name="activity" size={18} /><span>System health</span></a>
   </nav>
   <div class="sidebar-bottom"><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
 </aside>

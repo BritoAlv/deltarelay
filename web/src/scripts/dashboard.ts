@@ -31,7 +31,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const {
     autoStart = true,
     refreshNote = "Auto-refresh every 10s",
-    waitingLabel = "Waiting for local gateway",
+    waitingLabel = "Waiting for local gateway…",
     onPauseChange,
   } = options
   const view = doc.defaultView ?? globalThis
@@ -69,7 +69,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   function headerView(): HeaderView {
     const { snapshot, stale, paused, busy } = state
     return {
-      label: stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting",
+      label: stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting…",
       updatedAt: snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : waitingLabel,
       paused,
       stale,

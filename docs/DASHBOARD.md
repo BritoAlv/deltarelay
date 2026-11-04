@@ -52,6 +52,10 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
 - Session search, state filters, pagination, CSV export, manual refresh, and
   pause/resume. Automatic refresh is every ten seconds while the tab is visible.
   A failed refresh keeps the last live snapshot and explicitly marks it stale.
+- Deep-linkable view state: the chart range and view, session search/state/page,
+  an open session detail, and the measurement session/request are kept in the
+  URL and restored on reload. Changes use `replaceState`, so filtering does not
+  fill the browser history.
 - A **Theme** picker above Overview offers Graphite + Blue (the default),
   Porcelain + Teal, Midnight + Violet, Sand + Terracotta, and the original
   Forest + Green. Light and dark palettes cover the whole dashboard, including

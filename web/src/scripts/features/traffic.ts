@@ -18,6 +18,7 @@ import {
   type TrafficView,
 } from "../../lib/traffic.js"
 import type { DashboardViewState } from "../../lib/state.js"
+import { readParams, replaceParams } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 
 export interface TrafficFeature {
@@ -26,6 +27,7 @@ export interface TrafficFeature {
 }
 
 const REUSE_RING_LENGTH = 414.69
+const validPresets: readonly TrafficPreset[] = ["24h", "7d", "30d", "90d", "custom"]
 
 interface ChartLayout {
   left: number
@@ -50,15 +52,16 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   const legend = requiredById<HTMLElement>(root, "chart-legend")
   const notice = requiredById<HTMLElement>(root, "chart-notice")
   const reuseRing = requiredById<SVGCircleElement>(root, "reuse-ring")
-  const initialChart = chart.innerHTML
   const integer = (value: number) => value.toLocaleString()
   const setText = (id: string, value: string | number) => { requiredById(root, id).textContent = String(value) }
 
+  const initial = readParams(root.ownerDocument)
+  const initialPreset = initial.get("range") as TrafficPreset | null
   let lastState: DashboardViewState | null = null
-  let preset: TrafficPreset = "24h"
-  let view: TrafficView = "composition"
-  let customStart = ""
-  let customEnd = ""
+  let preset: TrafficPreset = initialPreset && validPresets.includes(initialPreset) ? initialPreset : "24h"
+  let view: TrafficView = initial.get("view") === "trends" ? "trends" : "composition"
+  let customStart = initial.get("start") ?? ""
+  let customEnd = initial.get("end") ?? ""
   let lastData: TrafficData | null = null
   let lastRange: TrafficRange | null = null
   let layout: ChartLayout | null = null
@@ -77,14 +80,14 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     return Number.isFinite(parsed) ? parsed : Date.now()
   }
 
-  function reset(): void {
+  function reset(message = "Waiting for local data…"): void {
     for (const id of ["chart-original", "chart-encoded", "chart-saved", "chart-reused", "chart-saved-rate", "chart-reuse-rate", "reuse-value", "reuse-bytes", "uploaded-bytes"]) setText(id, "—")
     setText("chart-count", "0 requests in this window")
     setText("reuse-scope", "Selected range")
     requiredById(root, "chart-saved").classList.remove("negative")
     requiredById(root, "chart-saved-rate").classList.remove("negative")
     reuseRing.style.strokeDashoffset = String(REUSE_RING_LENGTH)
-    chart.innerHTML = initialChart
+    chart.innerHTML = `<div class="chart-placeholder">${escapeHtml(message)}</div>`
     chart.setAttribute("aria-label", "Upload traffic chart awaiting data")
     notice.hidden = true
     tooltip.hidden = true
@@ -117,6 +120,15 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     const result = customRange(customStart, customEnd, now)
     if (!result.range) return { error: result.error ?? "Choose a valid custom range." }
     return { range: result.range }
+  }
+
+  function syncUrl(): void {
+    replaceParams(root.ownerDocument, {
+      range: preset === "24h" ? null : preset,
+      view: view === "composition" ? null : view,
+      start: preset === "custom" ? customStart || null : null,
+      end: preset === "custom" ? customEnd || null : null,
+    })
   }
 
   function updateSummary(data: TrafficData): void {
@@ -387,10 +399,14 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     syncCustomBounds(now, state)
     const resolved = resolveRange(state)
     if (!resolved.range) {
-      if (!lastData) reset()
+      reset("Choose a valid date range.")
+      startInput.setAttribute("aria-invalid", "true")
+      endInput.setAttribute("aria-invalid", "true")
       showNotice(resolved.error ?? "Choose a valid custom range.")
       return
     }
+    startInput.removeAttribute("aria-invalid")
+    endInput.removeAttribute("aria-invalid")
     const data = trafficData(state.snapshot, resolved.range)
     const previous = pointerInside ? activeIndex : null
     lastData = data
@@ -411,6 +427,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
       custom.hidden = true
       notice.hidden = true
     }
+    syncUrl()
     if (lastState) render(lastState)
   })
 
@@ -418,7 +435,11 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     customStart = startInput.value
     customEnd = endInput.value
     preset = "custom"
-    if (lastState) render(lastState)
+    syncUrl()
+    if (lastState) {
+      render(lastState)
+      if (startInput.getAttribute("aria-invalid") === "true") startInput.focus()
+    }
   })
 
   for (const input of [startInput, endInput]) {
@@ -435,13 +456,14 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     compositionButton.setAttribute("aria-pressed", String(next === "composition"))
     trendsButton.setAttribute("aria-pressed", String(next === "trends"))
     updateLegend()
+    syncUrl()
     if (lastState) render(lastState)
   }
 
   compositionButton.addEventListener("click", () => setView("composition"))
   trendsButton.addEventListener("click", () => setView("trends"))
 
-  chart.addEventListener("pointermove", (event) => {
+  function handlePointer(event: PointerEvent): void {
     if (!layout) return
     const rect = chart.getBoundingClientRect()
     const x = event.clientX - rect.left
@@ -458,7 +480,9 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
       pointerInside = false
       hideTooltip()
     }
-  })
+  }
+  chart.addEventListener("pointermove", handlePointer)
+  chart.addEventListener("pointerdown", handlePointer)
   chart.addEventListener("pointerleave", () => {
     pointerInside = false
     hideTooltip()
@@ -506,6 +530,12 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     viewWindow.addEventListener("resize", windowResize)
   }
 
+  rangeSelect.value = preset
+  custom.hidden = preset !== "custom"
+  compositionButton.setAttribute("aria-pressed", String(view === "composition"))
+  trendsButton.setAttribute("aria-pressed", String(view === "trends"))
+  if (preset === "custom") ensureCustomDefaults(Date.now())
+  syncUrl()
   updateLegend()
   reset()
 

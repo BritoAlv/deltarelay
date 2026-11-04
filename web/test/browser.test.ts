@@ -64,9 +64,9 @@ test("every page marks exactly its own sidebar entry as current", async () => {
 test("initial overview state loads without presenting fabricated diagnostics", async () => {
   const page = openPage()
   const dashboard = startDashboard(page.document, { autoStart: false })
-  assert.equal(page.document.querySelector("#connection-label")?.textContent, "Connecting")
+  assert.equal(page.document.querySelector("#connection-label")?.textContent, "Connecting…")
   assert.equal(page.document.querySelector("#stat-sessions")?.textContent, "—")
-  assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /No finished requests in this window/)
+  assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /Waiting for local data/)
   assert.equal(page.document.querySelector("#session-rows"), null)
   assert.equal(page.document.querySelector("#system-cards"), null)
   dashboard.destroy()
@@ -93,7 +93,7 @@ test("measurement page renders definitions and traces a selected session", async
   assert.match(trace.textContent ?? "", /From body to wire/)
   assert.match(trace.textContent ?? "", /Request ledger/)
   assert.match(trace.textContent ?? "", /Transfer totals pending/)
-  assert.match(trace.textContent ?? "", /Show all .* retained requests/)
+  assert.match(trace.textContent ?? "", /Show all .* retained requests/i)
   assert.match(trace.textContent ?? "", /not captured/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Payload capture is off or not reported/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Not captured/)
@@ -158,7 +158,7 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   await waitForText(inspector, /Captured bytes/, "body evidence did not load")
   assert.match(inspector.textContent ?? "", /Private disk capture enabled/)
   assert.match(inspector.textContent ?? "", /héllo/)
-  assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()} B`))
+  assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()}\\u00A0B`))
   doc.querySelector<HTMLButtonElement>('[data-inspect-mode="json"]')!.click()
   await waitForText(inspector, /9007199254740993/, "lossless JSON presentation did not load")
   assert.match(inspector.textContent ?? "", /"z": 1,\s*"z": 2/)
@@ -304,6 +304,74 @@ test("traffic ranges, views, and custom dates update the chart", async () => {
   await page.close()
 })
 
+test("traffic range and view are deep-linked through the URL", async () => {
+  const page = openPage()
+  page.window.history.replaceState(null, "", "/?range=7d&view=trends")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const range = doc.querySelector<HTMLSelectElement>("#chart-range")!
+  const trends = doc.querySelector<HTMLButtonElement>("#chart-view-trends")!
+  const composition = doc.querySelector<HTMLButtonElement>("#chart-view-composition")!
+  const chart = doc.querySelector("#traffic-chart")!
+  assert.equal(range.value, "7d")
+  assert.equal(trends.getAttribute("aria-pressed"), "true")
+  assert.match(chart.getAttribute("aria-label") ?? "", /Last 7 days.*Trends view/)
+
+  composition.click()
+  assert.equal(new URL(page.window.location.href).searchParams.get("view"), null)
+  range.value = "30d"
+  page.fire(range, "change")
+  assert.equal(new URL(page.window.location.href).searchParams.get("range"), "30d")
+  dashboard.destroy()
+  await page.close()
+})
+
+test("session search, state, and pagination are deep-linked through the URL", async () => {
+  const page = openPage("sessions")
+  page.window.history.replaceState(null, "", "/sessions?q=api&state=idle&page=2")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const search = doc.querySelector<HTMLInputElement>("#session-search")!
+  const filter = doc.querySelector<HTMLSelectElement>("#session-filter")!
+  assert.equal(search.value, "api")
+  assert.equal(filter.value, "idle")
+  assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 1")
+  assert.equal(new URL(page.window.location.href).searchParams.get("page"), null)
+
+  search.value = "openai"
+  page.fire(search, "input")
+  filter.value = "all"
+  page.fire(filter, "change")
+  const params = new URL(page.window.location.href).searchParams
+  assert.equal(params.get("q"), "openai")
+  assert.equal(params.get("state"), null)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("measurement session selection is deep-linked through the URL", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  const target = snapshot.history.sessions[2]!
+  page.window.history.replaceState(null, "", `/measurement?session=${encodeURIComponent(target.id)}`)
+  page.setFetch(() => json(snapshot))
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  const session = doc.querySelector<HTMLSelectElement>("#measurement-session")!
+  assert.equal(session.value, target.id)
+  const next = snapshot.history.sessions[1]!
+  session.value = next.id
+  page.fire(session, "change")
+  assert.equal(new URL(page.window.location.href).searchParams.get("session"), next.id)
+  measurement.destroy()
+  await page.close()
+})
+
 test("older gateways fall back to retained request entries", async () => {
   const page = openPage()
   const snapshot = makeSnapshot(now)
@@ -410,9 +478,27 @@ test("session details open from a row and close again", async () => {
   const dialog = doc.querySelector<HTMLDialogElement>("#session-dialog")!
   assert.equal(dialog.open, true)
   assert.equal(doc.querySelector("#detail-title")?.textContent, button.dataset.sessionId)
+  assert.equal(new URL(page.window.location.href).searchParams.get("session"), button.dataset.sessionId)
   assert.match(doc.querySelector("#session-detail")?.textContent ?? "", /Recent requests/)
   doc.querySelector<HTMLButtonElement>("#close-detail")!.click()
   assert.equal(dialog.open, false)
+  assert.equal(new URL(page.window.location.href).searchParams.get("session"), null)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("session detail deep links open after the first successful load", async () => {
+  const page = openPage("sessions")
+  const snapshot = makeSnapshot(now)
+  const target = snapshot.history.sessions[3]!
+  page.window.history.replaceState(null, "", `/sessions?session=${encodeURIComponent(target.id)}`)
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const dialog = doc.querySelector<HTMLDialogElement>("#session-dialog")!
+  assert.equal(dialog.open, true)
+  assert.equal(doc.querySelector("#detail-title")?.textContent, target.id)
   dashboard.destroy()
   await page.close()
 })

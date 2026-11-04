@@ -77,6 +77,7 @@ export function mountActivity(root: HTMLElement, autoStart = true): ActivityFeat
         rows.delete(seq)
       }
     }
+    output.classList.toggle("empty", visible.length === 0)
     if (!visible.length) {
       const empty = doc.createElement("p")
       empty.className = "activity-empty"
@@ -94,11 +95,17 @@ export function mountActivity(root: HTMLElement, autoStart = true): ActivityFeat
   }
 
   function renderState() {
-    status.textContent = paused ? "Paused — supervisor still recording" : error ? "Disconnected — retrying" : connected ? "Live · polling every 1s" : "Connecting to the supervisor journal…"
-    notice.textContent = error || warning
-    notice.hidden = !notice.textContent
+    const nextStatus = paused ? "Paused — supervisor still recording" : error ? "Disconnected — retrying…" : connected ? "Live · polling every 1s" : "Connecting to the supervisor journal…"
+    if (status.textContent !== nextStatus) status.textContent = nextStatus
+    status.classList.toggle("good", !paused && !error && !warning && connected)
+    status.classList.toggle("warning", !paused && (Boolean(error) || Boolean(warning)))
+    const nextNotice = error || warning
+    const noticeWasHidden = notice.hidden
+    notice.hidden = !nextNotice
+    if (nextNotice && (noticeWasHidden || notice.textContent !== nextNotice)) notice.textContent = nextNotice
     earlier.disabled = busy || !entries.length || entries[0]!.seq <= oldest || entries.length >= maxEntries
-    pauseButton.textContent = paused ? "Resume log" : "Pause log"
+    const pauseLabel = paused ? "Resume Log" : "Pause Log"
+    if (pauseButton.textContent !== pauseLabel) pauseButton.textContent = pauseLabel
     pauseButton.setAttribute("aria-pressed", String(paused))
   }
 
@@ -173,7 +180,7 @@ export function mountActivity(root: HTMLElement, autoStart = true): ActivityFeat
         await view.navigator.clipboard.writeText(visibleEntries().map(activityLine).join("\n"))
         notice.textContent = "Visible activity copied. Review logs before sharing; diagnostic output can contain private information."
       } catch {
-        notice.textContent = "Clipboard unavailable. Select the log text or use Download loaded log."
+        notice.textContent = "Clipboard unavailable. Select the log text or use Download Loaded Log."
       }
       notice.hidden = false
     })()

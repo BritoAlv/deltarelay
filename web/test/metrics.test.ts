@@ -9,12 +9,12 @@ test("savings include encoded overhead and retain negative reductions", () => {
   assert.equal(savings(1000, 1500), -50)
   assert.equal(savings(0, 100), null)
   assert.equal(percentage(null), "—")
-  assert.equal(bytes(1024), "1 KiB")
-  assert.equal(bytes(-1024), "-1 KiB")
+  assert.equal(bytes(1024), "1\u00A0KiB")
+  assert.equal(bytes(-1024), "-1\u00A0KiB")
   assert.equal(bytes(Infinity), "—")
-  assert.equal(duration(1200), "1.2 s")
-  assert.equal(duration(119999), "2m 0s")
-  assert.equal(duration(-1000), "0 ms")
+  assert.equal(duration(1200), "1.2\u00A0s")
+  assert.equal(duration(119999), "2m\u00A00s")
+  assert.equal(duration(-1000), "0\u00A0ms")
 })
 
 test("session filtering is case insensitive and active has priority", () => {
