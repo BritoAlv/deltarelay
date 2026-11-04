@@ -189,10 +189,10 @@
   .activity-output.empty { height: clamp(160px, 24vh, 280px); }
   .activity-line { padding: 2px 0; content-visibility: auto; contain-intrinsic-size: auto 22px; }
   .activity-meta { color: var(--subtle); font-size: 11px; user-select: text; }
-  .activity-command { color: var(--success); }
-  .activity-stderr { color: var(--warning); }
-  .activity-error { color: var(--danger); }
-  .activity-exit { color: var(--accent); }
+  .activity-stream-command { color: var(--success); }
+  .activity-stream-stderr { color: var(--warning); }
+  .activity-stream-error { color: var(--danger); }
+  .activity-stream-exit { color: var(--accent); }
   .activity-empty { color: var(--subtle); }
   .activity-notice { padding: 8px 20px; color: var(--warning); font-size: 12px; border-top: 1px solid var(--border); }
   .activity-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; padding: 7px 14px; color: var(--muted); font: 11px var(--mono); }

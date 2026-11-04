@@ -720,6 +720,19 @@ test("activity console renders actual output as text and follows incremental cur
   await page.close()
 })
 
+test("activity stream classes never reuse the console container class", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(activityPage([activityEntry(1, { stream: "output", text: "dashboard auth metadata: HTTP status=200 (response body omitted)" })])))
+  const console = mountActivity(page.document.getElementById("activity-console")!, false)
+  await console.refresh()
+  const row = page.document.querySelector("#activity-output > .activity-line")
+  assert.ok(row)
+  assert.ok(row.classList.contains("activity-stream-output"))
+  assert.equal(row.classList.contains("activity-output"), false)
+  console.destroy()
+  await page.close()
+})
+
 test("activity history, filtering, pause, copy and export operate on real loaded records", async () => {
   const page = openPage("controls")
   page.setFetch((url) => {

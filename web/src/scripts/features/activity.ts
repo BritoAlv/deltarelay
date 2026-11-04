@@ -57,7 +57,7 @@ export function mountActivity(root: HTMLElement, autoStart = true): ActivityFeat
       let row = rows.get(entry.seq)
       if (!row) {
         row = doc.createElement("div")
-        row.className = `activity-line activity-${entry.stream}`
+        row.className = `activity-line activity-stream-${entry.stream}`
         row.dataset.sequence = String(entry.seq)
         const meta = doc.createElement("span")
         meta.className = "activity-meta"
