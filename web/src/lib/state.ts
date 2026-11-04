@@ -1,6 +1,6 @@
 import { Channel } from "./events.js"
 import type { ConnectionState } from "./system.js"
-import type { Snapshot } from "./types.js"
+import type { OpenCodeSessions, Snapshot } from "./types.js"
 
 export interface SystemObservation {
   /** Authenticated relay state derived from the independent supervisor. */
@@ -35,4 +35,8 @@ export interface DashboardViewState {
   busy: boolean
   error: string
   system: SystemObservation | null
+  /** Optional local OpenCode session catalog used by the measurement page. */
+  catalog?: OpenCodeSessions | null
+  /** Catalog-specific failure, kept separate from gateway snapshot staleness. */
+  catalogError?: string
 }

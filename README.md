@@ -118,8 +118,10 @@ client-cancelled requests are counted separately. Traffic
 ranges cover 24 hours, 7, 30, or 90 days, or a custom date range, with composition
 and trend views for bandwidth saved and relay cache reuse. The dashboard is split
 into Overview, Sessions, System controls, and System health pages; a separate
-Measurement page traces a retained session from original body to encoded wire
-bytes, request by request. With gateway request capture enabled (the default),
+Measurement page traces a retained gateway session from original body to encoded
+wire bytes, request by request. Its session browser can list the local OpenCode
+session catalog by title, day, project, and model, while only sessions with
+gateway measurements remain traceable. With gateway request capture enabled (the default),
 selecting a request exposes the actual decoded body, ordered chunk availability,
 prepared upload batches, counted HTTP attempts, and the exact savings calculation.
 Each page polls only the API it needs and has its own refresh/pause state.

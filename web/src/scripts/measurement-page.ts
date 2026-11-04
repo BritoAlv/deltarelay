@@ -1,4 +1,4 @@
-import { fetchSnapshot } from "../lib/api.js"
+import { fetchOpenCodeSessions, fetchSnapshot } from "../lib/api.js"
 import { relativeTime } from "../lib/metrics.js"
 import { createPoller } from "../lib/polling.js"
 import type { DashboardViewState } from "../lib/state.js"
@@ -32,8 +32,10 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
   const refreshNote = requiredById(doc, "measurement-refresh-note")
   const notice = requiredById<HTMLElement>(doc, "measurement-notice")
 
-  let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null }
+  let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, catalog: null, catalogError: "" }
   let generation = 0
+  let catalogGeneration = 0
+  let catalogBusy = false
   let destroyed = false
   const measurement = mountMeasurement(root)
   const poller = createPoller({ intervalMs: 10_000, run: refresh, document: doc, onPaused: render })
@@ -79,6 +81,33 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     render()
   }
 
+  async function loadCatalog() {
+    if (destroyed || catalogBusy) return
+    catalogBusy = true
+    const current = ++catalogGeneration
+    const controller = new AbortController()
+    const timeout = view.setTimeout(() => controller.abort(), 4000)
+    try {
+      const next = await fetchOpenCodeSessions(controller.signal)
+      if (destroyed || current !== catalogGeneration) return
+      state = { ...state, catalog: next, catalogError: "" }
+    } catch (error) {
+      if (destroyed || current !== catalogGeneration) return
+      state = {
+        ...state,
+        catalogError: error instanceof Error && error.name !== "AbortError"
+          ? error.message
+          : "OpenCode session metadata request timed out.",
+      }
+    } finally {
+      view.clearTimeout(timeout)
+      if (!destroyed && current === catalogGeneration) {
+        catalogBusy = false
+        render()
+      }
+    }
+  }
+
   async function refresh() {
     if (destroyed || state.busy) return
     state = { ...state, busy: true }
@@ -90,6 +119,8 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
       const next = await fetchSnapshot(controller.signal)
       if (destroyed || current !== generation) return
       state = { ...state, snapshot: next, stale: false, error: "" }
+      render()
+      void loadCatalog()
     } catch (error) {
       if (destroyed || current !== generation) return
       state = {

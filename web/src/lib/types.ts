@@ -79,6 +79,24 @@ export interface Traffic {
   daily: TrafficSeries
 }
 
+export interface OpenCodeSession {
+  id: string
+  title?: string
+  created_at: string
+  updated_at: string
+  project?: string
+  agent?: string
+  model?: string
+}
+
+export interface OpenCodeSessions {
+  version: 1
+  checked_at: string
+  sessions: OpenCodeSession[]
+  truncated: boolean
+  stale: boolean
+}
+
 export interface Snapshot {
   inspection?: CaptureStatus
   version: 1

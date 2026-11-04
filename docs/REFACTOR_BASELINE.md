@@ -220,9 +220,11 @@ Telemetry/browser timestamps are UTC RFC3339 strings, with nullable supervisor
 from OpenCode Unix **milliseconds**, converted to RFC3339 before reaching the
 browser. State/capability enums and legacy action routing are in `control.go` and
 `web/src/lib/system.ts`; they must not be inferred from provider brands.
-`/api/dashboard` proxies gateway JSON; `/api/system` does not require the gateway.
-Writes require exact same origin, JSON content type, and `X-DeltaRelay-Control`
-nonce. These browser controls never receive relay/provider credentials.
+`/api/dashboard` proxies gateway JSON; `/api/opencode/sessions` optionally exposes
+sanitized local OpenCode session metadata; `/api/system` does not require the
+gateway. Writes require exact same origin, JSON content type, and
+`X-DeltaRelay-Control` nonce. These browser controls never receive
+relay/provider credentials.
 
 Remote-provider v1 already has the precise envelope/result schema in
 [`remote-provider-v1.schema.json`](remote-provider-v1.schema.json): request fields

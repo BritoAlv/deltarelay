@@ -50,6 +50,11 @@ type Handler struct {
 	authMu    sync.Mutex
 	authCache AuthStatus
 	authNext  time.Time
+
+	catalogMu   sync.Mutex
+	catalog     OpenCodeSessions
+	catalogErr  error
+	catalogNext time.Time
 }
 
 func LoopbackHost(host string) bool {
@@ -139,6 +144,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/api/dashboard" {
 		h.snapshot(w, r)
+		return
+	}
+	if r.URL.Path == "/api/opencode/sessions" {
+		h.openCodeSessions(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/inspection/") {

@@ -1,4 +1,4 @@
-import type { Snapshot } from "./types.js"
+import type { OpenCodeSessions, Snapshot } from "./types.js"
 import { captureID, isCaptureStatus } from "./inspection.js"
 import { counters, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
 
@@ -60,6 +60,26 @@ export function isSnapshot(value: unknown): value is Snapshot {
   if (!Array.isArray(history.recent_requests) || history.recent_requests.length > (history.request_limit as number) || !history.recent_requests.every(request)) return false
   if (history.traffic !== undefined && !traffic(history.traffic)) return false
   return Array.isArray(providers) && providers.every((p) => object(p) && typeof p.name === "string" && counters(p, ["active", "last_status"]) && optionalString(p.last_error) && optionalTimestamp(p.last_seen))
+}
+
+function openCodeSession(value: unknown): boolean {
+  return object(value) && typeof value.id === "string" && /^[A-Za-z0-9_.-]{1,128}$/.test(value.id) &&
+    optionalString(value.title) && timestamp(value.created_at) && timestamp(value.updated_at) &&
+    optionalString(value.project) && optionalString(value.agent) && optionalString(value.model)
+}
+
+export function isOpenCodeSessions(value: unknown): value is OpenCodeSessions {
+  return object(value) && value.version === 1 && timestamp(value.checked_at) &&
+    Array.isArray(value.sessions) && value.sessions.length <= 2000 && value.sessions.every(openCodeSession) &&
+    typeof value.truncated === "boolean" && typeof value.stale === "boolean"
+}
+
+export async function fetchOpenCodeSessions(signal: AbortSignal): Promise<OpenCodeSessions> {
+  const response = await fetch("/api/opencode/sessions", { signal, cache: "no-store", credentials: "same-origin", redirect: "error" })
+  if (!response.ok) throw new Error("OpenCode session metadata is unavailable.")
+  const data: unknown = await response.json().catch(() => null)
+  if (!isOpenCodeSessions(data)) throw new Error("The local OpenCode service returned incompatible session metadata.")
+  return data
 }
 
 export async function fetchSnapshot(signal: AbortSignal): Promise<Snapshot> {

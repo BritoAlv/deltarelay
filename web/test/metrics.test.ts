@@ -1,8 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { bytes, duration, filterSessions, percentage, relativeTime, savings, sessionState } from "../src/lib/metrics.js"
-import { makeSnapshot } from "./fixture.js"
-import { fetchSnapshot, isSnapshot } from "../src/lib/api.js"
+import { makeOpenCodeSessions, makeSnapshot } from "./fixture.js"
+import { fetchOpenCodeSessions, fetchSnapshot, isOpenCodeSessions, isSnapshot } from "../src/lib/api.js"
 
 test("savings include encoded overhead and retain negative reductions", () => {
   assert.equal(savings(1000, 100), 90)
@@ -44,6 +44,14 @@ test("API validation refuses incomplete, invalid, and incompatible diagnostics",
   assert.equal(isSnapshot({ ...data, history: { ...data.history, totals: { ...data.history.totals, cancelled: 72, failed: 1 } } }), false)
   assert.equal(isSnapshot(null), false)
   assert.equal(isSnapshot({}), false)
+  const catalog = makeOpenCodeSessions()
+  assert.equal(isOpenCodeSessions(catalog), true)
+  assert.equal(isOpenCodeSessions({ ...catalog, version: 2 }), false)
+  assert.equal(isOpenCodeSessions({ ...catalog, checked_at: "invalid" }), false)
+  assert.equal(isOpenCodeSessions({ ...catalog, sessions: [{ ...catalog.sessions[0]!, id: "" }] }), false)
+  assert.equal(isOpenCodeSessions({ ...catalog, sessions: [{ ...catalog.sessions[0]!, created_at: "invalid" }] }), false)
+  assert.equal(isOpenCodeSessions({ ...catalog, stale: "no" }), false)
+  assert.equal(isOpenCodeSessions(null), false)
 })
 
 test("fetch uses only the local read-only API and handles malformed errors", async (t) => {
@@ -63,4 +71,21 @@ test("fetch uses only the local read-only API and handles malformed errors", asy
   await assert.rejects(fetchSnapshot(signal), /authentication failed/)
   mock.mock.mockImplementation(async () => Response.json({ version: 99 }))
   await assert.rejects(fetchSnapshot(signal), /incompatible diagnostics/)
+})
+
+test("OpenCode session metadata uses only the local read-only endpoint", async (t) => {
+  const catalog = makeOpenCodeSessions()
+  const mock = t.mock.method(globalThis, "fetch", async (input: string | URL | Request, options?: RequestInit) => {
+    assert.equal(input, "/api/opencode/sessions")
+    assert.equal(options?.cache, "no-store")
+    assert.equal(options?.redirect, "error")
+    assert.equal(options?.credentials, "same-origin")
+    return Response.json(catalog)
+  })
+  const signal = new AbortController().signal
+  assert.equal((await fetchOpenCodeSessions(signal)).sessions.length, 10)
+  mock.mock.mockImplementation(async () => Response.json({ error: "opencode_not_configured" }, { status: 503 }))
+  await assert.rejects(fetchOpenCodeSessions(signal), /unavailable/)
+  mock.mock.mockImplementation(async () => Response.json({ version: 1 }))
+  await assert.rejects(fetchOpenCodeSessions(signal), /incompatible session metadata/)
 })

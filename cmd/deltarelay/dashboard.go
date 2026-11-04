@@ -21,7 +21,7 @@ func dashboardCommand(ctx context.Context, args []string, stderr io.Writer) erro
 	assets := flags.String("assets", defaultAssets, "Astro build directory; empty serves only the development API")
 	localFile := flags.String("local-token-file", defaultEnv("DELTARELAY_LOCAL_TOKEN_FILE", ""), "private local gateway token file; otherwise DELTARELAY_LOCAL_TOKEN")
 	controlSocket := flags.String("control-socket", "", "optional private supervisor Unix socket; omission keeps controls disabled")
-	serviceFile := flags.String("opencode-service-file", "", "optional private OpenCode V2 service registration for read-only OAuth expiry metadata")
+	serviceFile := flags.String("opencode-service-file", "", "optional private OpenCode V2 service registration for read-only OAuth expiry and session catalog metadata")
 	authIntegration := flags.String("auth-integration", dashboard.DefaultAuthIntegration, "OpenCode integration whose active OAuth expiry is displayed")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

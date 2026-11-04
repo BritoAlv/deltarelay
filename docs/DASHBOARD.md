@@ -27,11 +27,16 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   uploaded chunks remains visible beside the chart.
 - Active requests, upstream, request kind (primary/title/compaction/generate),
   status, duration, and safe error codes in a session inspector.
-- A separate **Measurement** page traces any retained session with the same
-  read-only snapshot. It shows the measured body-to-wire process, a direct
-  original-versus-encoded comparison, and an expandable per-request ledger with
-  cache reuse, raw chunk uploads, encoded bytes, HTTP attempts, and response
-  bytes that are excluded from upload savings.
+- A separate **Measurement** page traces any gateway-measured session with the
+  same read-only snapshot. Its session browser can also list the sessions stored by
+  the local OpenCode service, with titles, start dates, projects, agents, and
+  models. Only sessions with retained gateway measurements are selectable;
+  sessions stored only by OpenCode are marked **No gateway data**. The browser
+  supports title/ID/project/model search, day filtering, and pagination. The page
+  shows the measured body-to-wire process, a direct original-versus-encoded
+  comparison, and an expandable per-request ledger with cache reuse, raw chunk
+  uploads, encoded bytes, HTTP attempts, and response bytes that are excluded
+  from upload savings.
 - With gateway payload capture enabled (the default), select a request to inspect
   its actual decoded body (UTF-8, hex + ASCII, lossless JSON formatting, or exact
   download), ordered chunk-presence rectangles with byte ranges, prepared upload
@@ -53,9 +58,9 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   pause/resume. Automatic refresh is every ten seconds while the tab is visible.
   A failed refresh keeps the last live snapshot and explicitly marks it stale.
 - Deep-linkable view state: the chart range and view, session search/state/page,
-  an open session detail, and the measurement session/request are kept in the
-  URL and restored on reload. Changes use `replaceState`, so filtering does not
-  fill the browser history.
+  an open session detail, and the measurement session/request plus session-browser
+  search, day, availability, and page are kept in the URL and restored on reload.
+  Changes use `replaceState`, so filtering does not fill the browser history.
 - A **Theme** picker above Overview offers Graphite + Blue (the default),
   Porcelain + Teal, Midnight + Violet, Sand + Terracotta, and the original
   Forest + Green. Light and dark palettes cover the whole dashboard, including
@@ -198,6 +203,16 @@ numeric `after`/`before`/`limit` cursors, never paths or commands, and returns
 text records for the local terminal view. Existing gateway authentication and
 browser-origin rejection remain intact.
 
+With `--opencode-service-file` configured, the measurement page also requests
+`GET /api/opencode/sessions`. The Go dashboard reads only session metadata from
+the local OpenCode V2 service: opaque ID, title, start/update times, directory
+basename, agent, and model. It never reads messages, conversation content,
+provider credentials, cost, token counts, permissions, or full filesystem paths,
+and it never sends titles to the gateway, relay, or a provider. OpenCode session
+titles are local-only metadata and are visible to any local process/user that can
+reach the loopback dashboard. If the service is not configured or unavailable,
+the browser falls back to gateway-retained sessions and opaque IDs.
+
 Request evidence capture is **enabled by default** and is a separate tradeoff.
 Unless `--capture-dir` is empty, the gateway stores application request bodies
 (which can contain prompts, source code, tool output, and other secrets) and
@@ -221,14 +236,18 @@ cross-origin/cross-site requests and unapproved writes, and sends restrictive CS
 headers with no permissive CORS. This is a **single-user local tool**, not a
 multi-user login service: another process/user on the same machine can read its
 local dashboard port. Do not publish it through a public proxy or public port
-forward. Session IDs, timing, and provider names are still private metadata.
+forward. Session IDs, OpenCode titles, timing, project labels, and provider names
+are still private local metadata.
 
 History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
 
-- Up to **256 sessions** and **1,000 request entries**. The least-recently-active
-  idle session is evicted first; active requests/sessions are not evicted.
-  Request entries for an evicted session are trimmed too. Global totals are
-  preserved and trimming counters are shown in measurement notes.
+- Up to **256 gateway sessions** and **1,000 request entries**. The
+  least-recently-active idle session is evicted first; active requests/sessions
+  are not evicted. Request entries for an evicted session are trimmed too.
+  Global totals are preserved and trimming counters are shown in measurement
+  notes. OpenCode's separate session catalog is not part of this limit; sessions
+  stored only by OpenCode are listed for discovery but have no gateway
+  measurements.
 - Separately from request entries, traffic aggregates keep **hourly buckets for
   31 days** and **daily buckets for 91 days**. The traffic chart uses these
   aggregates, so 24-hour, 7-day, 30-day, 90-day, and custom ranges survive
@@ -307,9 +326,11 @@ relay cache reuse, and other savings; negative savings appear as a red overshoot
 Trend view plots original, uploaded, saved, and reused bytes separately.
 
 The separate **Measurement** page (`/measurement`) applies these definitions to a
-session selected from retained history. Its summary and ledger use the same
-snapshot; the optional evidence inspector loads captured artifacts on demand
-through validated read-only routes. Neither view sends a model request. The
+session selected from retained gateway history. The session browser can list the
+broader local OpenCode session catalog, but only gateway-measured sessions are
+traceable; unmeasured sessions never fabricate a summary. Its summary and ledger
+use the same snapshot; the optional evidence inspector loads captured artifacts
+on demand through validated read-only routes. Neither view sends a model request. The
 session summary shows original bytes, encoded uploads, saved bytes, reduction,
 and relay content reuse. The request ledger expands each retained
 request into chunks, unique chunks, uploaded chunks, missing and reused bytes,
@@ -394,8 +415,9 @@ Keep the credential-bearing API in Go while Astro serves hot-reloaded assets:
 pnpm dev
 ```
 
-Visit **http://127.0.0.1:4321**. Vite proxies only `/api/dashboard` to the local
-Go listener on port 8790; `/api/system` is proxied separately for local controls.
+Visit **http://127.0.0.1:4321**. Vite proxies only `/api/dashboard`,
+`/api/inspection`, `/api/opencode`, and `/api/system` to the local Go listener on
+port 8790.
 The browser still receives no gateway token. Bind the
 development server to loopback and do not expose it as a production service.
 

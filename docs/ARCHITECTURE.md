@@ -44,7 +44,7 @@ defaults/precedence remain recorded in
 | `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, shutdown, and legacy streaming. |
 | `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
-| `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, and the narrow supervisor-control bridge. |
+| `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
 | `deploy/supervision` | Importable Python configuration, observable state, process ownership, probes, recovery policy, and control API. |
 | `deploy/*.py`, `deploy/providers` | Executable compatibility entry points, provider plugins, remote recovery helpers, and provider contract checking. |
@@ -119,6 +119,11 @@ streaming lifetime and does not create a durable response.
   proxies only validated read-only `/api/inspection` routes, and the capture
   store keeps its own retention independent of the statistics file. Provider
   response bodies are not captured.
+- With `--opencode-service-file`, the dashboard may read the local OpenCode V2
+  `/api/session` catalog and expose only sanitized, local-only session metadata
+  through `/api/opencode/sessions`. Messages, content, credentials, cost, token
+  counts, permissions, and full paths never cross that boundary. The catalog is
+  optional and failure falls back to gateway-retained sessions.
 - `/api/system` and approved control POSTs go to the optional private supervisor
   Unix socket. They do not depend on gateway availability. Controls remain
   disabled when the supervisor is absent, stale, unmanaged, or does not support

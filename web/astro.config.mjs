@@ -13,6 +13,7 @@ export default defineConfig({
       proxy: {
         "/api/dashboard": "http://127.0.0.1:8790",
         "/api/inspection": "http://127.0.0.1:8790",
+        "/api/opencode": "http://127.0.0.1:8790",
         "/api/system": "http://127.0.0.1:8790",
       },
     },

@@ -4,9 +4,10 @@ import { json, openPage } from "./browser.js"
 import { startDashboard } from "../src/scripts/dashboard.js"
 import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemStatus } from "../src/scripts/system.js"
-import { makeSnapshot } from "./fixture.js"
+import { makeOpenCodeSessions, makeSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue } from "../src/lib/traffic.js"
+import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import { mountActivity } from "../src/scripts/features/activity.js"
 import type { ActivityEntry, ActivityPage } from "../src/lib/activity.js"
@@ -73,12 +74,14 @@ test("initial overview state loads without presenting fabricated diagnostics", a
   await page.close()
 })
 
-test("measurement page renders definitions and traces a selected session", async () => {
+test("measurement page renders definitions, browses stored sessions, and traces a selected session", async () => {
   const page = openPage("measurement")
   const snapshot = makeSnapshot(now)
+  const catalog = makeOpenCodeSessions(now)
   page.setFetch((url) => {
-    assert.equal(url, "/api/dashboard")
-    return json(snapshot)
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/opencode/sessions") return json(catalog)
+    throw new Error(`Unexpected measurement URL ${url}`)
   })
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
@@ -86,10 +89,11 @@ test("measurement page renders definitions and traces a selected session", async
   assert.equal(doc.querySelector("#measurement-connection-label")?.textContent, "Live")
   assert.match(doc.querySelector("#measurement")?.textContent ?? "", /Original body/)
   assert.match(doc.querySelector("#measurement")?.textContent ?? "", /Encoded upload/)
-  const select = doc.querySelector<HTMLSelectElement>("#measurement-session")!
-  assert.equal(select.options.length, 6)
-  assert.equal(select.value, snapshot.history.sessions[0]!.id)
+  await waitForText(doc.querySelector("#measurement-session-trigger-title"), /Relay dashboard measurement/, "catalog title did not load")
+  const trigger = doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!
+  assert.equal(trigger.disabled, false)
   const trace = doc.querySelector("#measurement-trace")!
+  assert.match(trace.textContent ?? "", /Relay dashboard measurement/)
   assert.match(trace.textContent ?? "", /From body to wire/)
   assert.match(trace.textContent ?? "", /Request ledger/)
   assert.match(trace.textContent ?? "", /Transfer totals pending/)
@@ -97,10 +101,52 @@ test("measurement page renders definitions and traces a selected session", async
   assert.match(trace.textContent ?? "", /not captured/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Payload capture is off or not reported/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Not captured/)
-  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 sessions and 1,000 requests/)
-  select.value = snapshot.history.sessions[1]!.id
-  page.fire(select, "change")
-  assert.match(trace.textContent ?? "", /api-refactor/)
+  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 gateway sessions and 1,000 requests/)
+
+  trigger.click()
+  const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
+  assert.equal(dialog.open, true)
+  assert.match(dialog.textContent ?? "", /All sessions stored by OpenCode/)
+  assert.match(dialog.textContent ?? "", /Only sessions with gateway measurements can be traced/)
+  const choices = [...dialog.querySelectorAll<HTMLButtonElement>("[data-session-choice]")]
+  assert.equal(choices.length, 8)
+  assert.equal(dialog.querySelector("#measurement-session-page")?.textContent, "Page 1 of 2")
+  assert.equal(dialog.querySelector<HTMLButtonElement>("#measurement-session-next")?.disabled, false)
+  const unmeasured = choices.find((choice) => choice.dataset.sessionChoice === "ses_unmeasured_recent")!
+  assert.equal(unmeasured.getAttribute("aria-disabled"), "true")
+  unmeasured.click()
+  assert.equal(dialog.open, true)
+  assert.match(dialog.querySelector("#measurement-session-notice")?.textContent ?? "", /no retained gateway measurements/)
+  assert.match(trace.textContent ?? "", /Relay dashboard measurement/)
+
+  const second = [...dialog.querySelectorAll<HTMLButtonElement>("[data-session-choice]")].find((choice) => choice.dataset.sessionChoice === snapshot.history.sessions[1]!.id)!
+  second.click()
+  assert.equal(dialog.open, false)
+  assert.match(trace.textContent ?? "", /API refactor/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("session"), snapshot.history.sessions[1]!.id)
+
+  trigger.click()
+  dialog.querySelector<HTMLButtonElement>("#measurement-session-next")!.click()
+  assert.equal(dialog.querySelector("#measurement-session-page")?.textContent, "Page 2 of 2")
+  assert.equal(dialog.querySelectorAll("[data-session-choice]").length, 2)
+  dialog.querySelector<HTMLButtonElement>("#measurement-session-previous")!.click()
+  const day = sessionDayKey(new Date(now - 72 * 3_600_000).toISOString())
+  const daySelect = dialog.querySelector<HTMLSelectElement>("#measurement-session-day")!
+  daySelect.value = day
+  page.fire(daySelect, "change")
+  assert.equal(dialog.querySelectorAll("[data-session-choice]").length, 1)
+  assert.match(dialog.querySelector("#measurement-session-summary")?.textContent ?? "", /1–1 of 1/)
+  daySelect.value = ""
+  page.fire(daySelect, "change")
+  const search = dialog.querySelector<HTMLInputElement>("#measurement-session-search")!
+  search.value = "Old migration"
+  page.fire(search, "input")
+  assert.equal(dialog.querySelectorAll("[data-session-choice]").length, 1)
+  assert.match(dialog.textContent ?? "", /Old migration notes/)
+  search.value = ""
+  page.fire(search, "input")
+  dialog.querySelector<HTMLButtonElement>("#close-measurement-session")!.click()
+  assert.equal(dialog.open, false)
   measurement.destroy()
   await page.close()
 })
@@ -137,6 +183,7 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   }
   page.setFetch((url) => {
     if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/opencode/sessions") return json(makeOpenCodeSessions(now))
     if (url === `/api/inspection/${captureID}`) return json(capture)
     if (url.startsWith(`/api/inspection/${captureID}/artifacts/`)) {
       const parsed = new URL(url, "http://127.0.0.1")
@@ -196,6 +243,7 @@ test("measurement inspector never substitutes content for a missing capture", as
   snapshot.inspection = { enabled: true, max_bytes: 1024, max_capture_bytes: 512, max_captures: 2, max_age_seconds: 3600, captures: 0, used_bytes: 0, storage_error: false }
   page.setFetch((url) => {
     if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/opencode/sessions") return json(makeOpenCodeSessions(now))
     return json({ error: "capture_not_retained" }, 404)
   })
   const measurement = startMeasurementPage(page.document, { autoStart: false })
@@ -216,13 +264,53 @@ test("measurement page shows an empty state and never invents a trace", async ()
   const snapshot = makeSnapshot(now)
   snapshot.history.sessions = []
   snapshot.history.recent_requests = []
-  page.setFetch(() => json(snapshot))
+  const emptyCatalog = { version: 1 as const, checked_at: new Date(now).toISOString(), sessions: [], truncated: false, stale: false }
+  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(emptyCatalog))
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
   const doc = page.document
-  assert.equal(doc.querySelector<HTMLSelectElement>("#measurement-session")?.disabled, true)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")?.disabled, true)
   assert.match(doc.querySelector("#measurement-trace")?.textContent ?? "", /No retained sessions/)
   assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /global totals are preserved/)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement browser lists OpenCode sessions without gateway measurements", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  snapshot.history.sessions = []
+  snapshot.history.recent_requests = []
+  const catalog = makeOpenCodeSessions(now)
+  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(catalog))
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  await waitForText(doc.querySelector("#measurement-session-trigger-title"), /Choose a session/, "catalog-only trigger did not load")
+  assert.match(doc.querySelector("#measurement-trace")?.textContent ?? "", /No gateway measurements/)
+  doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!.click()
+  assert.equal(doc.querySelectorAll("#measurement-session-dialog [data-session-choice]").length, 8)
+  assert.match(doc.querySelector("#measurement-session-dialog")?.textContent ?? "", /No gateway data/)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement browser falls back to gateway sessions when OpenCode metadata is unavailable", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(snapshot)
+    return json({ error: "opencode_not_configured" }, 503)
+  })
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  await waitForText(doc.querySelector("#measurement-session-trigger-title"), /ses_7fd82a_relay-dashboard/, "gateway fallback did not load")
+  doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!.click()
+  const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
+  assert.match(dialog.textContent ?? "", /OpenCode session metadata is unavailable/)
+  assert.equal(dialog.querySelectorAll("[data-session-choice]").length, 6)
+  assert.equal(dialog.querySelectorAll("[aria-disabled='true']").length, 0)
   measurement.destroy()
   await page.close()
 })
@@ -356,18 +444,31 @@ test("session search, state, and pagination are deep-linked through the URL", as
 test("measurement session selection is deep-linked through the URL", async () => {
   const page = openPage("measurement")
   const snapshot = makeSnapshot(now)
+  const catalog = makeOpenCodeSessions(now)
   const target = snapshot.history.sessions[2]!
-  page.window.history.replaceState(null, "", `/measurement?session=${encodeURIComponent(target.id)}`)
-  page.setFetch(() => json(snapshot))
+  page.window.history.replaceState(null, "", `/measurement?session=${encodeURIComponent(target.id)}&q=Test&day=${sessionDayKey(target.started_at)}&show=measured&page=2`)
+  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(catalog))
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
   const doc = page.document
-  const session = doc.querySelector<HTMLSelectElement>("#measurement-session")!
-  assert.equal(session.value, target.id)
+  await waitForText(doc.querySelector("#measurement-session-trigger-title"), /Test suite/, "deep-linked catalog title did not load")
+  doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!.click()
+  const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
+  assert.equal(dialog.querySelector<HTMLInputElement>("#measurement-session-search")?.value, "Test")
+  assert.equal(dialog.querySelector<HTMLSelectElement>("#measurement-session-availability")?.value, "measured")
+  assert.equal(dialog.querySelector<HTMLSelectElement>("#measurement-session-day")?.value, sessionDayKey(target.started_at))
+  const search = dialog.querySelector<HTMLInputElement>("#measurement-session-search")!
+  search.value = ""
+  page.fire(search, "input")
+  const daySelect = dialog.querySelector<HTMLSelectElement>("#measurement-session-day")!
+  daySelect.value = ""
+  page.fire(daySelect, "change")
   const next = snapshot.history.sessions[1]!
-  session.value = next.id
-  page.fire(session, "change")
+  const choice = [...dialog.querySelectorAll<HTMLButtonElement>("[data-session-choice]")].find((button) => button.dataset.sessionChoice === next.id)!
+  choice.click()
   assert.equal(new URL(page.window.location.href).searchParams.get("session"), next.id)
+  assert.equal(new URL(page.window.location.href).searchParams.get("q"), null)
+  assert.equal(new URL(page.window.location.href).searchParams.get("show"), "measured")
   measurement.destroy()
   await page.close()
 })

@@ -32,18 +32,62 @@ import Icon from "./Icon.astro"
   <article class="panel measurement-trace-panel">
     <div class="measurement-toolbar">
       <div>
-        <h2>Trace a retained session</h2>
-        <p>Pick a session for its aggregate measurements, then a request for its body-to-wire evidence. Payloads are available only when explicitly captured.</p>
+        <h2>Trace a measured session</h2>
+        <p>Browse sessions stored by OpenCode or retained by the gateway. Only sessions with gateway measurements can be traced; then pick a request for its body-to-wire evidence. Payloads are available only when explicitly captured.</p>
       </div>
       <div class="measurement-picker">
-        <label for="measurement-session">Session</label>
-        <select id="measurement-session" name="measurement-session" autocomplete="off" disabled><option>Waiting for local gateway…</option></select>
+        <span class="measurement-picker-label" id="measurement-session-label">Session</span>
+        <button class="measurement-session-trigger" id="measurement-session-trigger" type="button" aria-haspopup="dialog" aria-labelledby="measurement-session-label measurement-session-trigger-title" disabled>
+          <span class="measurement-session-trigger-copy">
+            <span class="measurement-session-trigger-title" id="measurement-session-trigger-title">Waiting for local gateway…</span>
+            <span class="measurement-session-trigger-meta" id="measurement-session-trigger-meta"></span>
+          </span>
+          <span class="measurement-session-trigger-action">Browse</span>
+        </button>
       </div>
     </div>
     <div class="measurement-trace" id="measurement-trace"></div>
     <section class="request-inspector" id="request-inspector" aria-label="Selected request evidence"></section>
-    <p class="measurement-retention" id="retention-note">History retains up to 256 sessions and 1,000 requests. Traffic charts keep hourly aggregates for 31 days and daily aggregates for 91 days. Global totals survive retention trimming. Earlier history is not imported from logs.</p>
+    <p class="measurement-retention" id="retention-note">History retains up to 256 gateway sessions and 1,000 requests. The session browser can also list sessions stored by OpenCode; only sessions with gateway measurements can be traced. Traffic charts keep hourly aggregates for 31 days and daily aggregates for 91 days. Global totals survive retention trimming. Earlier gateway history is not imported from logs.</p>
   </article>
+
+  <dialog id="measurement-session-dialog" class="session-dialog session-browser-dialog" aria-labelledby="measurement-session-dialog-title">
+    <div class="dialog-heading session-browser-heading">
+      <div>
+        <h2 id="measurement-session-dialog-title">Choose a session</h2>
+        <p id="measurement-session-dialog-summary">All sessions stored by OpenCode. Only sessions with gateway measurements can be traced.</p>
+      </div>
+      <button class="icon-button" id="close-measurement-session" type="button" aria-label="Close session browser"><Icon name="close" /></button>
+    </div>
+    <div class="session-browser-toolbar">
+      <div class="search-field">
+        <Icon name="search" size={17} />
+        <label class="sr-only" for="measurement-session-search">Search stored sessions</label>
+        <input id="measurement-session-search" name="measurement-session-search" type="search" placeholder="Search title, ID, project, or model…" autocomplete="off" spellcheck="false" maxlength="200" />
+      </div>
+      <label class="session-browser-filter">Day <select id="measurement-session-day" name="measurement-session-day"><option value="">All days</option></select></label>
+      <label class="session-browser-filter">Show <select id="measurement-session-availability" name="measurement-session-availability"><option value="all">All stored sessions</option><option value="measured">Measured only</option></select></label>
+    </div>
+    <div class="session-browser-notice" id="measurement-session-notice" role="status" aria-live="polite" hidden></div>
+    <div class="session-browser-scroll" id="measurement-session-scroll">
+      <table class="session-browser-table">
+        <caption class="sr-only">Sessions stored by OpenCode, with gateway measurement availability</caption>
+        <thead>
+          <tr><th scope="col">Session</th><th scope="col">Started</th><th scope="col">Provider</th><th scope="col" class="number">Requests</th><th scope="col" class="number">Reduction</th><th scope="col">Status</th></tr>
+        </thead>
+        <tbody id="measurement-session-rows"></tbody>
+      </table>
+    </div>
+    <div class="empty-state session-browser-empty" id="measurement-session-empty" hidden><h3>No matching sessions</h3><p>Change the search, day, or availability filter.</p></div>
+    <div class="table-footer session-browser-footer">
+      <span id="measurement-session-summary" role="status" aria-live="polite">0 sessions</span>
+      <div class="pagination">
+        <button class="text-button" id="measurement-session-previous" type="button" aria-label="Previous session page" disabled>Previous</button>
+        <span id="measurement-session-page">Page 1 of 1</span>
+        <button class="text-button" id="measurement-session-next" type="button" aria-label="Next session page" disabled>Next</button>
+      </div>
+    </div>
+  </dialog>
 
   <p class="measurement-footnote"><Icon name="info" size={14} /> Saved bytes compare request bodies, not provider billing. Responses, HTTP/TLS headers, TLS/TCP/IP overhead, and retransmissions are outside these counters.</p>
 </section>

@@ -1,5 +1,5 @@
 import { emptyTotals } from "../src/lib/metrics.js"
-import type { RelayRequest, Session, Snapshot, Traffic, TrafficBucket } from "../src/lib/types.js"
+import type { OpenCodeSession, OpenCodeSessions, RelayRequest, Session, Snapshot, Traffic, TrafficBucket } from "../src/lib/types.js"
 
 function bucketAt(value: number, daily: boolean): number {
   const date = new Date(value)
@@ -83,4 +83,24 @@ export function makeSnapshot(now = Date.now()): Snapshot {
     providers: [{ name: "openai", active: 1, last_status: 200, last_seen: new Date(now - 40_000).toISOString() }, { name: "opencode-go", active: 0, last_status: 200, last_seen: new Date(now - 120_000).toISOString() }],
     history: { version: 1, since: new Date(now - 90 * 24 * 3_600_000).toISOString(), totals, sessions, recent_requests: requests, traffic, session_limit: 256, request_limit: 1000, evicted_sessions: 0, dropped_requests: 0, persistent: true, persistence_error: false },
   }
+}
+
+export function makeOpenCodeSessions(now = Date.now()): OpenCodeSessions {
+  const titles = ["Relay dashboard measurement", "API refactor", "Test suite", "Docs update", "Cache worker", "Release check"]
+  const sessions: OpenCodeSession[] = ["ses_7fd82a_relay-dashboard", "ses_a93f10_api-refactor", "ses_2c817d_test-suite", "ses_8b12e6_docs-update", "ses_4d903a_cache-worker", "ses_1e77b4_release-check"].map((id, index) => ({
+    id,
+    title: titles[index],
+    created_at: new Date(now - (24 - index * 2) * 3_600_000).toISOString(),
+    updated_at: new Date(now - index * 17 * 60_000).toISOString(),
+    project: "deltarelay",
+    agent: index % 2 ? "build" : "plan",
+    model: index % 3 === 0 ? "openai/gpt-5" : "opencode-go/deepseek-v4.1-flash",
+  }))
+  sessions.push(
+    { id: "ses_unmeasured_recent", title: "Pre-gateway experiment", created_at: new Date(now - 72 * 3_600_000).toISOString(), updated_at: new Date(now - 70 * 3_600_000).toISOString(), project: "sandbox", agent: "build", model: "openai/gpt-5" },
+    { id: "ses_unmeasured_older", title: "Old migration notes", created_at: new Date(now - 120 * 3_600_000).toISOString(), updated_at: new Date(now - 118 * 3_600_000).toISOString(), project: "archive", agent: "plan", model: "opencode-go/glm" },
+    { id: "ses_unmeasured_extra_one", title: "Early prototype", created_at: new Date(now - 144 * 3_600_000).toISOString(), updated_at: new Date(now - 142 * 3_600_000).toISOString(), project: "sandbox", agent: "build", model: "openai/gpt-5" },
+    { id: "ses_unmeasured_extra_two", title: "Archived scratchpad", created_at: new Date(now - 168 * 3_600_000).toISOString(), updated_at: new Date(now - 166 * 3_600_000).toISOString(), project: "archive", agent: "plan", model: "opencode-go/glm" },
+  )
+  return { version: 1, checked_at: new Date(now).toISOString(), sessions, truncated: false, stale: false }
 }
