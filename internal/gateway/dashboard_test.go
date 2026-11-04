@@ -79,6 +79,20 @@ func TestDashboardSessionSavingsAndFailureAccounting(t *testing.T) {
 	if s.History.Totals.EncodedUploadBytes <= 0 || s.History.Totals.EncodedUploadBytes >= s.History.Totals.BodyBytes || s.History.Totals.ReusedBodyBytes == 0 {
 		t.Fatalf("savings missing: %+v", s.History.Totals)
 	}
+	for _, series := range []string{"hourly", "daily"} {
+		buckets := s.History.Traffic.Hourly.Buckets
+		if series == "daily" {
+			buckets = s.History.Traffic.Daily.Buckets
+		}
+		var requests, bodyBytes int64
+		for _, bucket := range buckets {
+			requests += bucket.Requests
+			bodyBytes += bucket.BodyBytes
+		}
+		if requests != 3 || bodyBytes != int64(len(body)*3) {
+			t.Fatalf("%s traffic did not aggregate finished requests: requests=%d body=%d", series, requests, bodyBytes)
+		}
+	}
 	if s.History.RecentRequests[1].Transfer.UploadedChunks != 0 || s.History.RecentRequests[0].Kind != "compaction" || s.History.RecentRequests[2].State != "failed" {
 		t.Fatal("request details lost reuse, kind, or failure state")
 	}

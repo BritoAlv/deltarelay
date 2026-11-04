@@ -29,6 +29,12 @@ const (
 	RequestLimit = 1000
 	maxFileBytes = 8 << 20
 
+	// Traffic aggregates outlive individual request entries. Hourly buckets
+	// serve short and medium ranges; daily buckets keep a compact long-range
+	// history after the hourly window ends.
+	HourlyTrafficRetention = 31 * 24 * time.Hour
+	DailyTrafficRetention  = 91 * 24 * time.Hour
+
 	// defaultFlushInterval bounds both how often the worker rewrites the
 	// statistics file and how long a completed accounting update can remain
 	// memory-only under normal operation.
@@ -78,12 +84,39 @@ type Request struct {
 	DurationMillis int64          `json:"duration_ms"`
 }
 
+// TrafficBucket is a metadata-only aggregate of finished requests. It stays
+// small so multi-day ranges survive request-entry trimming.
+type TrafficBucket struct {
+	Start              time.Time `json:"start"`
+	Requests           int64     `json:"requests"`
+	Failed             int64     `json:"failed"`
+	BodyBytes          int64     `json:"body_bytes"`
+	UploadedChunkBytes int64     `json:"uploaded_chunk_bytes"`
+	EncodedUploadBytes int64     `json:"encoded_upload_bytes"`
+	ReusedBodyBytes    int64     `json:"reused_body_bytes"`
+	ResponseBytes      int64     `json:"response_bytes"`
+	DurationMillis     int64     `json:"duration_ms"`
+}
+
+type TrafficSeries struct {
+	Since            time.Time       `json:"since"`
+	BucketSeconds    int64           `json:"bucket_seconds"`
+	RetentionSeconds int64           `json:"retention_seconds"`
+	Buckets          []TrafficBucket `json:"buckets"`
+}
+
+type Traffic struct {
+	Hourly TrafficSeries `json:"hourly"`
+	Daily  TrafficSeries `json:"daily"`
+}
+
 type Snapshot struct {
 	Version          int       `json:"version"`
 	Since            time.Time `json:"since"`
 	Totals           Totals    `json:"totals"`
 	Sessions         []Session `json:"sessions"`
 	RecentRequests   []Request `json:"recent_requests"`
+	Traffic          Traffic   `json:"traffic"`
 	SessionLimit     int       `json:"session_limit"`
 	RequestLimit     int       `json:"request_limit"`
 	EvictedSessions  int64     `json:"evicted_sessions"`
@@ -130,9 +163,10 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 	if write == nil || flushAfter <= 0 || shutdown <= 0 {
 		return nil, errors.New("statistics writer and timings must be positive")
 	}
+	started := time.Now().UTC()
 	r := &Recorder{
 		path:       path,
-		data:       Snapshot{Version: 1, Since: time.Now().UTC(), Sessions: []Session{}, RecentRequests: []Request{}},
+		data:       Snapshot{Version: 1, Since: started, Sessions: []Session{}, RecentRequests: []Request{}, Traffic: newTraffic(started)},
 		write:      write,
 		flushAfter: flushAfter,
 		shutdown:   shutdown,
@@ -240,6 +274,15 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 	if running != active {
 		return nil, errors.New("inconsistent active statistics")
 	}
+	if trafficMissing(r.data.Traffic) {
+		// Older history files predate traffic aggregates. Reconstruct the
+		// retained window from finished request entries before persisting.
+		r.data.Traffic = newTraffic(now)
+		r.backfillTrafficLocked(now)
+	} else if !validTraffic(r.data.Traffic) {
+		return nil, errors.New("invalid statistics traffic")
+	}
+	r.trimTrafficLocked(now)
 	// Persist the normalized restart state synchronously: this happens before
 	// the gateway serves requests and is not on a request path.
 	r.revision++
@@ -255,6 +298,150 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 
 func validTotals(t Totals) bool {
 	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Active+t.Failed <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
+}
+
+func newTraffic(since time.Time) Traffic {
+	return Traffic{
+		Hourly: TrafficSeries{
+			Since:            since,
+			BucketSeconds:    int64(time.Hour / time.Second),
+			RetentionSeconds: int64(HourlyTrafficRetention / time.Second),
+			Buckets:          []TrafficBucket{},
+		},
+		Daily: TrafficSeries{
+			Since:            since,
+			BucketSeconds:    int64(24 * time.Hour / time.Second),
+			RetentionSeconds: int64(DailyTrafficRetention / time.Second),
+			Buckets:          []TrafficBucket{},
+		},
+	}
+}
+
+func trafficMissing(t Traffic) bool {
+	return t.Hourly.Since.IsZero() && t.Daily.Since.IsZero() &&
+		t.Hourly.BucketSeconds == 0 && t.Daily.BucketSeconds == 0 &&
+		len(t.Hourly.Buckets) == 0 && len(t.Daily.Buckets) == 0
+}
+
+func validTraffic(t Traffic) bool {
+	return validTrafficSeries(t.Hourly, int64(time.Hour/time.Second), int64(HourlyTrafficRetention/time.Second)) &&
+		validTrafficSeries(t.Daily, int64(24*time.Hour/time.Second), int64(DailyTrafficRetention/time.Second))
+}
+
+func validTrafficSeries(series TrafficSeries, bucketSeconds, retentionSeconds int64) bool {
+	if series.Since.IsZero() || series.BucketSeconds != bucketSeconds || series.RetentionSeconds != retentionSeconds {
+		return false
+	}
+	if int64(len(series.Buckets)) > retentionSeconds/bucketSeconds+2 {
+		return false
+	}
+	var previous time.Time
+	for _, bucket := range series.Buckets {
+		if bucket.Start.IsZero() || !validTrafficBucket(bucket) {
+			return false
+		}
+		if !previous.IsZero() && !bucket.Start.After(previous) {
+			return false
+		}
+		previous = bucket.Start
+	}
+	return true
+}
+
+func validTrafficBucket(bucket TrafficBucket) bool {
+	return bucket.Requests >= 0 && bucket.Failed >= 0 && bucket.Failed <= bucket.Requests &&
+		bucket.BodyBytes >= 0 && bucket.UploadedChunkBytes >= 0 && bucket.EncodedUploadBytes >= 0 &&
+		bucket.ReusedBodyBytes >= 0 && bucket.ResponseBytes >= 0 && bucket.DurationMillis >= 0
+}
+
+func hourlyTrafficStart(at time.Time) time.Time {
+	local := at.In(time.Local)
+	return time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), 0, 0, 0, time.Local)
+}
+
+func dailyTrafficStart(at time.Time) time.Time {
+	local := at.In(time.Local)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
+}
+
+func addTrafficBucket(buckets *[]TrafficBucket, start time.Time, stats transfer.Stats, responseBytes, duration int64, failed bool) {
+	list := *buckets
+	index := len(list) - 1
+	for index >= 0 && list[index].Start.After(start) {
+		index--
+	}
+	if index >= 0 && list[index].Start.Equal(start) {
+		addTrafficResult(&list[index], stats, responseBytes, duration, failed)
+		*buckets = list
+		return
+	}
+	bucket := TrafficBucket{Start: start}
+	addTrafficResult(&bucket, stats, responseBytes, duration, failed)
+	list = append(list, TrafficBucket{})
+	copy(list[index+2:], list[index+1:])
+	list[index+1] = bucket
+	*buckets = list
+}
+
+func addTrafficResult(bucket *TrafficBucket, stats transfer.Stats, responseBytes, duration int64, failed bool) {
+	bucket.Requests++
+	if failed {
+		bucket.Failed++
+	}
+	bucket.BodyBytes += stats.BodyBytes
+	bucket.UploadedChunkBytes += stats.UploadedChunkBytes
+	bucket.EncodedUploadBytes += stats.RequestBodyBytesSent
+	bucket.ReusedBodyBytes += stats.ReusedBodyBytes
+	bucket.ResponseBytes += responseBytes
+	bucket.DurationMillis += duration
+}
+
+func (r *Recorder) addTrafficLocked(at time.Time, stats transfer.Stats, responseBytes, duration int64, failed bool) {
+	addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(at), stats, responseBytes, duration, failed)
+	addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(at), stats, responseBytes, duration, failed)
+	r.trimTrafficLocked(at)
+}
+
+func (r *Recorder) trimTrafficLocked(now time.Time) {
+	r.data.Traffic.Hourly = trimTrafficSeries(r.data.Traffic.Hourly, now)
+	r.data.Traffic.Daily = trimTrafficSeries(r.data.Traffic.Daily, now)
+}
+
+func trimTrafficSeries(series TrafficSeries, now time.Time) TrafficSeries {
+	cutoff := now.Add(-time.Duration(series.RetentionSeconds) * time.Second)
+	first := 0
+	for first < len(series.Buckets) && series.Buckets[first].Start.Before(cutoff) {
+		first++
+	}
+	if first == 0 {
+		return series
+	}
+	series.Buckets = append([]TrafficBucket{}, series.Buckets[first:]...)
+	return series
+}
+
+func (r *Recorder) backfillTrafficLocked(now time.Time) {
+	earliest := time.Time{}
+	for _, request := range r.data.RecentRequests {
+		if request.FinishedAt == nil || request.State == "running" {
+			continue
+		}
+		failed := request.State != "completed"
+		if earliest.IsZero() || request.FinishedAt.Before(earliest) {
+			earliest = *request.FinishedAt
+		}
+		addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed)
+		addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed)
+	}
+	if earliest.IsZero() {
+		earliest = now
+	}
+	if earliest.Before(r.data.Traffic.Hourly.Since) {
+		r.data.Traffic.Hourly.Since = earliest
+	}
+	if earliest.Before(r.data.Traffic.Daily.Since) {
+		r.data.Traffic.Daily.Since = earliest
+	}
 }
 
 // Close marks the recorder closed and, for a persistent recorder, requests the
@@ -388,6 +575,7 @@ func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string,
 		s.UpdatedAt, s.LastStatus, s.LastError = now, status, code
 		addResult(&s.Totals, failed, stats, responseBytes, duration)
 		addResult(&r.data.Totals, failed, stats, responseBytes, duration)
+		r.addTrafficLocked(now, stats, responseBytes, duration, failed)
 		r.revision++
 		r.markDirty()
 		return
@@ -422,6 +610,8 @@ func (r *Recorder) Snapshot() Snapshot {
 	copy := r.data
 	copy.Sessions = append([]Session{}, r.data.Sessions...)
 	copy.RecentRequests = append([]Request{}, r.data.RecentRequests...)
+	copy.Traffic.Hourly.Buckets = append([]TrafficBucket{}, r.data.Traffic.Hourly.Buckets...)
+	copy.Traffic.Daily.Buckets = append([]TrafficBucket{}, r.data.Traffic.Daily.Buckets...)
 	copy.SessionLimit, copy.RequestLimit, copy.Persistent = SessionLimit, RequestLimit, r.path != ""
 	sort.Slice(copy.Sessions, func(i, j int) bool { return copy.Sessions[i].UpdatedAt.After(copy.Sessions[j].UpdatedAt) })
 	return copy
@@ -496,6 +686,8 @@ func (r *Recorder) flush(final bool) {
 	snapshot := r.data
 	snapshot.Sessions = append([]Session{}, r.data.Sessions...)
 	snapshot.RecentRequests = append([]Request{}, r.data.RecentRequests...)
+	snapshot.Traffic.Hourly.Buckets = append([]TrafficBucket{}, r.data.Traffic.Hourly.Buckets...)
+	snapshot.Traffic.Daily.Buckets = append([]TrafficBucket{}, r.data.Traffic.Daily.Buckets...)
 	revision := r.revision
 	path, write := r.path, r.write
 	r.mu.Unlock()

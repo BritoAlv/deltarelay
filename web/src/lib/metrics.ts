@@ -1,4 +1,4 @@
-import type { RelayRequest, Session, Totals } from "./types.js"
+import type { Session, Totals } from "./types.js"
 
 export function bytes(value: number, precision = 1): string {
   if (!Number.isFinite(value)) return "—"
@@ -47,27 +47,6 @@ export function filterSessions(sessions: Session[], query: string, state: string
     (!text || `${session.id || "unattributed"} ${session.upstream}`.toLowerCase().includes(text)) &&
     (state === "all" || sessionState(session) === state),
   )
-}
-
-export interface TrafficBucket { at: number; body: number; encoded: number; requests: number }
-
-export function trafficBuckets(requests: RelayRequest[], hours: number, now = Date.now()): TrafficBucket[] {
-  const count = 24
-  const step = hours * 3_600_000 / count
-  const start = now - count * step
-  const buckets = Array.from({ length: count }, (_, i) => ({ at: start + i * step, body: 0, encoded: 0, requests: 0 }))
-  for (const request of requests) {
-    if (!request.finished_at || request.state === "running") continue
-    const at = Date.parse(request.finished_at)
-    if (at < start || at > now) continue
-    const i = Math.min(count - 1, Math.floor((at - start) / step))
-    const bucket = buckets[i]
-    if (!bucket) continue
-    bucket.body += request.transfer.body_bytes
-    bucket.encoded += request.transfer.request_body_bytes_sent
-    bucket.requests++
-  }
-  return buckets
 }
 
 export function emptyTotals(): Totals {

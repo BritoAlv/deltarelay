@@ -109,6 +109,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
       destroyed = true
       poller.stop()
       unsubscribe()
+      traffic.destroy()
     },
     get paused() { return state.paused },
   }

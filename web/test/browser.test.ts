@@ -6,6 +6,7 @@ import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemControls } from "../src/scripts/system.js"
 import { makeSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
+import { dateInputValue } from "../src/lib/traffic.js"
 import type { SystemStatus } from "../src/lib/system.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
@@ -103,13 +104,81 @@ test("successful refresh renders stats, accessible chart, sessions, and relay he
   assert.equal(doc.querySelector("#stat-sessions")?.textContent, "6")
   assert.equal(doc.querySelector("#nav-session-count")?.textContent, "6")
   assert.match(doc.querySelector("#traffic-chart")?.innerHTML ?? "", /<svg/)
+  assert.equal(doc.querySelector("#traffic-chart svg")?.getAttribute("preserveAspectRatio"), "xMidYMid meet")
   assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 24 hours.*72 requests/)
+  assert.match(doc.querySelector("#chart-legend")?.textContent ?? "", /Bandwidth saved/)
+  assert.match(doc.querySelector("#chart-legend")?.textContent ?? "", /Relay cache reuse/)
+  assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /72 requests/)
+  assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 1)
   assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
   assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /1–6 of 6 sessions/)
   assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Relay checks passed/)
   assert.equal(doc.querySelector<HTMLAnchorElement>(".page-footer a")?.getAttribute("href"), "/measurement")
   assert.equal(doc.querySelector("#measurement-notes"), null)
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("traffic ranges, views, and custom dates update the chart", async () => {
+  const page = openPage()
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const chart = doc.querySelector("#traffic-chart")!
+  const range = doc.querySelector<HTMLSelectElement>("#chart-range")!
+  const trends = doc.querySelector<HTMLButtonElement>("#chart-view-trends")!
+  const composition = doc.querySelector<HTMLButtonElement>("#chart-view-composition")!
+
+  trends.click()
+  assert.equal(chart.getAttribute("data-view"), "trends")
+  assert.match(chart.innerHTML, /chart-saved-line/)
+  assert.match(chart.innerHTML, /chart-reuse-line/)
+  assert.match(chart.getAttribute("aria-label") ?? "", /Trends view/)
+  assert.equal(trends.getAttribute("aria-pressed"), "true")
+  assert.equal(composition.getAttribute("aria-pressed"), "false")
+
+  composition.click()
+  assert.equal(chart.getAttribute("data-view"), "composition")
+  assert.match(chart.getAttribute("aria-label") ?? "", /Composition view/)
+
+  range.value = "7d"
+  page.fire(range, "change")
+  assert.match(chart.getAttribute("aria-label") ?? "", /Last 7 days/)
+  assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /78 requests/)
+  assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 5)
+
+  range.value = "custom"
+  page.fire(range, "change")
+  assert.equal(doc.querySelector<HTMLElement>("#chart-custom")?.hidden, false)
+  const start = doc.querySelector<HTMLInputElement>("#chart-start")!
+  const end = doc.querySelector<HTMLInputElement>("#chart-end")!
+  assert.ok(start.value)
+  assert.ok(end.value)
+  start.value = end.value
+  doc.querySelector<HTMLButtonElement>("#chart-apply")!.click()
+  assert.equal(doc.querySelector<HTMLElement>("#chart-notice")?.hidden, true)
+
+  start.value = dateInputValue(now)
+  end.value = dateInputValue(now - 86_400_000)
+  doc.querySelector<HTMLButtonElement>("#chart-apply")!.click()
+  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /start date/)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("older gateways fall back to retained request entries", async () => {
+  const page = openPage()
+  const snapshot = makeSnapshot(now)
+  delete snapshot.history.traffic
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  assert.match(doc.querySelector("#traffic-chart")?.innerHTML ?? "", /<svg/)
+  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /does not expose traffic aggregates/)
+  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /retained request entries/)
   dashboard.destroy()
   await page.close()
 })

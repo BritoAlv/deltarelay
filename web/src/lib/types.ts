@@ -50,6 +50,30 @@ export interface RelayRequest {
   duration_ms: number
 }
 
+export interface TrafficBucket {
+  start: string
+  requests: number
+  failed: number
+  body_bytes: number
+  uploaded_chunk_bytes: number
+  encoded_upload_bytes: number
+  reused_body_bytes: number
+  response_bytes: number
+  duration_ms: number
+}
+
+export interface TrafficSeries {
+  since: string
+  bucket_seconds: number
+  retention_seconds: number
+  buckets: TrafficBucket[]
+}
+
+export interface Traffic {
+  hourly: TrafficSeries
+  daily: TrafficSeries
+}
+
 export interface Snapshot {
   version: 1
   collected_at: string
@@ -88,6 +112,7 @@ export interface Snapshot {
     totals: Totals
     sessions: Session[]
     recent_requests: RelayRequest[]
+    traffic?: Traffic
     session_limit: number
     request_limit: number
     evicted_sessions: number

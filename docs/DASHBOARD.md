@@ -18,7 +18,10 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   its launcher is unavailable or Desktop is already running.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed attempts and negative savings.
-- Cache reuse versus raw uploaded chunks; hourly traffic over 24 hours or 7 days.
+- Upload traffic over 24 hours, 7, 30, or 90 days, or a custom date range.
+  Composition and trend views plot bandwidth saved and relay cache reuse with a
+  legend, range summary, tooltips, and responsive axes. Cache reuse versus raw
+  uploaded chunks remains visible beside the chart.
 - Active requests, upstream, request kind (primary/title/compaction/generate),
   status, duration, and safe error codes in a session inspector.
 - A separate **Measurement** page traces any retained session with the same
@@ -188,8 +191,14 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
   idle session is evicted first; active requests/sessions are not evicted.
   Request entries for an evicted session are trimmed too. Global totals are
   preserved and trimming counters are shown in measurement notes.
-- A session that returns after eviction starts new retained totals. Charts and
-  request lists cover retained entries only; they can differ from global totals.
+- Separately from request entries, traffic aggregates keep **hourly buckets for
+  31 days** and **daily buckets for 91 days**. The traffic chart uses these
+  aggregates, so 24-hour, 7-day, 30-day, 90-day, and custom ranges survive
+  request-entry trimming. History from before the gateway upgrade is not
+  reconstructed beyond the retained request entries.
+- A session that returns after eviction starts new retained totals. Session
+  totals and request lists cover retained entries only; the traffic chart uses
+  its own aggregates and can cover a longer window than the request list.
 - Statistics start when the new gateway first runs. Existing logs, old sessions,
   standalone `sync` calls, and activity bypassing this gateway are not imported.
 - Byte totals appear after a request finishes; active requests still show their
@@ -235,6 +244,10 @@ not a fabricated 100%. Failed attempts are included in totals.
 This is a comparison with uncompressed original bodies, **not** a measured direct
 provider-upload baseline. Cache reuse is inventory-time content reuse, not
 provider token/KV-cache reuse. Neither metric promises a provider-billing discount.
+The traffic chart aggregates these values into hourly and daily buckets. In
+composition view, each bar is original body bytes split into uploaded bytes,
+relay cache reuse, and other savings; negative savings appear as a red overshoot.
+Trend view plots original, uploaded, saved, and reused bytes separately.
 
 The separate **Measurement** page (`/measurement`) applies these definitions to a
 session selected from retained history. It uses no separate data source or model

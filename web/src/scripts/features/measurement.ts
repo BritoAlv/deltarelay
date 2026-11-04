@@ -48,7 +48,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
 
   function retentionText(snapshot: Snapshot): string {
     const history = snapshot.history
-    return `History since ${new Date(history.since).toLocaleString()}. Keeps up to ${history.session_limit} sessions and ${integer(history.request_limit)} requests. ${integer(history.evicted_sessions)} older sessions and ${integer(history.dropped_requests)} request entries trimmed; global totals are preserved. Session totals restart if an evicted session reappears. Earlier history is not imported from logs. ${history.persistent ? "History is saved privately on the gateway." : "History is in memory only."}`
+    const traffic = history.traffic
+    const trafficText = traffic
+      ? ` Traffic charts keep hourly aggregates for ${Math.round(traffic.hourly.retention_seconds / 86_400)} days and daily aggregates for ${Math.round(traffic.daily.retention_seconds / 86_400)} days.`
+      : ""
+    return `History since ${new Date(history.since).toLocaleString()}. Keeps up to ${history.session_limit} sessions and ${integer(history.request_limit)} requests.${trafficText} ${integer(history.evicted_sessions)} older sessions and ${integer(history.dropped_requests)} request entries trimmed; global totals are preserved. Session totals restart if an evicted session reappears. Earlier history is not imported from logs. ${history.persistent ? "History is saved privately on the gateway." : "History is in memory only."}`
   }
 
   function updateOptions(sessions: Session[]): void {

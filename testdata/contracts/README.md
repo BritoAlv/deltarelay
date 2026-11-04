@@ -28,6 +28,10 @@ Important compatibility distinctions:
 - Dashboard/history stay v1; relay health uses v2 or zero/empty values when no
   discovery result is available. Running requests legitimately have zero transfer
   counters and an empty hash.
+- `history.traffic` is optional for compatibility with gateways that predate
+  traffic aggregates. When present, hourly and daily bucket arrays must be
+  strictly ordered and within their declared retention; when absent, the
+  dashboard falls back to retained request entries.
 - Raw legacy supervisor v1 uses `codespace_state`. Only the Go boundary normalizes
   it to `remote`, retaining **version 1** for `codespace` action targets. Older v1
   snapshots without an internet probe become `unknown`/`null`, not a failed probe.

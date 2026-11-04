@@ -368,3 +368,137 @@ func TestMemoryRecorderIgnoresPersistenceAndClosesRepeatedly(t *testing.T) {
 		t.Fatalf("memory-only recorder changed semantics: %+v", s)
 	}
 }
+
+func TestTrafficAggregatesFinishedRequests(t *testing.T) {
+	r := recorder(t, "")
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 25, 100)
+	failed := r.Begin("request-00000000002", "ses_1", "mock", "primary")
+	r.Finish(failed, 503, true, "relay_unreachable", sampleTransfer, 30, 120)
+	s := r.Snapshot()
+	for _, series := range []TrafficSeries{s.Traffic.Hourly, s.Traffic.Daily} {
+		if len(series.Buckets) != 1 {
+			t.Fatalf("expected one traffic bucket, got %+v", series.Buckets)
+		}
+		bucket := series.Buckets[0]
+		if bucket.Requests != 2 || bucket.Failed != 1 || bucket.BodyBytes != sampleTransfer.BodyBytes*2 ||
+			bucket.EncodedUploadBytes != sampleTransfer.RequestBodyBytesSent*2 || bucket.ReusedBodyBytes != sampleTransfer.ReusedBodyBytes*2 ||
+			bucket.ResponseBytes != 55 || bucket.DurationMillis != 220 {
+			t.Fatalf("unexpected traffic bucket: %+v", bucket)
+		}
+	}
+	s.Traffic.Hourly.Buckets[0].BodyBytes = -1
+	if r.Snapshot().Traffic.Hourly.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 {
+		t.Fatal("snapshot shared mutable traffic buckets")
+	}
+}
+
+func TestTrafficBucketInsertionMergesAndOrders(t *testing.T) {
+	start := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	var buckets []TrafficBucket
+	addTrafficBucket(&buckets, start, sampleTransfer, 1, 2, false)
+	addTrafficBucket(&buckets, start.Add(2*time.Hour), sampleTransfer, 3, 4, true)
+	addTrafficBucket(&buckets, start.Add(time.Hour), sampleTransfer, 5, 6, false)
+	addTrafficBucket(&buckets, start, sampleTransfer, 7, 8, false)
+	if len(buckets) != 3 || !buckets[0].Start.Equal(start) || !buckets[1].Start.Equal(start.Add(time.Hour)) || !buckets[2].Start.Equal(start.Add(2*time.Hour)) {
+		t.Fatalf("traffic buckets are not ordered: %+v", buckets)
+	}
+	if buckets[0].Requests != 2 || buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 || buckets[1].Requests != 1 || buckets[2].Failed != 1 {
+		t.Fatalf("traffic buckets did not merge or retain failures: %+v", buckets)
+	}
+}
+
+func TestTrafficRetentionTrimsOldBuckets(t *testing.T) {
+	now := time.Now().UTC()
+	series := TrafficSeries{
+		BucketSeconds:    3600,
+		RetentionSeconds: int64(HourlyTrafficRetention / time.Second),
+		Buckets: []TrafficBucket{
+			{Start: now.Add(-HourlyTrafficRetention - time.Hour), Requests: 1},
+			{Start: now.Add(-time.Hour), Requests: 1},
+		},
+	}
+	trimmed := trimTrafficSeries(series, now)
+	if len(trimmed.Buckets) != 1 || !trimmed.Buckets[0].Start.Equal(now.Add(-time.Hour)) {
+		t.Fatalf("retention did not trim the oldest bucket: %+v", trimmed.Buckets)
+	}
+}
+
+func TestTrafficBackfillsLegacyHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	r := recorder(t, "")
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 25, 100)
+	failed := r.Begin("request-00000000002", "ses_1", "mock", "primary")
+	r.Finish(failed, 503, true, "relay_unreachable", sampleTransfer, 30, 120)
+	legacy := r.Snapshot()
+	legacy.Traffic = Traffic{}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	reopened := recorder(t, path)
+	s := reopened.Snapshot()
+	for _, series := range []TrafficSeries{s.Traffic.Hourly, s.Traffic.Daily} {
+		if series.Since.IsZero() || len(series.Buckets) != 1 || series.Buckets[0].Requests != 2 || series.Buckets[0].Failed != 1 || series.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*2 {
+			t.Fatalf("legacy traffic was not backfilled: %+v", series.Buckets)
+		}
+	}
+}
+
+func TestTrafficPersistsAndRejectsCorruption(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	r := recorder(t, path)
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 25, 100)
+	r.Close()
+	reopened := recorder(t, path)
+	if s := reopened.Snapshot(); len(s.Traffic.Hourly.Buckets) != 1 || len(s.Traffic.Daily.Buckets) != 1 {
+		t.Fatalf("traffic did not survive restart: %+v", s.Traffic)
+	}
+	reopened.Close()
+	corrupt := readSnapshot(t, path)
+	corrupt.Traffic.Hourly.Buckets = append(corrupt.Traffic.Hourly.Buckets, corrupt.Traffic.Hourly.Buckets[0])
+	data, err := json.Marshal(corrupt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Fatal("accepted duplicate traffic buckets")
+	}
+}
+
+func TestTrafficTrimsOnLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	r := recorder(t, "")
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 25, 100)
+	snapshot := r.Snapshot()
+	now := time.Now().UTC()
+	snapshot.Traffic.Hourly.Buckets = []TrafficBucket{
+		{Start: hourlyTrafficStart(now.Add(-HourlyTrafficRetention - time.Hour)), Requests: 1},
+		{Start: hourlyTrafficStart(now), Requests: 1},
+	}
+	snapshot.Traffic.Daily.Buckets = []TrafficBucket{
+		{Start: dailyTrafficStart(now.Add(-DailyTrafficRetention - 24*time.Hour)), Requests: 1},
+		{Start: dailyTrafficStart(now), Requests: 1},
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	reopened := recorder(t, path)
+	s := reopened.Snapshot()
+	if len(s.Traffic.Hourly.Buckets) != 1 || len(s.Traffic.Daily.Buckets) != 1 {
+		t.Fatalf("traffic retention was not applied on load: hourly=%d daily=%d", len(s.Traffic.Hourly.Buckets), len(s.Traffic.Daily.Buckets))
+	}
+}

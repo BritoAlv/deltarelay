@@ -24,7 +24,7 @@ test("all declared required fields and numeric counters are checked, not just di
       for (const [key, value] of Object.entries(node)) {
         if (Array.isArray(node)) { visit(value, [...path, key]); continue }
         const field = [...path, key].join(".")
-        const optional = ["last_error", "error_code", "control_error", "finished_at", "last_seen", "expires_at", "checked_at", "error"].includes(key) &&
+        const optional = ["last_error", "error_code", "control_error", "finished_at", "last_seen", "expires_at", "checked_at", "error", "traffic"].includes(key) &&
           field !== "recovery.last_error"
         if (!optional) assert.equal(guard(contractPayload({ name: field, valid: false, fixture: file, changes: [{ path: field, remove: true }] }, file)), false, `missing ${field}`)
         if (typeof value === "number") {
@@ -41,6 +41,12 @@ test("all declared required fields and numeric counters are checked, not just di
     }
     visit(original)
   }
+})
+
+test("legacy diagnostics without traffic aggregates remain compatible", () => {
+  const legacy = structuredClone(readContract("dashboard-v1.json")) as { history: Record<string, unknown> }
+  delete legacy.history.traffic
+  assert.equal(isSnapshot(legacy), true)
 })
 
 test("legacy normalization preserves action routing, and encoded overhead is not a negative wire counter", () => {

@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { bytes, duration, filterSessions, percentage, relativeTime, savings, sessionState, trafficBuckets } from "../src/lib/metrics.js"
+import { bytes, duration, filterSessions, percentage, relativeTime, savings, sessionState } from "../src/lib/metrics.js"
 import { makeSnapshot } from "./fixture.js"
 import { fetchSnapshot, isSnapshot } from "../src/lib/api.js"
 
@@ -28,19 +28,8 @@ test("session filtering is case insensitive and active has priority", () => {
   assert.equal(sessionState({ ...active, active: 0, last_status: 499 }), "attention")
 })
 
-test("traffic buckets ignore running and out-of-window requests", () => {
+test("relative time is clamped for future timestamps", () => {
   const now = Date.parse("2026-10-28T12:15:00Z")
-  const data = makeSnapshot(now)
-  const buckets = trafficBuckets(data.history.recent_requests, 24, now)
-  assert.equal(buckets.length, 24)
-  assert.equal(buckets.reduce((sum, b) => sum + b.requests, 0), 72)
-  assert.equal(buckets.reduce((sum, b) => sum + b.body, 0), data.history.totals.body_bytes)
-  const old = { ...data.history.recent_requests[0]!, finished_at: "2025-01-01T00:00:00Z" }
-  assert.equal(trafficBuckets([old], 24, now).reduce((sum, b) => sum + b.requests, 0), 0)
-  const boundary = { ...old, finished_at: new Date(now - 24 * 3_600_000).toISOString() }
-  const current = { ...old, finished_at: new Date(now).toISOString() }
-  const future = { ...old, finished_at: new Date(now + 1).toISOString() }
-  assert.equal(trafficBuckets([boundary, current, future], 24, now).reduce((sum, b) => sum + b.requests, 0), 2)
   assert.equal(relativeTime(new Date(now + 1000).toISOString(), now), "just now")
 })
 

@@ -13,7 +13,7 @@ export interface OverviewFeature {
   render(state: DashboardViewState): void
 }
 
-const emptyStatIds = ["stat-reduction", "stat-saved", "stat-sessions", "stat-requests", "reuse-value", "reuse-bytes", "uploaded-bytes", "chart-original", "chart-encoded"]
+const emptyStatIds = ["stat-reduction", "stat-saved", "stat-sessions", "stat-requests"]
 
 export function mountOverview({ root, navCount, onRefresh, onPauseToggle }: OverviewOptions): OverviewFeature {
   const refreshButton = requiredById<HTMLButtonElement>(root, "refresh-button")
@@ -24,7 +24,6 @@ export function mountOverview({ root, navCount, onRefresh, onPauseToggle }: Over
   const updatedAt = requiredById(root, "updated-at")
   const refreshNote = requiredById(root, "refresh-note")
   const notice = requiredById<HTMLElement>(root, "notice")
-  const reuseRing = requiredById<SVGCircleElement>(root, "reuse-ring")
   const integer = (value: number) => value.toLocaleString()
 
   refreshButton.addEventListener("click", onRefresh)
@@ -63,7 +62,6 @@ export function mountOverview({ root, navCount, onRefresh, onPauseToggle }: Over
       setText("stat-sessions-foot", "No data")
       setText("stat-requests-foot", "No data")
       navCount.textContent = "—"
-      reuseRing.style.strokeDashoffset = "414.69"
       return
     }
     const totals = snapshot.history.totals
@@ -81,11 +79,6 @@ export function mountOverview({ root, navCount, onRefresh, onPauseToggle }: Over
     setText("stat-requests", integer(totals.requests))
     setText("stat-requests-foot", `${totals.active} running · ${integer(totals.failed)} unsuccessful`)
     navCount.textContent = String(snapshot.history.sessions.length)
-    const reuse = totals.body_bytes > 0 ? totals.reused_body_bytes / totals.body_bytes * 100 : null
-    setText("reuse-value", percentage(reuse))
-    setText("reuse-bytes", bytes(totals.reused_body_bytes))
-    setText("uploaded-bytes", bytes(totals.uploaded_chunk_bytes))
-    reuseRing.style.strokeDashoffset = String(414.69 * (1 - Math.max(0, Math.min(100, reuse ?? 0)) / 100))
   }
 
   return {

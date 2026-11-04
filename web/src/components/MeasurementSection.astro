@@ -41,7 +41,7 @@ import Icon from "./Icon.astro"
       </div>
     </div>
     <div class="measurement-trace" id="measurement-trace"></div>
-    <p class="measurement-retention" id="retention-note">History retains up to 256 sessions and 1,000 requests. Global totals survive retention trimming. Earlier history is not imported from logs.</p>
+    <p class="measurement-retention" id="retention-note">History retains up to 256 sessions and 1,000 requests. Traffic charts keep hourly aggregates for 31 days and daily aggregates for 91 days. Global totals survive retention trimming. Earlier history is not imported from logs.</p>
   </article>
 
   <p class="measurement-footnote"><Icon name="info" size={14} /> Saved bytes compare request bodies, not provider billing. Responses, HTTP/TLS headers, TLS/TCP/IP overhead, and retransmissions are outside these counters.</p>
