@@ -1,0 +1,54 @@
+---
+import "../styles/dashboard.css"
+import DashboardFooter from "../components/DashboardFooter.astro"
+import Icon from "../components/Icon.astro"
+import MeasurementSection from "../components/MeasurementSection.astro"
+import Sidebar from "../components/Sidebar.astro"
+import ThemePicker from "../components/ThemePicker.astro"
+import { defaultTheme } from "../lib/themes"
+---
+<!doctype html>
+<html lang="en" data-theme={defaultTheme.id}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Trace how DeltaRelay measures upload savings for retained sessions, request by request." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>DeltaRelay · Measurement</title>
+    <script is:inline src="/_astro/theme-init.js"></script>
+    <link rel="stylesheet" href="/_astro/themes.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to measurement</a>
+    <Sidebar current="measurement" />
+
+    <div class="page-shell">
+      <main id="main">
+        <div class="appearance-controls"><ThemePicker /></div>
+        <div class="page-heading">
+          <div>
+            <h1 id="measurement-title">Measurement</h1>
+            <p class="page-subtitle">How original request bodies become smaller encoded uploads.</p>
+          </div>
+          <div class="heading-actions">
+            <button class="icon-button" id="measurement-pause-button" type="button" aria-label="Pause automatic refresh" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
+            <button class="button button-secondary" id="measurement-refresh-button" type="button"><Icon name="refresh" size={16} />Refresh</button>
+          </div>
+        </div>
+        <div class="connection-line">
+          <span class="live-badge" id="measurement-connection-badge"><span class="tiny-dot"></span><span id="measurement-connection-label">Connecting</span></span>
+          <span id="measurement-updated-at">Waiting for local gateway</span>
+          <span class="refresh-note" id="measurement-refresh-note">Auto-refresh every 10s</span>
+        </div>
+        <div id="measurement-notice" class="notice" role="status" hidden></div>
+        <noscript><div class="notice">Enable JavaScript to load local diagnostics. This page makes no provider requests.</div></noscript>
+
+        <MeasurementSection />
+        <DashboardFooter href="/" label="Back to dashboard" />
+      </main>
+    </div>
+
+    <script src="../scripts/measurement-main.ts"></script>
+  </body>
+</html>

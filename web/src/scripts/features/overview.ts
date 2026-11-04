@@ -5,7 +5,6 @@ import { requiredById } from "../dom.js"
 export interface OverviewOptions {
   root: HTMLElement
   navCount: HTMLElement
-  notes: HTMLElement
   onRefresh: () => void
   onPauseToggle: () => void
 }
@@ -16,7 +15,7 @@ export interface OverviewFeature {
 
 const emptyStatIds = ["stat-reduction", "stat-saved", "stat-sessions", "stat-requests", "reuse-value", "reuse-bytes", "uploaded-bytes", "chart-original", "chart-encoded"]
 
-export function mountOverview({ root, navCount, notes, onRefresh, onPauseToggle }: OverviewOptions): OverviewFeature {
+export function mountOverview({ root, navCount, onRefresh, onPauseToggle }: OverviewOptions): OverviewFeature {
   const refreshButton = requiredById<HTMLButtonElement>(root, "refresh-button")
   const pauseButton = requiredById<HTMLButtonElement>(root, "pause-button")
   const pauseIcon = pauseButton.innerHTML
@@ -26,7 +25,6 @@ export function mountOverview({ root, navCount, notes, onRefresh, onPauseToggle 
   const refreshNote = requiredById(root, "refresh-note")
   const notice = requiredById<HTMLElement>(root, "notice")
   const reuseRing = requiredById<SVGCircleElement>(root, "reuse-ring")
-  const retentionNote = requiredById(notes, "retention-note")
   const integer = (value: number) => value.toLocaleString()
 
   refreshButton.addEventListener("click", onRefresh)
@@ -88,7 +86,6 @@ export function mountOverview({ root, navCount, notes, onRefresh, onPauseToggle 
     setText("reuse-bytes", bytes(totals.reused_body_bytes))
     setText("uploaded-bytes", bytes(totals.uploaded_chunk_bytes))
     reuseRing.style.strokeDashoffset = String(414.69 * (1 - Math.max(0, Math.min(100, reuse ?? 0)) / 100))
-    retentionNote.textContent = `History since ${new Date(snapshot.history.since).toLocaleString()}. Keeps up to ${snapshot.history.session_limit} sessions and ${integer(snapshot.history.request_limit)} requests. ${integer(snapshot.history.evicted_sessions)} older sessions and ${integer(snapshot.history.dropped_requests)} request entries trimmed; global totals are preserved. Session totals restart if an evicted session reappears. Earlier history is not imported from logs. ${snapshot.history.persistent ? "History is saved privately on the gateway." : "History is in memory only."}`
   }
 
   return {

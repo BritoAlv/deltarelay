@@ -30,7 +30,6 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const healthRoot = requiredById<HTMLElement>(doc, "system")
   const dialog = requiredById<HTMLDialogElement>(doc, "session-dialog")
   const navCount = requiredById<HTMLElement>(doc, "nav-session-count")
-  const notes = requiredById<HTMLElement>(doc, "measurement-notes")
 
   let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null }
   let generation = 0
@@ -39,7 +38,6 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const overview = mountOverview({
     root: overviewRoot,
     navCount,
-    notes,
     onRefresh: () => void refresh(),
     onPauseToggle: () => togglePause(),
   })
@@ -52,13 +50,6 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   })
 
   const poller = createPoller({ intervalMs: 10_000, run: refresh, document: doc, onPaused: render })
-  const notesToggle = requiredById<HTMLAnchorElement>(doc, "notes-toggle")
-  notesToggle.addEventListener("click", (event) => {
-    event.preventDefault()
-    notes.hidden = !notes.hidden
-    notesToggle.setAttribute("aria-expanded", String(!notes.hidden))
-    if (!notes.hidden) notes.scrollIntoView({ block: "nearest" })
-  })
   doc.querySelectorAll<HTMLAnchorElement>("[data-nav]").forEach((link) => link.addEventListener("click", () => {
     doc.querySelectorAll("[data-nav]").forEach((item) => item.classList.toggle("selected", item === link))
   }))

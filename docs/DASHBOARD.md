@@ -21,6 +21,11 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
 - Cache reuse versus raw uploaded chunks; hourly traffic over 24 hours or 7 days.
 - Active requests, upstream, request kind (primary/title/compaction/generate),
   status, duration, and safe error codes in a session inspector.
+- A separate **Measurement** page traces any retained session with the same
+  read-only snapshot. It shows the measured body-to-wire process, a direct
+  original-versus-encoded comparison, and an expandable per-request ledger with
+  cache reuse, raw chunk uploads, encoded bytes, HTTP attempts, and response
+  bytes that are excluded from upload savings.
 - Gateway concurrency and uptime; relay reachability, identity, protocol and
   health-check latency; chunk-cache and durable-response-mailbox usage/capacity;
   pending cancellations and control errors.
@@ -141,7 +146,9 @@ gateway**, not the VPS bearer token:
   --assets web/dist
 ```
 
-Open **http://127.0.0.1:8790**. `DELTARELAY_LOCAL_TOKEN_FILE` or
+Open **http://127.0.0.1:8790**. The separate **Measurement** page lives at
+**http://127.0.0.1:8790/measurement** and is linked from the sidebar and the main
+dashboard footer. `DELTARELAY_LOCAL_TOKEN_FILE` or
 `DELTARELAY_LOCAL_TOKEN` are supported instead of the flag, just as for the
 gateway. Never put tokens in URLs or browser-side environment variables. Token
 files must be private (`chmod 600`). Run from the repository root or pass an
@@ -228,7 +235,17 @@ not a fabricated 100%. Failed attempts are included in totals.
 This is a comparison with uncompressed original bodies, **not** a measured direct
 provider-upload baseline. Cache reuse is inventory-time content reuse, not
 provider token/KV-cache reuse. Neither metric promises a provider-billing discount.
-The dashboard's “How savings are measured” section repeats these boundaries.
+
+The separate **Measurement** page (`/measurement`) applies these definitions to a
+session selected from retained history. It uses no separate data source or model
+request. The session summary shows original bytes, encoded uploads, saved bytes,
+reduction, and relay content reuse. The request ledger expands each retained
+request into chunks, unique chunks, uploaded chunks, missing and reused bytes,
+actual HTTP attempts, encoded bytes, and response bytes. Running requests show
+pending transfer totals instead of fabricated zeros; failed and interrupted
+requests keep their measured partial values. If request entries were trimmed from
+bounded history, the page states how many retained entries the ledger covers and
+does not imply the visible requests reconcile to the session totals.
 
 ## Development
 
@@ -261,8 +278,8 @@ The tests cover session grouping, concurrency, savings, streaming active state,
 failure accounting, bounded retention, restart interruption, private persistence,
 file locking, write failures, authentication, credential/header isolation,
 read-only routes, origin/Host checks, redirects, and frontend measurement logic.
-The browser smoke tests render the built static page into a lightweight DOM with
+The browser smoke tests render the built static pages into a lightweight DOM with
 mocked same-origin APIs; they cover loading, successful and stale refreshes,
-filtering/pagination, session details, CSV export, independent supervisor
-controls, and duplicate Desktop-launch prevention without starting any real
-service or Desktop process.
+filtering/pagination, session details, the standalone measurement page and its
+session/request traces, CSV export, independent supervisor controls, and duplicate
+Desktop-launch prevention without starting any real service or Desktop process.

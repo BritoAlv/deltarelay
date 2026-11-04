@@ -113,9 +113,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/deltarelay-linux
 
 The optional **Astro + TypeScript** dashboard shows per-session bandwidth savings,
 active and recent requests, cache reuse, VPS/storage/mailbox health, pending
-cancellations, and observed provider results. Optional supervisor integration adds
-service Start/Restart controls, automatic network recovery, capability-based remote
-host wake/stop controls, and a ChatGPT access-token expiry countdown.
+cancellations, and observed provider results. A separate Measurement page traces
+a retained session from original body to encoded wire bytes, request by request.
+Optional supervisor integration adds service Start/Restart controls, automatic
+network recovery, capability-based remote host wake/stop controls, and a ChatGPT
+access-token expiry countdown.
 It distinguishes **no internet** from an **unreachable VPS**. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.

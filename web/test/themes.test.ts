@@ -74,9 +74,11 @@ test("dashboard components and chart graphics do not hardcode palette colors", a
   for (const [, token] of css.matchAll(/var\(--([a-z-]+)/g)) {
     assert.ok(token === "mono" || themeTokens.some((key) => key === token), `Unknown theme token: ${token}`)
   }
-  const page = await readFile(new URL("../../src/pages/index.astro", import.meta.url), "utf8")
-  assert.match(page, /<script is:inline src="\/_astro\/theme-init\.js"><\/script>/)
-  assert.ok(page.indexOf('/_astro/theme-init.js') < page.indexOf('/_astro/themes.css'))
+  for (const pagePath of ["../../src/pages/index.astro", "../../src/pages/measurement.astro"]) {
+    const page = await readFile(new URL(pagePath, import.meta.url), "utf8")
+    assert.match(page, /<script is:inline src="\/_astro\/theme-init\.js"><\/script>/)
+    assert.ok(page.indexOf('/_astro/theme-init.js') < page.indexOf('/_astro/themes.css'))
+  }
   const config = await readFile(new URL("../../astro.config.mjs", import.meta.url), "utf8")
   assert.match(config, /assetsInlineLimit:\s*0/)
 })

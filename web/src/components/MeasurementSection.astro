@@ -1,0 +1,48 @@
+---
+import Icon from "./Icon.astro"
+---
+<section id="measurement" class="measurement-section" aria-labelledby="measurement-title">
+  <div class="measurement-method-grid">
+    <article class="panel method-card">
+      <span class="method-icon"><Icon name="activity" size={18} /></span>
+      <h2>Original body</h2>
+      <p>Uncompressed request-body bytes read from the client before chunking or compression. This is the 100% baseline for every comparison.</p>
+      <code>body_bytes</code>
+    </article>
+    <article class="panel method-card">
+      <span class="method-icon"><Icon name="arrow" size={18} /></span>
+      <h2>Encoded upload</h2>
+      <p>Request-body bytes actually sent: manifests, control RPCs, chunk framing, gzip when smaller, and retry attempts. HTTP/TLS headers, responses, and packet overhead are excluded.</p>
+      <code>request_body_bytes_sent</code>
+    </article>
+    <article class="panel method-card">
+      <span class="method-icon"><Icon name="download" size={18} /></span>
+      <h2>Saved / reduction</h2>
+      <p>Saved = original − encoded. Reduction = 100 × (1 − encoded ÷ original). Failed attempts remain included, and small calls or retries can produce negative savings.</p>
+      <code>body_bytes − request_body_bytes_sent</code>
+    </article>
+    <article class="panel method-card">
+      <span class="method-icon"><Icon name="bolt" size={18} /></span>
+      <h2>Content reuse</h2>
+      <p>Body bytes already present in the relay cache at inventory time. This is not provider token/KV-cache reuse and does not promise a provider-billing discount.</p>
+      <code>reused_body_bytes</code>
+    </article>
+  </div>
+
+  <article class="panel measurement-trace-panel">
+    <div class="measurement-toolbar">
+      <div>
+        <h2>Trace a retained session</h2>
+        <p>Pick one of the sessions retained by the gateway. Every value below comes from the same local dashboard snapshot.</p>
+      </div>
+      <div class="measurement-picker">
+        <label for="measurement-session">Session</label>
+        <select id="measurement-session" disabled><option>Waiting for local gateway…</option></select>
+      </div>
+    </div>
+    <div class="measurement-trace" id="measurement-trace"></div>
+    <p class="measurement-retention" id="retention-note">History retains up to 256 sessions and 1,000 requests. Global totals survive retention trimming. Earlier history is not imported from logs.</p>
+  </article>
+
+  <p class="measurement-footnote"><Icon name="info" size={14} /> Saved bytes compare request bodies, not provider billing. Responses, HTTP/TLS headers, TLS/TCP/IP overhead, and retransmissions are outside these counters.</p>
+</section>

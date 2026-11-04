@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs"
 import { Window } from "happy-dom"
 
-const pageHtml = readFileSync(new URL("../../dist/index.html", import.meta.url), "utf8")
+const pageHtml = {
+  index: readFileSync(new URL("../../dist/index.html", import.meta.url), "utf8"),
+  measurement: readFileSync(new URL("../../dist/measurement/index.html", import.meta.url), "utf8"),
+}
 
 export interface BrowserPage {
   window: Window
@@ -13,12 +16,12 @@ export interface BrowserPage {
   close(): Promise<void>
 }
 
-// The smoke tests render the real static page produced by `pnpm build` into a
+// The smoke tests render the real static pages produced by `pnpm build` into a
 // lightweight browser DOM, disable external script/CSS loading, and drive the
 // controllers with mocked same-origin APIs. No real service is contacted.
-export function openPage(): BrowserPage {
+export function openPage(page: "index" | "measurement" = "index"): BrowserPage {
   const window = new Window({
-    url: "http://127.0.0.1:8790/",
+    url: page === "measurement" ? "http://127.0.0.1:8790/measurement" : "http://127.0.0.1:8790/",
     settings: {
       disableJavaScriptFileLoading: true,
       disableCSSFileLoading: true,
@@ -26,7 +29,7 @@ export function openPage(): BrowserPage {
       handleDisabledFileLoadingAsSuccess: true,
     },
   })
-  window.document.write(pageHtml)
+  window.document.write(pageHtml[page])
   const document = window.document as unknown as Document
   const fetchCalls: { url: string; init: RequestInit }[] = []
   let fetchHandler: (url: string, init: RequestInit) => Promise<Response> | Response = () => {

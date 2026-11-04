@@ -2,6 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { json, openPage } from "./browser.js"
 import { startDashboard } from "../src/scripts/dashboard.js"
+import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemControls } from "../src/scripts/system.js"
 import { makeSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
@@ -43,6 +44,51 @@ test("initial page state loads without presenting fabricated diagnostics", async
   await page.close()
 })
 
+test("measurement page renders definitions and traces a selected session", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  page.setFetch((url) => {
+    assert.equal(url, "/api/dashboard")
+    return json(snapshot)
+  })
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#measurement-connection-label")?.textContent, "Live")
+  assert.match(doc.querySelector("#measurement")?.textContent ?? "", /Original body/)
+  assert.match(doc.querySelector("#measurement")?.textContent ?? "", /Encoded upload/)
+  const select = doc.querySelector<HTMLSelectElement>("#measurement-session")!
+  assert.equal(select.options.length, 6)
+  assert.equal(select.value, snapshot.history.sessions[0]!.id)
+  const trace = doc.querySelector("#measurement-trace")!
+  assert.match(trace.textContent ?? "", /From body to wire/)
+  assert.match(trace.textContent ?? "", /Request ledger/)
+  assert.match(trace.textContent ?? "", /Transfer totals pending/)
+  assert.match(trace.textContent ?? "", /Show all .* retained requests/)
+  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 sessions and 1,000 requests/)
+  select.value = snapshot.history.sessions[1]!.id
+  page.fire(select, "change")
+  assert.match(trace.textContent ?? "", /api-refactor/)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement page shows an empty state and never invents a trace", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  snapshot.history.sessions = []
+  snapshot.history.recent_requests = []
+  page.setFetch(() => json(snapshot))
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector<HTMLSelectElement>("#measurement-session")?.disabled, true)
+  assert.match(doc.querySelector("#measurement-trace")?.textContent ?? "", /No retained sessions/)
+  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /global totals are preserved/)
+  measurement.destroy()
+  await page.close()
+})
+
 test("successful refresh renders stats, accessible chart, sessions, and relay health", async () => {
   const page = openPage()
   const snapshot = makeSnapshot(now)
@@ -61,7 +107,8 @@ test("successful refresh renders stats, accessible chart, sessions, and relay he
   assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
   assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /1–6 of 6 sessions/)
   assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Relay checks passed/)
-  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 sessions and 1,000 requests/)
+  assert.equal(doc.querySelector<HTMLAnchorElement>(".page-footer a")?.getAttribute("href"), "/measurement")
+  assert.equal(doc.querySelector("#measurement-notes"), null)
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
   dashboard.destroy()
   await page.close()

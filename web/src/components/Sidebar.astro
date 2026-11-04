@@ -1,14 +1,19 @@
 ---
 import Icon from "./Icon.astro"
+interface Props {
+  current?: "overview" | "sessions" | "measurement" | "controls" | "system"
+}
+const { current = "overview" } = Astro.props
 ---
 <aside class="sidebar">
-  <a class="brand" href="#overview" aria-label="DeltaRelay overview"><span class="brand-symbol">Δ</span><span>delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span></a>
+  <a class="brand" href="/#overview" aria-label="DeltaRelay overview"><span class="brand-symbol">Δ</span><span>delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span></a>
   <p class="nav-label">MONITOR</p>
   <nav aria-label="Dashboard navigation">
-    <a class="nav-link selected" href="#overview" data-nav="overview" aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span></a>
-    <a class="nav-link" href="#sessions" data-nav="sessions" aria-label="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
-    <a class="nav-link" href="#controls" data-nav="controls" aria-label="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
-    <a class="nav-link" href="#system" data-nav="system" aria-label="System health"><Icon name="activity" size={18} /><span>System health</span></a>
+    <a class:list={["nav-link", { selected: current === "overview" }]} href="/#overview" data-nav="overview" aria-label="Overview"><Icon name="overview" size={18} /><span>Overview</span></a>
+    <a class:list={["nav-link", { selected: current === "sessions" }]} href="/#sessions" data-nav="sessions" aria-label="Sessions"><Icon name="sessions" size={18} /><span>Sessions</span><span class="nav-count" id="nav-session-count">—</span></a>
+    <a class:list={["nav-link", { selected: current === "measurement" }]} href="/measurement" data-nav="measurement" aria-label="Measurement"><Icon name="measure" size={18} /><span>Measurement</span></a>
+    <a class:list={["nav-link", { selected: current === "controls" }]} href="/#controls" data-nav="controls" aria-label="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
+    <a class:list={["nav-link", { selected: current === "system" }]} href="/#system" data-nav="system" aria-label="System health"><Icon name="activity" size={18} /><span>System health</span></a>
   </nav>
   <div class="sidebar-bottom"><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
 </aside>

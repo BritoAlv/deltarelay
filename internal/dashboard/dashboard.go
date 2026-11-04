@@ -71,9 +71,11 @@ func New(config Config) (*Handler, error) {
 		h.control = controlClient(config.ControlSocket)
 	}
 	if config.Assets != "" {
-		info, err := os.Stat(filepath.Join(config.Assets, "index.html"))
-		if err != nil || !info.Mode().IsRegular() {
-			return nil, errors.New("dashboard build not found; run pnpm build first, or use --assets '' for API-only development")
+		for _, page := range []string{"index.html", filepath.Join("measurement", "index.html")} {
+			info, err := os.Stat(filepath.Join(config.Assets, page))
+			if err != nil || !info.Mode().IsRegular() {
+				return nil, errors.New("dashboard build not found; run pnpm build first, or use --assets '' for API-only development")
+			}
 		}
 		h.files = http.FileServer(http.Dir(config.Assets))
 	}
@@ -124,7 +126,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.system(w, r)
 		return
 	}
-	if h.files != nil && (r.URL.Path == "/" || r.URL.Path == "/favicon.svg" || strings.HasPrefix(r.URL.Path, "/_astro/") && !strings.HasSuffix(r.URL.Path, "/")) {
+	if h.files != nil && (r.URL.Path == "/" || r.URL.Path == "/measurement" || r.URL.Path == "/measurement/" || r.URL.Path == "/favicon.svg" || strings.HasPrefix(r.URL.Path, "/_astro/") && !strings.HasSuffix(r.URL.Path, "/")) {
+		// Serve the built directory index directly instead of leaking a
+		// FileServer redirect for the friendly /measurement URL.
+		if r.URL.Path == "/measurement" {
+			r.URL.Path = "/measurement/"
+		}
 		h.files.ServeHTTP(w, r)
 		return
 	}
