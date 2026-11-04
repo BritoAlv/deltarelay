@@ -228,6 +228,9 @@ class RealDashboardTest(unittest.TestCase):
             (project / 'web/dist').mkdir(parents=True)
             (profile / 'logs').mkdir(parents=True)
             (project / 'web/dist/index.html').write_text('<!doctype html><title>DeltaRelay</title>')
+            for page in ('measurement', 'sessions', 'controls', 'system'):
+                (project / 'web/dist' / page).mkdir()
+                (project / 'web/dist' / page / 'index.html').write_text(f'<!doctype html><title>DeltaRelay {page}</title>')
             token = profile / 'local.token'
             token.write_text('dashboard-test-token')
             token.chmod(0o600)

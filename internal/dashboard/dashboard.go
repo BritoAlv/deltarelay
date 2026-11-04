@@ -19,6 +19,19 @@ import (
 
 const DefaultAuthIntegration = "openai"
 
+// staticPages are the only HTML paths the dashboard exposes. Files under these
+// directories are never served directly.
+var staticPages = map[string]bool{
+	"/measurement":  true,
+	"/measurement/": true,
+	"/sessions":     true,
+	"/sessions/":    true,
+	"/controls":     true,
+	"/controls/":    true,
+	"/system":       true,
+	"/system/":      true,
+}
+
 type Config struct {
 	GatewayURL          string
 	LocalToken          string
@@ -71,7 +84,13 @@ func New(config Config) (*Handler, error) {
 		h.control = controlClient(config.ControlSocket)
 	}
 	if config.Assets != "" {
-		for _, page := range []string{"index.html", filepath.Join("measurement", "index.html")} {
+		for _, page := range []string{
+			"index.html",
+			filepath.Join("measurement", "index.html"),
+			filepath.Join("sessions", "index.html"),
+			filepath.Join("controls", "index.html"),
+			filepath.Join("system", "index.html"),
+		} {
 			info, err := os.Stat(filepath.Join(config.Assets, page))
 			if err != nil || !info.Mode().IsRegular() {
 				return nil, errors.New("dashboard build not found; run pnpm build first, or use --assets '' for API-only development")
@@ -126,14 +145,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.system(w, r)
 		return
 	}
-	if h.files != nil && (r.URL.Path == "/" || r.URL.Path == "/measurement" || r.URL.Path == "/measurement/" || r.URL.Path == "/favicon.svg" || strings.HasPrefix(r.URL.Path, "/_astro/") && !strings.HasSuffix(r.URL.Path, "/")) {
-		// Serve the built directory index directly instead of leaking a
-		// FileServer redirect for the friendly /measurement URL.
-		if r.URL.Path == "/measurement" {
-			r.URL.Path = "/measurement/"
+	if h.files != nil {
+		path := r.URL.Path
+		if path == "/favicon.svg" || strings.HasPrefix(path, "/_astro/") && !strings.HasSuffix(path, "/") {
+			h.files.ServeHTTP(w, r)
+			return
 		}
-		h.files.ServeHTTP(w, r)
-		return
+		if path == "/" || staticPages[path] {
+			// Serve the built directory index directly instead of leaking a
+			// FileServer redirect for friendly page URLs.
+			if path != "/" && !strings.HasSuffix(path, "/") {
+				r.URL.Path += "/"
+			}
+			h.files.ServeHTTP(w, r)
+			return
+		}
 	}
 	http.NotFound(w, r)
 }

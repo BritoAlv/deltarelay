@@ -1,0 +1,40 @@
+---
+import "../styles/dashboard.css"
+import Sidebar from "../components/Sidebar.astro"
+import { defaultTheme } from "../lib/themes"
+
+interface Props {
+  title: string
+  description: string
+  current?: "overview" | "sessions" | "measurement" | "controls" | "system"
+  skipLabel?: string
+}
+
+const { title, description, current = "overview", skipLabel = "Skip to content" } = Astro.props
+---
+<!doctype html>
+<html lang="en" data-theme={defaultTheme.id}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{title}</title>
+    <script is:inline src="/_astro/theme-init.js"></script>
+    <link rel="stylesheet" href="/_astro/themes.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">{skipLabel}</a>
+    <Sidebar current={current} />
+
+    <div class="page-shell">
+      <main id="main">
+        <slot />
+      </main>
+    </div>
+
+    <slot name="overlays" />
+    <slot name="scripts" />
+  </body>
+</html>

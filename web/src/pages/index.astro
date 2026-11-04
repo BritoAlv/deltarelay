@@ -1,41 +1,20 @@
 ---
-import "../styles/dashboard.css"
 import DashboardFooter from "../components/DashboardFooter.astro"
+import DashboardHeader from "../components/DashboardHeader.astro"
 import OverviewSection from "../components/OverviewSection.astro"
-import SessionDialog from "../components/SessionDialog.astro"
-import SessionsSection from "../components/SessionsSection.astro"
-import Sidebar from "../components/Sidebar.astro"
-import SystemControls from "../components/SystemControls.astro"
-import SystemHealth from "../components/SystemHealth.astro"
-import { defaultTheme } from "../lib/themes"
+import DashboardLayout from "../layouts/DashboardLayout.astro"
 ---
-<!doctype html>
-<html lang="en" data-theme={defaultTheme.id}>
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
-    <meta name="description" content="Local, private observability for DeltaRelay. Track per-session bandwidth savings and relay health." />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>DeltaRelay · Dashboard</title>
-    <script is:inline src="/_astro/theme-init.js"></script>
-    <link rel="stylesheet" href="/_astro/themes.css" />
-  </head>
-  <body>
-    <a class="skip-link" href="#main">Skip to dashboard</a>
-    <Sidebar />
+<DashboardLayout
+  title="DeltaRelay · Dashboard"
+  description="Local, private observability for DeltaRelay. Track per-session bandwidth savings and relay health."
+  current="overview"
+  skipLabel="Skip to overview"
+>
+  <DashboardHeader title="Overview" subtitle="Upload savings and relay traffic across retained sessions." />
+  <OverviewSection />
+  <DashboardFooter />
 
-    <div class="page-shell">
-      <main id="main">
-        <OverviewSection />
-        <SystemControls />
-        <SystemHealth />
-        <SessionsSection />
-        <DashboardFooter />
-      </main>
-    </div>
-
-    <SessionDialog />
-    <script src="../scripts/main.ts"></script>
-  </body>
-</html>
+  <Fragment slot="scripts">
+    <script src="../scripts/overview-main.ts"></script>
+  </Fragment>
+</DashboardLayout>

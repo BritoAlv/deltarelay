@@ -1,0 +1,20 @@
+---
+import DashboardFooter from "../components/DashboardFooter.astro"
+import DashboardHeader from "../components/DashboardHeader.astro"
+import SystemHealth from "../components/SystemHealth.astro"
+import DashboardLayout from "../layouts/DashboardLayout.astro"
+---
+<DashboardLayout
+  title="DeltaRelay · System health"
+  description="Local gateway, VPS connection, storage, and provider forwarding health for DeltaRelay."
+  current="system"
+  skipLabel="Skip to system health"
+>
+  <DashboardHeader title="System health" subtitle="Local gateway, relay connection, storage, and provider forwarding." />
+  <SystemHealth />
+  <DashboardFooter />
+
+  <Fragment slot="scripts">
+    <script src="../scripts/health-main.ts"></script>
+  </Fragment>
+</DashboardLayout>

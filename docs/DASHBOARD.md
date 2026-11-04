@@ -152,9 +152,11 @@ gateway**, not the VPS bearer token:
   --assets web/dist
 ```
 
-Open **http://127.0.0.1:8790**. The separate **Measurement** page lives at
-**http://127.0.0.1:8790/measurement** and is linked from the sidebar and the main
-dashboard footer. `DELTARELAY_LOCAL_TOKEN_FILE` or
+Open **http://127.0.0.1:8790**. The dashboard is split into focused pages:
+**Overview** (`/`), **Sessions** (`/sessions`), **System controls** (`/controls`),
+**System health** (`/system`), and **Measurement** (`/measurement`). The sidebar
+links every page, and each page polls only the API it needs with its own
+refresh/pause state. `DELTARELAY_LOCAL_TOKEN_FILE` or
 `DELTARELAY_LOCAL_TOKEN` are supported instead of the flag, just as for the
 gateway. Never put tokens in URLs or browser-side environment variables. Token
 files must be private (`chmod 600`). Run from the repository root or pass an

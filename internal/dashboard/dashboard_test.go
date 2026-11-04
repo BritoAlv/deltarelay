@@ -23,11 +23,13 @@ func newHandler(t *testing.T, gateway string) *Handler {
 	if err := os.WriteFile(filepath.Join(assets, "_astro", "app.js"), []byte("export {}"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(assets, "measurement"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(assets, "measurement", "index.html"), []byte("<!doctype html><title>DeltaRelay Measurement</title>"), 0600); err != nil {
-		t.Fatal(err)
+	for _, page := range []string{"measurement", "sessions", "controls", "system"} {
+		if err := os.Mkdir(filepath.Join(assets, page), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(assets, page, "index.html"), []byte("<!doctype html><title>DeltaRelay "+page+"</title>"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h, err := New(Config{GatewayURL: gateway, LocalToken: "private-local-test-token", Assets: assets})
 	if err != nil {
@@ -62,17 +64,19 @@ func TestReadOnlyProxyKeepsCredentialsOnServer(t *testing.T) {
 	if calls.Load() != 1 || response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatal("missing diagnostic isolation")
 	}
-	for _, path := range []string{"/", "/measurement", "/measurement/", "/_astro/app.js"} {
+	for _, path := range []string{"/", "/measurement", "/measurement/", "/sessions", "/sessions/", "/controls", "/controls/", "/system", "/system/", "/_astro/app.js"} {
 		response := httptest.NewRecorder()
 		h.ServeHTTP(response, httptest.NewRequest("GET", "http://localhost:8790"+path, nil))
 		if response.Code != 200 || strings.Contains(response.Body.String(), "private-local-test-token") || response.Header().Get("Content-Security-Policy") == "" {
 			t.Fatalf("static asset %s leaked credentials or lacked CSP: %d", path, response.Code)
 		}
 	}
-	response = httptest.NewRecorder()
-	h.ServeHTTP(response, httptest.NewRequest("GET", "http://localhost:8790/measurement/private", nil))
-	if response.Code == 200 {
-		t.Fatal("unlisted measurement subpath was served")
+	for _, path := range []string{"/measurement/private", "/sessions/private", "/controls/private", "/system/private"} {
+		response = httptest.NewRecorder()
+		h.ServeHTTP(response, httptest.NewRequest("GET", "http://localhost:8790"+path, nil))
+		if response.Code == 200 {
+			t.Fatalf("unlisted subpath %s was served", path)
+		}
 	}
 }
 

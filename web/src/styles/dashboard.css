@@ -54,6 +54,7 @@
   .tiny-dot { display: inline-block; border-radius: 50%; width: 6px; height: 6px; background: var(--accent); flex-shrink: 0; }
   .sidebar-version { border-top: 1px solid var(--border); display: flex; justify-content: space-between; padding: 17px 9px 0; font: 9px var(--mono); color: var(--subtle); letter-spacing: .4px; }
   .page-heading, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .section-heading.end { justify-content: flex-end; }
   h1 { font-size: 34px; font-weight: 530; letter-spacing: -1.25px; line-height: 1.25; }
   .heading-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px; align-self: flex-end; padding-bottom: 2px; }
   #open-desktop { white-space: nowrap; }

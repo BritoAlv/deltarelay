@@ -116,9 +116,11 @@ active and recent requests, cache reuse, multi-day upload traffic, VPS/storage/
 mailbox health, pending cancellations, and observed provider results. Failed and
 client-cancelled requests are counted separately. Traffic
 ranges cover 24 hours, 7, 30, or 90 days, or a custom date range, with composition
-and trend views for bandwidth saved and relay cache reuse. A separate Measurement
-page traces a retained session from original body to encoded wire bytes, request
-by request.
+and trend views for bandwidth saved and relay cache reuse. The dashboard is split
+into Overview, Sessions, System controls, and System health pages; a separate
+Measurement page traces a retained session from original body to encoded wire
+bytes, request by request. Each page polls only the API it needs and has its own
+refresh/pause state.
 Optional supervisor integration adds service Start/Restart controls, automatic
 network recovery, capability-based remote host wake/stop controls, and a ChatGPT
 access-token expiry countdown.

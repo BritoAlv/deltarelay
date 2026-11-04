@@ -1,0 +1,20 @@
+---
+import DashboardFooter from "../components/DashboardFooter.astro"
+import DashboardHeader from "../components/DashboardHeader.astro"
+import SystemControls from "../components/SystemControls.astro"
+import DashboardLayout from "../layouts/DashboardLayout.astro"
+---
+<DashboardLayout
+  title="DeltaRelay · System controls"
+  description="Recover the relay, manage services, and inspect supervisor-backed controls for DeltaRelay."
+  current="controls"
+  skipLabel="Skip to system controls"
+>
+  <DashboardHeader title="System controls" subtitle="Recovery, remote power, and services run independently of the gateway." refreshNote="Auto-refresh every 5s" />
+  <SystemControls />
+  <DashboardFooter />
+
+  <Fragment slot="scripts">
+    <script src="../scripts/controls-main.ts"></script>
+  </Fragment>
+</DashboardLayout>

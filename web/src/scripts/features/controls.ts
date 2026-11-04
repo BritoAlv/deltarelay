@@ -1,10 +1,8 @@
 import { connectionState, controlError, countdown, desktopLaunchState, recoveryStatus, remoteActionTarget, sendControl, supportsRemote, type SystemStatus } from "../../lib/system.js"
-import { systemObservations, type SystemObservation } from "../../lib/state.js"
 import { requiredById } from "../dom.js"
 
 export interface ControlsOptions {
   root: HTMLElement
-  overviewRoot: HTMLElement
   onRefresh: () => void
 }
 
@@ -13,7 +11,7 @@ export interface ControlsFeature {
   renderAuth(): void
 }
 
-export function mountControls({ root, overviewRoot, onRefresh }: ControlsOptions): ControlsFeature {
+export function mountControls({ root, onRefresh }: ControlsOptions): ControlsFeature {
   const recoverAll = requiredById<HTMLButtonElement>(root, "recover-all")
   const restartAll = requiredById<HTMLButtonElement>(root, "restart-all")
   const autoReconnect = requiredById<HTMLInputElement>(root, "auto-reconnect")
@@ -22,9 +20,8 @@ export function mountControls({ root, overviewRoot, onRefresh }: ControlsOptions
   const remotePowerNotice = requiredById<HTMLElement>(root, "remote-power-notice")
   const wakeRemote = requiredById<HTMLButtonElement>(root, "wake-remote")
   const stopRemote = requiredById<HTMLButtonElement>(root, "stop-remote")
-  const openDesktop = requiredById<HTMLButtonElement>(overviewRoot, "open-desktop")
-  const refreshButton = requiredById<HTMLButtonElement>(overviewRoot, "refresh-button")
-  const desktopStatus = requiredById(overviewRoot, "desktop-status")
+  const openDesktop = requiredById<HTMLButtonElement>(root, "open-desktop")
+  const desktopStatus = requiredById(root, "desktop-status")
   const controlNotice = requiredById<HTMLElement>(root, "control-notice")
   const serviceControls = requiredById(root, "service-controls")
   const setText = (id: string, value: string) => { requiredById(root, id).textContent = value }
@@ -75,10 +72,8 @@ export function mountControls({ root, overviewRoot, onRefresh }: ControlsOptions
     wakeRemote.disabled = disabled || !canWake
     stopRemote.hidden = !canStop
     stopRemote.disabled = disabled || !canStop || Boolean(system?.remote.host_state === "stopped" && system.relay_state !== "connected")
-    let observation: SystemObservation | null = null
     if (system) {
       const connection = connectionState(system)
-      observation = { connection, collectedAt: system.collected_at, receivedAt: receivedAt || null, stale, managed: system.managed }
       autoReconnect.checked = system.settings.auto_reconnect
       autoWake.checked = system.settings.auto_wake
       badge("control-connection", stale ? "Stale" : connection === "connected" ? "Connected" : system.recovery.busy ? "Recovering" : connection === "remote_stopped" ? "Stopped" : connection === "no_internet" ? "No internet" : connection === "vps_unreachable" ? "VPS unreachable" : "Disconnected", !stale && connection === "connected")
@@ -112,8 +107,6 @@ export function mountControls({ root, overviewRoot, onRefresh }: ControlsOptions
     }
     controlNotice.hidden = !lastMessage && !stale
     controlNotice.textContent = lastMessage || (stale ? "System status is stale. Controls are disabled until a fresh connection is available." : "")
-    if (!system) observation = { connection: "unknown", collectedAt: null, receivedAt: receivedAt || null, stale: true, managed: false }
-    systemObservations.publish(observation)
     renderAuth()
   }
 
@@ -173,7 +166,6 @@ export function mountControls({ root, overviewRoot, onRefresh }: ControlsOptions
   stopRemote.addEventListener("click", () => void actionRequest("remote", "stop"))
   autoReconnect.addEventListener("change", () => void settings())
   autoWake.addEventListener("change", () => void settings())
-  refreshButton.addEventListener("click", onRefresh)
 
   return {
     update(status, nextStale, nextReceivedAt) {

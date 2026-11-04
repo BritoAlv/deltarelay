@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { json, openPage } from "./browser.js"
 import { startDashboard } from "../src/scripts/dashboard.js"
 import { startMeasurementPage } from "../src/scripts/measurement-page.js"
-import { startSystemControls } from "../src/scripts/system.js"
+import { startSystemStatus } from "../src/scripts/system.js"
 import { makeSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue } from "../src/lib/traffic.js"
@@ -32,15 +32,25 @@ function abortError(): Error {
   return error
 }
 
-test("initial page state loads without presenting fabricated diagnostics", async () => {
+test("every page marks exactly its own sidebar entry as current", async () => {
+  for (const [page, href] of [["index", "/"], ["sessions", "/sessions"], ["measurement", "/measurement"], ["controls", "/controls"], ["system", "/system"]] as const) {
+    const browser = openPage(page)
+    const selected = browser.document.querySelectorAll<HTMLAnchorElement>("a.nav-link.selected")
+    assert.equal(selected.length, 1, `${page} selected links`)
+    assert.equal(selected[0]?.getAttribute("href"), href)
+    assert.equal(selected[0]?.getAttribute("aria-current"), "page")
+    await browser.close()
+  }
+})
+
+test("initial overview state loads without presenting fabricated diagnostics", async () => {
   const page = openPage()
-  page.setFetch(() => { throw new Error("No request expected during initial render") })
   const dashboard = startDashboard(page.document, { autoStart: false })
   assert.equal(page.document.querySelector("#connection-label")?.textContent, "Connecting")
   assert.equal(page.document.querySelector("#stat-sessions")?.textContent, "—")
   assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /No finished requests in this window/)
-  assert.equal(page.document.querySelector("#session-rows")?.children.length, 0)
-  assert.equal(page.document.querySelector("#sessions-empty")?.hasAttribute("hidden"), false)
+  assert.equal(page.document.querySelector("#session-rows"), null)
+  assert.equal(page.document.querySelector("#system-cards"), null)
   dashboard.destroy()
   await page.close()
 })
@@ -90,7 +100,7 @@ test("measurement page shows an empty state and never invents a trace", async ()
   await page.close()
 })
 
-test("successful refresh renders stats, accessible chart, sessions, and relay health", async () => {
+test("overview refresh renders stats and an accessible chart without session or health markup", async () => {
   const page = openPage()
   const snapshot = makeSnapshot(now)
   page.setFetch((url) => {
@@ -111,12 +121,11 @@ test("successful refresh renders stats, accessible chart, sessions, and relay he
   assert.match(doc.querySelector("#chart-legend")?.textContent ?? "", /Relay cache reuse/)
   assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /72 requests · 1 failed · 1 cancelled/)
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 1)
-  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
-  assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /1–6 of 6 sessions/)
-  assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Relay checks passed/)
+  assert.equal(doc.querySelector("#session-rows"), null)
+  assert.equal(doc.querySelector("#system-summary"), null)
   assert.equal(doc.querySelector<HTMLAnchorElement>(".page-footer a")?.getAttribute("href"), "/measurement")
-  assert.equal(doc.querySelector("#measurement-notes"), null)
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard"])
   dashboard.destroy()
   await page.close()
 })
@@ -200,14 +209,35 @@ test("failed refresh marks diagnostics stale without discarding the last snapsho
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Disconnected")
   assert.match(doc.querySelector("#notice")?.textContent ?? "", /timed out.*last successful snapshot/)
   assert.equal(doc.querySelector("#stat-sessions")?.textContent, "6")
-  assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Stale/)
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
   dashboard.destroy()
   await page.close()
 })
 
+test("sessions page renders only the session table and updates the sidebar count", async () => {
+  const page = openPage("sessions")
+  const snapshot = makeSnapshot(now)
+  page.setFetch((url) => {
+    assert.equal(url, "/api/dashboard")
+    return json(snapshot)
+  })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#stat-sessions"), null)
+  assert.equal(doc.querySelector("#traffic-chart"), null)
+  assert.equal(doc.querySelector("#system-summary"), null)
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(doc.querySelector("#session-count")?.textContent, "6")
+  assert.equal(doc.querySelector("#nav-session-count")?.textContent, "6")
+  assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /1–6 of 6 sessions/)
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard"])
+  dashboard.destroy()
+  await page.close()
+})
+
 test("session filtering and pagination only render retained matches", async () => {
-  const page = openPage()
+  const page = openPage("sessions")
   const snapshot = makeSnapshot(now)
   const extra = snapshot.history.sessions.slice(0, 4).map((session, index) => ({
     ...session,
@@ -244,7 +274,7 @@ test("session filtering and pagination only render retained matches", async () =
 })
 
 test("session details open from a row and close again", async () => {
-  const page = openPage()
+  const page = openPage("sessions")
   page.setFetch(() => json(makeSnapshot(now)))
   const dashboard = startDashboard(page.document, { autoStart: false })
   await dashboard.refresh()
@@ -262,7 +292,7 @@ test("session details open from a row and close again", async () => {
 })
 
 test("CSV export protects formulas and uses the filtered sessions", async () => {
-  const page = openPage()
+  const page = openPage("sessions")
   const snapshot = makeSnapshot(now)
   snapshot.history.sessions[0]!.id = "=SUM(A1)"
   snapshot.history.sessions[0]!.upstream = "@command"
@@ -290,48 +320,106 @@ test("CSV export protects formulas and uses the filtered sessions", async () => 
   await page.close()
 })
 
-test("gateway failure never disables independent supervisor controls", async () => {
-  const page = openPage()
+test("system health combines gateway diagnostics with supervisor network state", async () => {
+  const page = openPage("system")
   const snapshot = makeSnapshot(now)
   const status = systemStatus()
-  let dashboardFails = false
-  let systemFails = false
   page.setFetch((url) => {
-    if (url === "/api/dashboard") {
-      if (dashboardFails) throw abortError()
-      return json(snapshot)
-    }
-    if (url === "/api/system") {
-      if (systemFails) throw new Error("supervisor down")
-      return json(status)
-    }
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/system") return json(status)
     throw new Error(`Unexpected URL ${url}`)
   })
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
   const dashboard = startDashboard(page.document, { autoStart: false })
-  const system = startSystemControls(page.document, { autoStart: false })
   await Promise.all([dashboard.refresh(), system.refresh()])
   const doc = page.document
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
-  assert.equal(doc.querySelector<HTMLButtonElement>("#auto-reconnect")?.disabled, false)
-  assert.equal(doc.querySelector("#control-connection")?.textContent, "Connected")
-  dashboardFails = true
-  await dashboard.refresh()
-  await system.refresh()
-  assert.equal(doc.querySelector("#connection-label")?.textContent, "Disconnected")
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
-  assert.equal(doc.querySelector("#control-connection")?.textContent, "Connected")
-  systemFails = true
-  await system.refresh()
-  assert.equal(doc.querySelector("#control-connection")?.textContent, "Stale")
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
-  assert.match(doc.querySelector("#control-notice")?.textContent ?? "", /stale.*disabled/i)
+  assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Relay checks passed/)
+  assert.equal(doc.querySelector("#session-rows"), null)
+  assert.equal(doc.querySelector("#stat-sessions"), null)
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard", "/api/system"])
   dashboard.destroy()
   system.destroy()
   await page.close()
 })
 
+test("system health distinguishes no internet from an unreachable VPS", async () => {
+  const page = openPage("system")
+  const snapshot = makeSnapshot(now)
+  snapshot.relay.reachable = false
+  const noInternet = systemStatus({ relay_state: "unreachable", internet_state: "unreachable" })
+  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(noInternet))
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  assert.match(page.document.querySelector("#system-summary")?.textContent ?? "", /No internet/)
+  assert.match(page.document.querySelector("#system-cards")?.textContent ?? "", /Internet connectivity from this computer failed/)
+  dashboard.destroy()
+  system.destroy()
+  await page.close()
+})
+
+test("pausing the health page freezes both the dashboard and supervisor schedules", async () => {
+  const page = openPage("system")
+  page.setFetch((url) => url === "/api/dashboard" ? json(makeSnapshot(now)) : json(systemStatus()))
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, {
+    autoStart: false,
+    onPauseChange: (paused) => paused ? system.pause() : system.resume(),
+  })
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  page.document.querySelector<HTMLButtonElement>("#pause-button")!.click()
+  assert.equal(dashboard.paused, true)
+  assert.equal(system.paused, true)
+  assert.equal(page.document.querySelector("#connection-label")?.textContent, "Paused")
+  page.document.querySelector<HTMLButtonElement>("#pause-button")!.click()
+  assert.equal(dashboard.paused, false)
+  assert.equal(system.paused, false)
+  dashboard.destroy()
+  system.destroy()
+  await page.close()
+})
+
+test("controls page polls only the supervisor and keeps controls available", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  page.setFetch((url) => {
+    assert.equal(url, "/api/system")
+    return json(status)
+  })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#auto-reconnect")?.disabled, false)
+  assert.equal(doc.querySelector("#control-connection")?.textContent, "Connected")
+  assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
+  assert.equal(doc.querySelector("#stat-sessions"), null)
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system"])
+  system.destroy()
+  await page.close()
+})
+
+test("pausing supervisor polling leaves manual refresh available", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
+  assert.equal(system.paused, true)
+  assert.equal(doc.querySelector("#connection-label")?.textContent, "Paused")
+  assert.equal(doc.querySelector("#refresh-note")?.textContent, "Automatic refresh paused")
+  const calls = page.fetchCalls.length
+  doc.querySelector<HTMLButtonElement>("#refresh-button")!.click()
+  assert.equal(page.fetchCalls.length, calls + 1)
+  doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
+  assert.equal(system.paused, false)
+  system.destroy()
+  await page.close()
+})
+
 test("Desktop launch sends one protected same-origin action and blocks duplicates", async () => {
-  const page = openPage()
+  const page = openPage("controls")
   const status = systemStatus()
   const actions: unknown[] = []
   const actionHeaders: HeadersInit[] = []
@@ -346,7 +434,7 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
     }
     throw new Error(`Unexpected URL ${url}`)
   })
-  const system = startSystemControls(page.document, { autoStart: false })
+  const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   page.setConfirm(() => true)
   const button = page.document.querySelector<HTMLButtonElement>("#open-desktop")!
@@ -363,11 +451,11 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   await page.close()
 })
 
-test("stale or unmanaged snapshots keep every service control disabled", async () => {
-  const page = openPage()
+test("stale or unmanaged supervisor status keeps every service control disabled", async () => {
+  const page = openPage("controls")
   let status = systemStatus({ managed: false })
   page.setFetch(() => json(status))
-  const system = startSystemControls(page.document, { autoStart: false })
+  const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   const doc = page.document
   assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
@@ -381,32 +469,7 @@ test("stale or unmanaged snapshots keep every service control disabled", async (
   await system.refresh()
   assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
   assert.equal(doc.querySelector<HTMLButtonElement>("#open-desktop")?.disabled, true)
-  system.destroy()
-  await page.close()
-})
-
-test("pausing diagnostics leaves supervisor refresh and controls live", async () => {
-  const page = openPage()
-  let status = systemStatus()
-  page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(makeSnapshot(now))
-    if (url === "/api/system") return json(status)
-    throw new Error(`Unexpected URL ${url}`)
-  })
-  const dashboard = startDashboard(page.document, { autoStart: false })
-  const system = startSystemControls(page.document, { autoStart: false })
-  await Promise.all([dashboard.refresh(), system.refresh()])
-  const doc = page.document
-  doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
-  assert.equal(dashboard.paused, true)
-  assert.equal(doc.querySelector("#connection-label")?.textContent, "Paused")
-  status = systemStatus({ recovery: { busy: false, attempts: 2, phase: "monitoring", last_error: "", next_retry_at: null, last_connected_at: null } })
-  await system.refresh()
-  assert.match(doc.querySelector("#recovery-detail")?.textContent ?? "", /2 automatic recovery attempts/)
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
-  doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
-  assert.equal(dashboard.paused, false)
-  dashboard.destroy()
+  assert.match(doc.querySelector("#connection-label")?.textContent ?? "", /Disconnected/)
   system.destroy()
   await page.close()
 })

@@ -1,0 +1,24 @@
+---
+import DashboardFooter from "../components/DashboardFooter.astro"
+import DashboardHeader from "../components/DashboardHeader.astro"
+import SessionDialog from "../components/SessionDialog.astro"
+import SessionsSection from "../components/SessionsSection.astro"
+import DashboardLayout from "../layouts/DashboardLayout.astro"
+---
+<DashboardLayout
+  title="DeltaRelay · Sessions"
+  description="Inspect retained DeltaRelay sessions, request volume, uploads, and bandwidth savings."
+  current="sessions"
+  skipLabel="Skip to sessions"
+>
+  <DashboardHeader title="Sessions" subtitle="Retained request history grouped by session and upstream." />
+  <SessionsSection />
+  <DashboardFooter />
+
+  <Fragment slot="overlays">
+    <SessionDialog />
+  </Fragment>
+  <Fragment slot="scripts">
+    <script src="../scripts/sessions-main.ts"></script>
+  </Fragment>
+</DashboardLayout>

@@ -1,0 +1,31 @@
+---
+import Icon from "./Icon.astro"
+import ThemePicker from "./ThemePicker.astro"
+
+interface Props {
+  title: string
+  subtitle?: string
+  refreshNote?: string
+}
+
+const { title, subtitle, refreshNote = "Auto-refresh every 10s" } = Astro.props
+---
+<div class="appearance-controls"><ThemePicker /></div>
+<div class="page-heading">
+  <div>
+    <h1>{title}</h1>
+    {subtitle && <p class="page-subtitle">{subtitle}</p>}
+  </div>
+  <div class="heading-actions">
+    <slot name="actions" />
+    <button class="icon-button" id="pause-button" type="button" aria-label="Pause automatic refresh" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
+    <button class="button button-secondary" id="refresh-button" type="button"><Icon name="refresh" size={16} />Refresh</button>
+  </div>
+</div>
+<div class="connection-line">
+  <span class="live-badge" id="connection-badge"><span class="tiny-dot"></span><span id="connection-label">Connecting</span></span>
+  <span id="updated-at">Waiting for local data</span>
+  <span class="refresh-note" id="refresh-note">{refreshNote}</span>
+</div>
+<div id="notice" class="notice" role="status" hidden></div>
+<noscript><div class="notice">Enable JavaScript to load local diagnostics. This page makes no provider requests.</div></noscript>

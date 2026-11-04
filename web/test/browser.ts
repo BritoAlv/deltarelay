@@ -3,7 +3,20 @@ import { Window } from "happy-dom"
 
 const pageHtml = {
   index: readFileSync(new URL("../../dist/index.html", import.meta.url), "utf8"),
+  sessions: readFileSync(new URL("../../dist/sessions/index.html", import.meta.url), "utf8"),
+  controls: readFileSync(new URL("../../dist/controls/index.html", import.meta.url), "utf8"),
+  system: readFileSync(new URL("../../dist/system/index.html", import.meta.url), "utf8"),
   measurement: readFileSync(new URL("../../dist/measurement/index.html", import.meta.url), "utf8"),
+}
+
+export type PageName = keyof typeof pageHtml
+
+const pageUrls: Record<PageName, string> = {
+  index: "/",
+  sessions: "/sessions",
+  controls: "/controls",
+  system: "/system",
+  measurement: "/measurement",
 }
 
 export interface BrowserPage {
@@ -19,9 +32,9 @@ export interface BrowserPage {
 // The smoke tests render the real static pages produced by `pnpm build` into a
 // lightweight browser DOM, disable external script/CSS loading, and drive the
 // controllers with mocked same-origin APIs. No real service is contacted.
-export function openPage(page: "index" | "measurement" = "index"): BrowserPage {
+export function openPage(page: PageName = "index"): BrowserPage {
   const window = new Window({
-    url: page === "measurement" ? "http://127.0.0.1:8790/measurement" : "http://127.0.0.1:8790/",
+    url: `http://127.0.0.1:8790${pageUrls[page]}`,
     settings: {
       disableJavaScriptFileLoading: true,
       disableCSSFileLoading: true,
