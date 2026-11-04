@@ -19,7 +19,7 @@ export interface InspectionFeature {
   destroy(): void
 }
 
-export function mountInspection(root: HTMLElement, options: { onStageChange?: (stage: InspectionStage) => void } = {}): InspectionFeature {
+export function mountInspection(root: HTMLElement): InspectionFeature {
   let request: RelayRequest | null = null
   let status: CaptureStatus | undefined
   let capture: RequestCapture | null = null
@@ -228,7 +228,6 @@ export function mountInspection(root: HTMLElement, options: { onStageChange?: (s
   function open(next: InspectionStage) {
     controller?.abort(); generation++
     stage = next; page = null; selectedAttempt = null; selectedChunk = null; chunks = null; payloadOffset = 0; decoded = false; jsonPreview = ""; viewNote = ""; busy = false; mode = next === "upload" ? "hex" : "text"
-    options.onStageChange?.(next)
     if (request?.capture_id) void load()
     else render()
   }

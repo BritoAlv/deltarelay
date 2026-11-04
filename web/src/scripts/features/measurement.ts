@@ -18,7 +18,6 @@ import type { RelayRequest, Session, Snapshot } from "../../lib/types.js"
 import { readParams, replaceParams } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 import { mountInspection } from "./inspection.js"
-import type { InspectionStage } from "../../lib/inspection.js"
 
 export interface MeasurementFeature {
   render(state: DashboardViewState): void
@@ -74,9 +73,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   const retention = requiredById(root, "retention-note")
   const doc = root.ownerDocument
   const inspectorRoot = requiredById<HTMLElement>(root, "request-inspector")
-  const inspector = mountInspection(inspectorRoot, {
-    onStageChange: (nextStage) => trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.pipelineStage === nextStage))),
-  })
+  const inspector = mountInspection(inspectorRoot)
   const initial = readParams(doc)
   const requestParam = Number(initial.get("request"))
   let state: DashboardViewState | null = null
@@ -353,7 +350,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
           ${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}
           <button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect Request Evidence</button>
         </div>`
-    return `<details class="trace-request${selectedRequest === request.sequence ? " selected" : ""}" data-request-id="${escape(request.id)}"${open}>
+    return `<details class="trace-request${selectedRequest === request.sequence ? " selected" : ""}" data-request-id="${escape(request.id)}" data-request-sequence="${request.sequence}"${open}>
       <summary>
         <div class="trace-request-heading">
           <code translate="no">${escape(request.id)}</code>
@@ -361,6 +358,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
           ${request.error_code ? `<span class="trace-request-error">${escape(request.error_code)}</span>` : ""}
         </div>
         <div class="trace-request-values">
+          ${selectedRequest === request.sequence ? '<span class="trace-request-selected">Selected</span>' : ""}
           ${pill(request.state, tone)}
           <strong class="${measured.reduction !== null && measured.reduction < 0 ? "negative" : "accent"}">${escape(measured.pending ? "Pending" : percentage(measured.reduction))}</strong>
           <span>${measured.pending ? "Transfer totals pending" : `${escape(bytes(measured.original))} → ${escape(bytes(measured.encoded))}`}</span>
@@ -374,16 +372,22 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     trace.querySelectorAll<HTMLDetailsElement>("details[data-request-id]").forEach((request) => {
       request.addEventListener("toggle", () => {
         const id = request.dataset.requestId ?? ""
-        if (request.open) openRequests.add(id)
-        else openRequests.delete(id)
+        if (!request.open) {
+          openRequests.delete(id)
+          return
+        }
+        openRequests.add(id)
+        const sequence = Number(request.dataset.requestSequence)
+        if (Number.isSafeInteger(sequence) && sequence > 0 && sequence !== selectedRequest) {
+          selectedRequest = sequence
+          renderTrace()
+        }
       })
     })
   }
 
   interface TraceFocus {
-    picker: boolean
     inspect?: string
-    stage?: string
     more: boolean
     requestId?: string
     summary: boolean
@@ -393,9 +397,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const active = doc.activeElement as HTMLElement | null
     if (!active || !trace.contains(active)) return null
     return {
-      picker: active.matches("[data-measurement-request]"),
       inspect: active.closest<HTMLElement>("[data-inspect-request]")?.dataset.inspectRequest,
-      stage: active.closest<HTMLElement>("[data-pipeline-stage]")?.dataset.pipelineStage,
       more: Boolean(active.closest("[data-trace-more]")),
       requestId: active.closest<HTMLDetailsElement>("details[data-request-id]")?.dataset.requestId,
       summary: Boolean(active.closest("summary")),
@@ -405,9 +407,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   function restoreTraceFocus(focus: TraceFocus | null): void {
     if (!focus) return
     let target: HTMLElement | null = null
-    if (focus.picker) target = trace.querySelector<HTMLElement>("[data-measurement-request]")
-    else if (focus.inspect) target = [...trace.querySelectorAll<HTMLElement>("[data-inspect-request]")].find((element) => element.dataset.inspectRequest === focus.inspect) ?? null
-    else if (focus.stage) target = [...trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]")].find((element) => element.dataset.pipelineStage === focus.stage) ?? null
+    if (focus.inspect) target = [...trace.querySelectorAll<HTMLElement>("[data-inspect-request]")].find((element) => element.dataset.inspectRequest === focus.inspect) ?? null
     else if (focus.more) target = trace.querySelector<HTMLElement>("[data-trace-more]")
     else if (focus.requestId) {
       const details = [...trace.querySelectorAll<HTMLDetailsElement>("details[data-request-id]")].find((element) => element.dataset.requestId === focus.requestId)
@@ -445,11 +445,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const inspected = requests.find((request) => request.sequence === selectedRequest) ?? null
     const measured = inspected ? requestMeasurement(inspected, snapshot.collected_at) : null
     const pipeline = [
-      ["body", "Original body", "Decoded source, before chunking. Inspect bytes or JSON.", measured ? bytes(measured.original) : "—"],
-      ["inventory", "Relay inventory", "Inspect actual chunk availability at an observed inventory.", measured ? bytes(measured.reused) : "—"],
-      ["upload", "Raw chunks uploaded", "Prepared batches and validated acknowledgments; recovery may re-inventory instead of retransmitting.", measured ? bytes(measured.uploaded) : "—"],
-      ["encoded", "Encoded upload", "Inspect counted transport attempts, encoding and payloads.", measured ? bytes(measured.encoded) : "—"],
-      ["savings", measured && measured.saved < 0 ? "Extra upload" : "Saved", "Calculated original minus encoded; not another byte stream.", measured ? bytes(Math.abs(measured.saved)) : "—"],
+      ["Original body", "Decoded source, before chunking. Inspect bytes or JSON.", measured ? bytes(measured.original) : "—"],
+      ["Relay inventory", "Actual chunk availability at an observed inventory.", measured ? bytes(measured.reused) : "—"],
+      ["Raw chunks uploaded", "Prepared batches and validated acknowledgments; recovery may re-inventory instead of retransmitting.", measured ? bytes(measured.uploaded) : "—"],
+      ["Encoded upload", "Counted transport attempts, encoding and payloads.", measured ? bytes(measured.encoded) : "—"],
+      [measured && measured.saved < 0 ? "Extra upload" : "Saved", "Calculated original minus encoded; not another byte stream.", measured ? bytes(Math.abs(measured.saved)) : "—"],
     ] as const
     const sessionSummary = sessionMeasurement(current, requests)
     const bars = barComparison(sessionSummary.original, sessionSummary.encoded)
@@ -491,16 +491,19 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         </div>
         <div class="trace-pipeline">
           <h3>From body to wire</h3>
-          <label class="trace-request-picker">Selected request <select data-measurement-request name="measurement-request" aria-label="Selected request for body-to-wire inspection"${requests.length ? "" : " disabled"}>${requests.length ? requests.map((request) => `<option value="${request.sequence}"${request.sequence === selectedRequest ? " selected" : ""}>${escape(request.id)} · ${escape(request.kind)} · ${escape(request.state)}${request.capture_id ? "" : " · not captured"}</option>`).join("") : "<option>No retained request entries</option>"}</select></label>
-          <p class="trace-request-note">Request-level application payload, not packet capture. Select a stage to inspect evidence below.</p>
+          <div class="trace-selected-request">
+            <span class="trace-selected-label">Selected request</span>
+            ${inspected ? `<code translate="no">${escape(inspected.id)}</code><span class="trace-selected-meta">${escape(inspected.kind)} · ${escape(inspected.state)}${inspected.capture_id ? "" : " · not captured"}</span>` : `<span class="trace-selected-meta">No retained request entries</span>`}
+          </div>
+          <p class="trace-request-note">Select a request in the list below to update these stages. Request-level application payload, not packet capture; use the evidence inspector for captured payloads.</p>
           <ol>
-            ${pipeline.map(([id, label, note, value], i) => `<li><span>${i+1}</span><div><button type="button" data-pipeline-stage="${id}" aria-pressed="${inspector.stage === id}"${inspected ? "" : " disabled"}>${label}</button><p>${note}</p></div><code>${escape(measured?.pending ? "Pending" : value)}</code></li>`).join("")}
+            ${pipeline.map(([label, note, value], i) => `<li><span>${i+1}</span><div><strong class="trace-pipeline-label">${escape(label)}</strong><p>${escape(note)}</p></div><code>${escape(measured?.pending ? "Pending" : value)}</code></li>`).join("")}
           </ol>
         </div>
       </div>
-      <p class="trace-caveat">The comparison bars show session totals; the clickable stages show the selected request. Content reuse and encoded upload are separate views, not an additive stack.</p>
+      <p class="trace-caveat">The comparison bars show session totals; the stages show the selected request. Select a request in the list below to update them. Content reuse and encoded upload are separate views, not an additive stack.</p>
       <div class="trace-requests">
-        <div class="trace-requests-head"><div><h3>Request ledger</h3><p>Retained request entries, newest first. Expand one to see its full byte accounting.</p></div><span class="section-meta">${integer(requests.length)} retained${sessionSummary.missingRequests ? ` · ${integer(sessionSummary.missingRequests)} trimmed` : ""}</span></div>
+        <div class="trace-requests-head"><div><h3>Requests in this session</h3><p>Retained request entries, newest first. Select one to update the stages above; expand it for full byte accounting.</p></div><span class="section-meta">${integer(requests.length)} retained${sessionSummary.missingRequests ? ` · ${integer(sessionSummary.missingRequests)} trimmed` : ""}</span></div>
         ${ledger}
       </div>`
     bindOpenState()
@@ -547,23 +550,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     if (!choice) return
     chooseSession(choice.dataset.sessionChoice ?? "")
   })
-  trace.addEventListener("change", (event) => {
-    const picker = event.target as HTMLSelectElement
-    if (!picker.matches("[data-measurement-request]")) return
-    selectedRequest = Number(picker.value)
-    renderTrace()
-  })
   root.addEventListener("click", (event) => {
-    const inspect = (event.target as Element).closest<HTMLButtonElement>("[data-inspect-request], [data-pipeline-stage]")
+    const inspect = (event.target as Element).closest<HTMLButtonElement>("[data-inspect-request]")
     if (inspect?.dataset.inspectRequest) {
       selectedRequest = Number(inspect.dataset.inspectRequest)
       renderTrace()
-      inspectorRoot.scrollIntoView?.({ block: "start" })
-      return
-    }
-    if (inspect?.dataset.pipelineStage) {
-      inspector.open(inspect.dataset.pipelineStage as InspectionStage)
-      trace.querySelectorAll<HTMLElement>("[data-pipeline-stage]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.pipelineStage === inspector.stage)))
       inspectorRoot.scrollIntoView?.({ block: "start" })
       return
     }

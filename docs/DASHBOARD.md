@@ -34,9 +34,10 @@ disabled unless the dashboard is explicitly connected to a private supervisor.
   sessions stored only by OpenCode are marked **No gateway data**. The browser
   supports title/ID/project/model search, day filtering, and pagination. The page
   shows the measured body-to-wire process, a direct original-versus-encoded
-  comparison, and an expandable per-request ledger with cache reuse, raw chunk
-  uploads, encoded bytes, HTTP attempts, and response bytes that are excluded
-  from upload savings.
+  comparison, and a per-request list with cache reuse, raw chunk uploads,
+  encoded bytes, HTTP attempts, and response bytes that are excluded from upload
+  savings. Selecting a request updates the body-to-wire stages; expanding it
+  shows the full accounting and captured-evidence entry point.
 - With gateway payload capture enabled (the default), select a request to inspect
   its actual decoded body (UTF-8, hex + ASCII, lossless JSON formatting, or exact
   download), ordered chunk-presence rectangles with byte ranges, prepared upload
@@ -328,18 +329,19 @@ Trend view plots original, uploaded, saved, and reused bytes separately.
 The separate **Measurement** page (`/measurement`) applies these definitions to a
 session selected from retained gateway history. The session browser can list the
 broader local OpenCode session catalog, but only gateway-measured sessions are
-traceable; unmeasured sessions never fabricate a summary. Its summary and ledger
-use the same snapshot; the optional evidence inspector loads captured artifacts
+traceable; unmeasured sessions never fabricate a summary. Its summary and request
+list use the same snapshot; the optional evidence inspector loads captured artifacts
 on demand through validated read-only routes. Neither view sends a model request. The
 session summary shows original bytes, encoded uploads, saved bytes, reduction,
-and relay content reuse. The request ledger expands each retained
-request into chunks, unique chunks, uploaded chunks, missing and reused bytes,
-actual HTTP attempts, encoded bytes, and response bytes. Uploaded-chunk counters
+and relay content reuse. The request list is the single request selector:
+selecting a row updates the body-to-wire stages and evidence inspector, and
+expanding it shows chunks, unique chunks, uploaded chunks, missing and reused
+bytes, actual HTTP attempts, encoded bytes, and response bytes. Uploaded-chunk counters
 follow logical batches; after an ambiguous failure and recovery inventory, use
 the attempt evidence to distinguish listed chunks from retransmitted frames. Running requests show
 pending transfer totals instead of fabricated zeros; failed, cancelled, and
 interrupted requests keep their measured partial values. If request entries were trimmed from
-bounded history, the page states how many retained entries the ledger covers and
+bounded history, the page states how many retained entries the list covers and
 does not imply the visible requests reconcile to the session totals.
 
 ### Request evidence capture
@@ -380,7 +382,7 @@ The inspector separates evidence by meaning:
 
 The body hash and source length are checked against the transfer counters when
 both are available. Captured transfer counters are checked against the retained
-request ledger. Attempt consumption is checked against
+request list. Attempt consumption is checked against
 `request_body_bytes_sent`, and the inspector explicitly says when the retained
 evidence does not reconcile. A lost upload acknowledgment is shown as a failed
 or ambiguous attempt; it is not rewritten as success by a later inventory. A

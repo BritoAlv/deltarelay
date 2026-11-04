@@ -22,6 +22,14 @@ async function waitForText(node: Element | null, pattern: RegExp, label: string)
   assert.fail(`${label}: ${node?.textContent ?? ""}`)
 }
 
+function selectRequest(doc: Document, request: { id: string }): void {
+  const more = doc.querySelector<HTMLButtonElement>("[data-trace-more]")
+  if (more) more.click()
+  const row = [...doc.querySelectorAll<HTMLDetailsElement>("details[data-request-id]")].find((item) => item.dataset.requestId === request.id)
+  assert.ok(row, `missing request row ${request.id}`)
+  row.querySelector<HTMLButtonElement>("[data-inspect-request]")!.click()
+}
+
 function systemStatus(overrides: Partial<SystemStatus> = {}): SystemStatus {
   return {
     version: 2, managed: true, collected_at: new Date(now).toISOString(), csrf_token: "a".repeat(64),
@@ -95,10 +103,18 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   const trace = doc.querySelector("#measurement-trace")!
   assert.match(trace.textContent ?? "", /Relay dashboard measurement/)
   assert.match(trace.textContent ?? "", /From body to wire/)
-  assert.match(trace.textContent ?? "", /Request ledger/)
+  assert.match(trace.textContent ?? "", /Requests in this session/)
   assert.match(trace.textContent ?? "", /Transfer totals pending/)
   assert.match(trace.textContent ?? "", /Show all .* retained requests/i)
   assert.match(trace.textContent ?? "", /not captured/)
+  assert.match(trace.textContent ?? "", /Selected request/)
+  assert.equal(trace.querySelector("[data-measurement-request]"), null)
+  assert.equal(trace.querySelector("[data-pipeline-stage]"), null)
+  const ledgerRow = [...trace.querySelectorAll<HTMLDetailsElement>("details[data-request-id]")][1]!
+  ledgerRow.open = true
+  page.fire(ledgerRow, "toggle")
+  assert.equal(trace.querySelector(".trace-selected-request code")?.textContent, ledgerRow.dataset.requestId)
+  assert.match(trace.textContent ?? "", /Requests in this session/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Payload capture is off or not reported/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Not captured/)
   assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 gateway sessions and 1,000 requests/)
@@ -198,9 +214,7 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
   const doc = page.document
-  const picker = doc.querySelector<HTMLSelectElement>("[data-measurement-request]")!
-  picker.value = String(request.sequence)
-  page.fire(picker, "change")
+  selectRequest(doc, request)
   const inspector = doc.querySelector("#request-inspector")!
   await waitForText(inspector, /Captured bytes/, "body evidence did not load")
   assert.match(inspector.textContent ?? "", /Private disk capture enabled/)
@@ -248,9 +262,7 @@ test("measurement inspector never substitutes content for a missing capture", as
   })
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
-  const picker = page.document.querySelector<HTMLSelectElement>("[data-measurement-request]")!
-  picker.value = String(request.sequence)
-  page.fire(picker, "change")
+  selectRequest(page.document, request)
   const inspector = page.document.querySelector("#request-inspector")!
   await waitForText(inspector, /Capture not retained/, "missing capture not reported")
   assert.equal(inspector.querySelector(".inspect-code"), null)

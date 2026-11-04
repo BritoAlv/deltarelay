@@ -364,6 +364,7 @@
   .trace-request-error { color: var(--warning); font-size: 12px; }
   .trace-request-values { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; text-align: right; }
   .trace-request-values strong { font: 13px var(--mono); }
+  .trace-request-selected { color: var(--accent); font-size: 10px; letter-spacing: .4px; text-transform: uppercase; }
   .trace-request-values > span:last-child { color: var(--subtle); font: 12px var(--mono); }
   .trace-request-body { padding: 3px 0 16px 18px; }
   .trace-request-bar { display: grid; gap: 9px; padding: 13px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 24%, transparent); }
@@ -381,12 +382,11 @@
   .measurement-retention { border-top: 1px solid var(--border); color: var(--subtle); font-size: 12px; line-height: 1.7; padding: 13px 23px 15px; }
   .measurement-footnote { display: flex; align-items: flex-start; gap: 6px; color: var(--subtle); font-size: 12px; line-height: 1.7; margin-top: 13px; }
   .trace-scope { font-size: 13px; color: var(--muted); }
-  .trace-request-picker { display: grid; gap: 6px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
-  .trace-request-picker select { width: 100%; min-width: 0; font: 12px var(--mono); }
+  .trace-selected-request { display: grid; gap: 3px; margin-bottom: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 5px; background: color-mix(in srgb, var(--accent) 2%, transparent); }
+  .trace-selected-label { color: var(--subtle); font-size: 11px; letter-spacing: .5px; text-transform: uppercase; }
+  .trace-selected-request code { color: var(--text); font: 12px var(--mono); overflow-wrap: anywhere; }
+  .trace-selected-meta { color: var(--subtle); font-size: 12px; }
   .trace-pipeline ol { margin-top: 12px; }
-  .trace-pipeline [data-pipeline-stage] { padding: 0; border: 0; background: none; color: var(--text); font-size: 13px; font-weight: 550; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-  .trace-pipeline [data-pipeline-stage]:hover { color: var(--accent); }
-  .trace-pipeline [data-pipeline-stage][aria-pressed="true"] { color: var(--accent); }
   .trace-request.selected { border-left: 2px solid var(--accent); padding-left: 8px; }
   .request-inspector { border-top: 1px solid var(--border-strong); padding: 22px 23px; scroll-margin-top: 24px; min-width: 0; }
   .inspect-heading, .inspect-viewer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin: 16px 0; }
