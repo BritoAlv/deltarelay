@@ -98,7 +98,7 @@ class ProviderTest(unittest.TestCase):
                   'relay_state_file': str(self.private('identity.json', json.dumps('a' * 64))),
                   'remote': self.spec, 'components': {}}
         result = control.Supervisor(config)
-        self.addCleanup(result.stop.set)
+        self.addCleanup(result.close)
         return result
 
     def methods(self):

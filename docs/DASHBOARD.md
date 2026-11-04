@@ -188,8 +188,11 @@ response bodies are not included. The dashboard makes no model requests and has
 no cancellation, ACK, or replay controls. Its separate `/api/system` metadata and
 optional predefined POST service controls are documented in
 [SUPERVISION.md](SUPERVISION.md); they never proxy arbitrary routes or expose
-provider credentials. Existing gateway authentication and browser-origin rejection remain
-intact.
+provider credentials. System controls also reads the supervisor's bounded
+activity journal through `GET /api/system/journal`. That endpoint accepts only
+numeric `after`/`before`/`limit` cursors, never paths or commands, and returns
+text records for the local terminal view. Existing gateway authentication and
+browser-origin rejection remain intact.
 
 Request evidence capture is **enabled by default** and is a separate tradeoff.
 Unless `--capture-dir` is empty, the gateway stores application request bodies

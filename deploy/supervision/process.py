@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import signal
+import shlex
 import socket
 import subprocess
 import tempfile
@@ -40,7 +41,7 @@ class ProcessManager:
     component state through :class:`SupervisorState`.
     """
 
-    def __init__(self, config, root, directory, state, stop, clock=None, popen=None):
+    def __init__(self, config, root, directory, state, stop, clock=None, popen=None, journal=None):
         self.config = config
         self.root = root
         self.directory = directory
@@ -50,12 +51,21 @@ class ProcessManager:
         self.popen = popen or subprocess.Popen
         self.children = {}
         self.identities = {}
+        self.journal = journal
+
+    def log(self, name, stream, text):
+        if self.journal:
+            self.journal.write(stream, text, component=name)
 
     def identity(self, name):
         spec = self.config['components'][name]
         child = self.children.get(name)
         if child is not None:
+            previous = child.returncode
             child.poll()  # Reap exited children; never rely on kill(pid, 0).
+            if previous is None and child.returncode is not None:
+                status = f'exit_code={child.returncode}' if child.returncode >= 0 else f'signal={-child.returncode}'
+                self.log(name, 'exit', f'pid={child.pid} {status}')
         info = None
         try:
             info = process(int(Path(spec['pid_file']).read_text().strip()))
@@ -65,7 +75,10 @@ class ProcessManager:
         if info and (matches(info, expected) or matches(info, spec.get('adopt_match', []))):
             # Status/adoption may follow a service manager's own restart. The
             # destructive path rechecks PID birth immediately before signaling.
-            self.identities[name] = (info['pid'], info['birth'])
+            identity = (info['pid'], info['birth'])
+            if self.identities.get(name) != identity:
+                self.log(name, 'event', f'Adopted verified pid={info["pid"]} birth={info["birth"]}; argv={shlex.join(info["args"])}')
+            self.identities[name] = identity
             return info
         # Desktop may hand off to an already-running Electron instance.
         if name == 'desktop' and spec.get('match'):
@@ -84,6 +97,7 @@ class ProcessManager:
         if not spec or 'command' not in spec:
             raise ControlError('component_unmanaged')
         if self.identity(name):
+            self.log(name, 'event', 'Start skipped: verified service process already running')
             self.state.set_component(name, 'running')
             return
         port = spec.get('port')
@@ -96,15 +110,19 @@ class ProcessManager:
         if name == 'desktop' and not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
             raise ControlError('graphical_session_required')
         log = self.directory / (name + '.log')
+        if self.journal:
+            self.journal.follow(name, log)
         fd = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'ab') as output:
             if os.fstat(output.fileno()).st_mode & 0o077:
                 raise ControlError('unsafe_log_file')
             env = (plugin_environment(self.config['remote'])
                    if name == 'tunnel' and 'remote' in self.config else environment(spec.get('env')))
+            self.log(name, 'command', f'$ {shlex.join(spec["command"])}\ncwd={spec.get("directory", self.root)}; stdout/stderr -> {log}')
             child = self.popen(spec['command'], stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                                start_new_session=True, cwd=spec.get('directory', self.root), env=env)
         self.children[name] = child
+        self.log(name, 'event', f'Spawned pid={child.pid}; process creation is not a readiness check')
         info = process(child.pid)
         if info:
             self.identities[name] = (child.pid, info['birth'])
@@ -129,6 +147,7 @@ class ProcessManager:
             current = process(pid)
             if not current or current['birth'] != birth:
                 raise ControlError('process_identity_changed')
+            self.log(name, 'event', f'Sending SIGTERM to verified process pid={pid} birth={birth}')
             try:
                 if os.getpgid(pid) == pid:
                     os.killpg(pid, signal.SIGTERM)
@@ -147,6 +166,7 @@ class ProcessManager:
                 # graceful window. Recheck birth so a recycled PID is untouched.
                 current = process(pid)
                 if current and current['birth'] == birth:
+                    self.log(name, 'event', f'Graceful stop timed out after 8s; sending SIGKILL to verified pid={pid}')
                     try:
                         if os.getpgid(pid) == pid:
                             os.killpg(pid, signal.SIGKILL)
@@ -170,6 +190,10 @@ class ProcessManager:
                 child.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 pass
+            status = 'exit_code=unknown' if child.returncode is None else f'exit_code={child.returncode}' if child.returncode >= 0 else f'signal={-child.returncode}'
+            self.log(name, 'exit', f'pid={child.pid} {status}')
+        elif not info:
+            self.log(name, 'event', 'Stop skipped: no verified running process')
         self.identities.pop(name, None)
         self.state.set_component(name, 'stopped')
 

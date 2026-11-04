@@ -53,7 +53,7 @@ class LegacyProvider:
         return {'state_id': params['expected_state_id']}
 
 
-def load_provider(config, run, stop, start, restart):
+def load_provider(config, run, stop, start, restart, trace=None):
     if 'remote' in config:
-        return ExecutableProvider(config['remote'], config['relay_url'], stop)
+        return ExecutableProvider(config['remote'], config['relay_url'], stop, trace=trace)
     return LegacyProvider(config, run, stop, start, restart)

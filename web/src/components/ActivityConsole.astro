@@ -1,0 +1,17 @@
+<section id="activity-console" class="panel activity-console" aria-labelledby="activity-title">
+  <div class="activity-heading">
+    <div><h2 id="activity-title">System activity</h2><p>Actual commands, output, checks, and recovery decisions. Recording continues with this page closed.</p></div>
+    <span id="activity-status" class="section-meta" role="status">Connecting to the supervisor journal…</span>
+  </div>
+  <div class="activity-tools">
+    <label class="activity-search"><span class="sr-only">Search system activity</span><input id="activity-search" type="search" placeholder="Search commands or output…" /></label>
+    <label><span class="sr-only">Filter activity component</span><select id="activity-component"><option value="">All components</option></select></label>
+    <label class="activity-follow"><input id="activity-follow" type="checkbox" checked /> Follow</label>
+    <button id="activity-pause" class="text-button" type="button" aria-pressed="false">Pause log</button>
+    <button id="activity-copy" class="text-button" type="button" disabled>Copy visible</button>
+    <button id="activity-download" class="text-button" type="button" disabled>Download loaded log</button>
+  </div>
+  <p id="activity-notice" class="activity-notice" role="status" hidden></p>
+  <div id="activity-output" class="activity-output" role="log" aria-label="System activity log" aria-live="off" tabindex="0"><p class="activity-empty">Waiting for recorded activity. No progress is simulated.</p></div>
+  <div class="activity-footer"><button id="activity-earlier" class="text-button" type="button" disabled>Load earlier</button><span id="activity-count">0 records loaded</span><span>UTC · read-only · known credentials masked · private rotating journal</span></div>
+</section>

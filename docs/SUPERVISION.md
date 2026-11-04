@@ -117,6 +117,29 @@ reports an unrecognized occupied port rather than replacing its owner.
 
 ## Dashboard behavior
 
+- **System activity** is the primary, read-only execution console on System
+  controls. It tails the supervisor journal every second independently of the
+  five-second status cards. It shows actual command argv, working directories,
+  process IDs, stdout/stderr, exit codes/signals, timeouts and elapsed time—not
+  descriptions reconstructed from failure codes. Internal HTTP probes are
+  explicitly logged as HTTP operations, including response status or the actual
+  network exception, rather than invented terminal commands. Scheduled checks,
+  process adoption, settings changes, state transitions, recovery triggers,
+  policy skips, readiness checks and retry/backoff decisions are recorded too.
+  Startup collection begins before remote discovery and continues with no browser
+  open. Each record identifies its UTC time, component, trigger and operation;
+  command execution IDs link invocation, output and exit records. After an action
+  is accepted, the page reveals and follows the console; an explicitly paused log
+  stays paused (recording continues) until **Resume log** is clicked.
+- **Follow** controls scrolling; scrolling up turns it off. **Pause log** pauses
+  browser reads only, never supervision/recording. Search and component filtering
+  apply to loaded records; **Copy visible** copies the filtered view and
+  **Download loaded log** exports all loaded records. **Load earlier** retrieves
+  earlier retained history. The page keeps at most 2,000 records and reports gaps
+  when its cursor has rotated out. Refreshing or restarting the dashboard does not
+  discard the supervisor's history. Page-level Pause pauses both status and log
+  reads; manual Refresh still reads both. An unavailable journal does not disable
+  otherwise fresh service controls or erase the last displayed output.
 - **Open OpenCode Desktop**, beside Refresh, starts the configured isolated Desktop
   launcher without restarting other services, recovering the VPS, or waking a
   Codespace. It is available after `--no-desktop` startup and works without a
@@ -218,8 +241,42 @@ nonce held only in browser memory. Existing loopback Host, Origin, CSP and
 cross-site protections remain in place. This is a single-user local tool, not a
 multi-user authorization boundary. Never expose either API publicly.
 
-Settings and per-service logs live in `profile/control/`. Subprocess diagnostics
-are private; browser error messages contain only safe codes. PID adoption and
+Settings and per-service logs live in `profile/control/`. The supervisor also
+writes a private, rotating `activity.jsonl` journal (8 MiB plus one 8 MiB backup,
+mode 600). Disk writes are batched outside recovery/state locks; an explicit
+warning reports storage failure or queue overflow while bounded memory history
+remains available. The latest 2,000 records are available through the cursor API;
+on restart these are recovered from the retained files. For a CLI view, use
+`tail -F /your/private/profile/control/activity.jsonl`. The journal has no
+arbitrary path parameter, shell input or command execution endpoint.
+
+Diagnostics are now deliberately visible through the loopback dashboard, while
+the existing action/status failure codes remain fixed. Known relay/local token
+values, configured credential fields, secret environment values, service
+registration passwords and common credential syntax are masked **before**
+journaling. ANSI/control sequences are removed and the browser renders output
+as text, not HTML. Do not assume arbitrary application output is secret-free:
+paths, stack traces and other private diagnostic data are preserved. Review logs
+before copying/sharing, never expose the dashboard publicly, and never print
+credentials from service/provider commands. The original per-service log files
+remain private and may contain unredacted application output.
+
+Subprocess output is line-buffered (a partial line appears at EOF); lines over
+16 KiB are omitted with an explicit marker, not allowed to grow memory without
+bound. Existing long-running service log files are followed from the current EOF
+without reimporting old content; their stdout/stderr is already merged and is
+labeled as such. Collection can only observe output routed to these files, not a
+detached external service manager's private journal. Bundled executable providers
+send real nested command traces on a separate diagnostic pipe, preserving their
+strict JSON stdout contract. Other providers' emitted stdout/stderr and invocation
+boundaries are visible, but uninstrumented internal work cannot be inferred.
+
+After upgrading, rebuild the dashboard assets and Go binary, then restart the
+independent supervisor and dashboard to activate collection/API support. Existing
+gateway, remote host and OpenCode services need not be restarted. Old supervisors
+produce an explicit upgrade notice in the console rather than simulated output.
+
+PID adoption and
 signals require the expected owner's arguments and process birth time. A verified
 process that ignores graceful shutdown is force-stopped after a bounded timeout;
 a recycled PID, unrecognized port owner, or unrelated process is never signaled.

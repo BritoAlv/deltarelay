@@ -13,6 +13,9 @@ import socketserver
 import stat
 import sys
 import threading
+import urllib.parse
+
+from activity import operation_id
 
 from remote_provider import ProviderError as ControlError, private_json
 
@@ -62,6 +65,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/status':
             self.reply(200, self.server.supervisor.snapshot())
+        elif self.path.split('?', 1)[0] == '/journal':
+            try:
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True)
+                if set(query) - {'after', 'before', 'limit'} or 'after' in query and 'before' in query:
+                    raise ValueError('invalid cursor')
+                values = {}
+                for key, items in query.items():
+                    if len(items) != 1 or not items[0].isascii() or not items[0].isdigit() or len(items[0]) > 16:
+                        raise ValueError('invalid cursor')
+                    value = int(items[0])
+                    if value > 9007199254740991 or key == 'limit' and not 1 <= value <= 100:
+                        raise ValueError('invalid cursor')
+                    values[key] = value
+                self.reply(200, self.server.supervisor.journal.read(**values))
+            except ValueError:
+                self.reply(400, {'error': 'invalid_request'})
         else:
             self.reply(404, {'error': 'not_found'})
 
@@ -72,7 +91,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ControlError('invalid_request')
             value = json.loads(self.rfile.read(length))
             if self.path == '/settings':
-                self.server.supervisor.update_settings(value)
+                with self.server.supervisor.journal.context(trigger='manual', operation=operation_id()):
+                    self.server.supervisor.update_settings(value)
             elif self.path == '/action':
                 self.server.supervisor.submit(value)
             else:
@@ -80,6 +100,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
             self.reply(202, {'accepted': True})
         except ControlError as error:
+            with self.server.supervisor.journal.context(trigger='manual'):
+                self.server.supervisor.journal.write('error', f'Control request rejected: {error}')
             self.reply(409, {'error': str(error)})
         except (OSError, ValueError):
             self.reply(400, {'error': 'invalid_request'})
@@ -121,17 +143,20 @@ def main(argv=None):
                         # Upgrade only the positively identified legacy read-only
                         # dashboard. Never replace the gateway or Desktop here.
                         supervisor.restart_component(name)
-            except Exception:
+            except Exception as error:
+                supervisor.journal.write('error', f'Startup {name} failed: {type(error).__name__}: {error}')
                 supervisor.state.set_component(name, 'start_failed')
         worker = threading.Thread(target=supervisor.monitor, daemon=True)
         worker.start()
         while not supervisor.stop.is_set():
             server.handle_request()
+        supervisor.journal.write('event', 'Supervisor shutting down; cancelling pending commands and leaving managed services running')
         # Do not let Python tear down daemon threads while a provider process
         # group is still being cancelled. Managed long-lived services stay up.
         worker.join(timeout=15)
         if supervisor.operation.acquire(timeout=15):
             supervisor.operation.release()
+        supervisor.close()
     path.unlink(missing_ok=True)
     # Adopted services remain running when the controller itself stops.
     return 0

@@ -4,6 +4,7 @@ import { requiredById } from "../dom.js"
 export interface ControlsOptions {
   root: HTMLElement
   onRefresh: () => void
+  onAction?: () => void
 }
 
 export interface ControlsFeature {
@@ -11,7 +12,7 @@ export interface ControlsFeature {
   renderAuth(): void
 }
 
-export function mountControls({ root, onRefresh }: ControlsOptions): ControlsFeature {
+export function mountControls({ root, onRefresh, onAction }: ControlsOptions): ControlsFeature {
   const recoverAll = requiredById<HTMLButtonElement>(root, "recover-all")
   const restartAll = requiredById<HTMLButtonElement>(root, "restart-all")
   const autoReconnect = requiredById<HTMLInputElement>(root, "auto-reconnect")
@@ -126,7 +127,8 @@ export function mountControls({ root, onRefresh }: ControlsOptions): ControlsFea
     render()
     try {
       await sendControl("action", { component: component === "remote" ? remoteActionTarget(system) : component, action, confirmed: ["restart", "stop", "wake"].includes(action) }, system.csrf_token)
-      lastMessage = action === "stop" ? "Stop requested. Shutdown progress and recovery settings are shown above." : "Operation accepted. Progress is shown above; no model generation was submitted."
+      lastMessage = "Operation accepted. Follow its actual execution in System activity above; no model generation was submitted."
+      onAction?.()
     } catch (error) {
       lastMessage = error instanceof Error ? error.message : "The action could not be confirmed. Refresh status before trying again."
       if (openingDesktop) {

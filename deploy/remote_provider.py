@@ -6,11 +6,14 @@ from pathlib import Path
 import re
 import secrets
 import selectors
+import shlex
 import signal
 import stat
 import subprocess
 import time
 import urllib.parse
+
+from activity import MAX_LINE, STREAMS, TRACE_FD, OutputLines, inherited_trace
 
 
 VERSION = 1
@@ -113,28 +116,85 @@ def _terminate(child, group=True):
 
 
 def run_command(command, timeout=30, env=None, input=None, cancel=None, limit=262144, allow_gh=True,
-                cleanup_group=False, new_session=True, exact_env=False):
+                cleanup_group=False, new_session=True, exact_env=False, trace=None, trace_children=False):
     """Bound memory while reading stdout, and enforce a deadline on the entire group."""
     if cancel is not None and cancel.is_set():
         raise ProviderError('operation_cancelled')
+    trace = trace or inherited_trace()
+    execution = secrets.token_hex(4)
+
+    def emit(stream, text, execution=execution):
+        if trace is not None:
+            try:
+                trace(stream, text, execution)
+            except Exception:
+                pass  # Logging must not change service/provider semantics.
+
+    started = time.monotonic()
+    emit('command', f'$ {shlex.join(command)}\ncwd={os.getcwd()} timeout={timeout}s stdin_bytes={len(input or b"")} (stdin content not logged)')
+    child_env = dict(env if exact_env else environment(env, allow_gh=allow_gh))
+    child_env.pop(TRACE_FD, None)
+    diagnostic_read = diagnostic_write = None
+    if trace_children and trace is not None:
+        diagnostic_read, diagnostic_write = os.pipe()
+        child_env[TRACE_FD] = str(diagnostic_write)
     try:
         child = subprocess.Popen(command, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                 start_new_session=new_session, env=env if exact_env else environment(env, allow_gh=allow_gh))
-    except OSError:
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 start_new_session=new_session, env=child_env,
+                                 pass_fds=() if diagnostic_write is None else (diagnostic_write,))
+    except OSError as error:
+        if diagnostic_read is not None:
+            os.close(diagnostic_read)
+        emit('error', f'Could not execute: {type(error).__name__}: {error}')
         raise ProviderError('command_failed') from None
+    finally:
+        if diagnostic_write is not None:
+            os.close(diagnostic_write)
+    emit('event', f'pid={child.pid} started')
     output = bytearray()
     deadline = time.monotonic() + timeout
     pending = memoryview(input or b'')
     selector = selectors.DefaultSelector()
     completed = False
+    outcome = 'command_failed'
+    lines = {name: OutputLines(lambda text, name=name: emit(name, text)) for name in ('stdout', 'stderr')}
+    diagnostic_buffer = bytearray()
+    diagnostic_invalid = False
+
+    def diagnostics(data):
+        nonlocal diagnostic_buffer, diagnostic_invalid
+        diagnostic_buffer.extend(data)
+        while b'\n' in diagnostic_buffer:
+            line, _, rest = diagnostic_buffer.partition(b'\n')
+            diagnostic_buffer = bytearray(rest)
+            try:
+                value = strict_json(line)
+                if (not isinstance(value, dict) or set(value) != {'stream', 'text', 'execution'} or
+                        not isinstance(value['stream'], str) or value['stream'] not in STREAMS or
+                        not isinstance(value['text'], str) or len(value['text']) > MAX_LINE or
+                        not isinstance(value['execution'], str) or not re.fullmatch(r'[a-f0-9]{8}', value['execution'])):
+                    raise ValueError('invalid diagnostic record')
+                emit(value['stream'], value['text'], value['execution'])
+            except (ValueError, TypeError, UnicodeError, RecursionError):
+                if not diagnostic_invalid:
+                    emit('error', 'Invalid provider diagnostic record omitted; stdout protocol is unchanged')
+                    diagnostic_invalid = True
+        if len(diagnostic_buffer) > 131072:
+            diagnostic_buffer.clear()
+            emit('error', 'Oversized provider diagnostic record omitted')
+
     try:
-        os.set_blocking(child.stdout.fileno(), False)
-        selector.register(child.stdout, selectors.EVENT_READ)
+        for pipe, name in ((child.stdout, 'stdout'), (child.stderr, 'stderr')):
+            os.set_blocking(pipe.fileno(), False)
+            selector.register(pipe, selectors.EVENT_READ, name)
+        if diagnostic_read is not None:
+            os.set_blocking(diagnostic_read, False)
+            selector.register(diagnostic_read, selectors.EVENT_READ, 'diagnostics')
         if child.stdin is not None:
             if pending:
                 os.set_blocking(child.stdin.fileno(), False)
-                selector.register(child.stdin, selectors.EVENT_WRITE)
+                selector.register(child.stdin, selectors.EVENT_WRITE, 'stdin')
             else:
                 child.stdin.close()
         while selector.get_map() or child.poll() is None:
@@ -156,21 +216,60 @@ def run_command(command, timeout=30, env=None, input=None, cancel=None, limit=26
                     data = os.read(key.fd, 65536)
                     if not data:
                         selector.unregister(key.fileobj)
+                        if key.data in lines:
+                            lines[key.data].feed(b'', final=True)
+                        elif key.data == 'diagnostics' and diagnostic_buffer:
+                            emit('error', 'Provider diagnostic channel closed with an incomplete record')
+                    elif key.data == 'diagnostics':
+                        diagnostics(data)
                     else:
-                        output.extend(data)
-                        if len(output) > limit:
-                            raise ProviderError('invalid_command_response')
+                        lines[key.data].feed(data)
+                        if key.data == 'stdout':
+                            output.extend(data)
+                            if len(output) > limit:
+                                raise ProviderError('invalid_command_response')
         if child.wait() != 0:
             raise ProviderError('command_failed')
         completed = True
+        outcome = 'completed'
         return bytes(output)
+    except ProviderError as error:
+        outcome = str(error)
+        raise
     finally:
         selector.close()
         if not completed or cleanup_group:
             _terminate(child, group=new_session)
+        # Preserve diagnostics written during signal handling/termination too.
+        # Bounded draining must not wait for an escaped descendant holding a pipe.
+        if not completed:
+            pipes = [(child.stdout.fileno(), lines['stdout'].feed), (child.stderr.fileno(), lines['stderr'].feed)]
+            if diagnostic_read is not None:
+                pipes.append((diagnostic_read, diagnostics))
+            for fd, consume in pipes:
+                remaining = 262144
+                while remaining:
+                    try:
+                        data = os.read(fd, min(65536, remaining))
+                    except (BlockingIOError, OSError):
+                        break
+                    if not data:
+                        break
+                    consume(data)
+                    remaining -= len(data)
+                if not remaining:
+                    emit('error', 'Termination output exceeded 256 KiB drain bound; remaining output omitted')
+        for name in lines:
+            lines[name].feed(b'', final=True)
+        if diagnostic_read is not None:
+            os.close(diagnostic_read)
         child.stdout.close()
+        child.stderr.close()
         if child.stdin is not None and not child.stdin.closed:
             child.stdin.close()
+        status = (f'exit_code={child.returncode}' if child.returncode is None or child.returncode >= 0
+                  else f'signal={-child.returncode}')
+        emit('exit', f'pid={child.pid} {status} elapsed={time.monotonic() - started:.3f}s outcome={outcome}')
 
 
 def validate_spec(spec):
@@ -234,11 +333,12 @@ def validate_result(method, value):
 
 
 class ExecutableProvider:
-    def __init__(self, spec, relay_url, cancel):
+    def __init__(self, spec, relay_url, cancel, trace=None):
         validate_spec(spec)
         self.spec, self.relay_url, self.cancel = spec, relay_url, cancel
         self.metadata = {'id': 'custom', 'label': 'Remote host', 'capabilities': []}
         self.connection = None
+        self.trace = trace
 
     def call(self, method, params=None):
         params = {} if params is None else params
@@ -252,10 +352,13 @@ class ExecutableProvider:
         request = {'protocol_version': VERSION, 'id': secrets.token_hex(16), 'method': method,
                    'config_file': self.spec['config_file'], 'params': params}
         env = plugin_environment(self.spec)
+        if self.trace:
+            self.trace('event', f'Provider call: {method} request={request["id"]}')
         try:
             output = run_command(self.spec['command'], timeout=min(5, self.spec.get('timeout_seconds', 120)) if method in REQUIRED else self.spec.get('timeout_seconds', 120),
                                  env=env, input=json.dumps(request).encode(), cancel=self.cancel, limit=MAX_BYTES,
-                                 allow_gh=False, cleanup_group=True, exact_env=True)
+                                 allow_gh=False, cleanup_group=True, exact_env=True,
+                                 trace=self.trace, trace_children=True)
         except ProviderError as error:
             raise ProviderError({'command_timeout': 'provider_timeout', 'command_failed': 'provider_failed',
                                  'invalid_command_response': 'invalid_provider_response'}.get(str(error), str(error))) from None

@@ -8,6 +8,8 @@ import { makeSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue } from "../src/lib/traffic.js"
 import type { SystemStatus } from "../src/lib/system.js"
+import { mountActivity } from "../src/scripts/features/activity.js"
+import type { ActivityEntry, ActivityPage } from "../src/lib/activity.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
 
@@ -38,6 +40,14 @@ function abortError(): Error {
   const error = new Error("aborted")
   error.name = "AbortError"
   return error
+}
+
+function activityEntry(seq: number, overrides: Partial<ActivityEntry> = {}): ActivityEntry {
+  return { seq, time: new Date(now + seq * 1000).toISOString(), component: "provider", trigger: "manual", operation: "a".repeat(16), execution: "b".repeat(8), stream: "stdout", text: `actual output ${seq}`, ...overrides }
+}
+
+function activityPage(entries: ActivityEntry[] = [], overrides: Partial<ActivityPage> = {}): ActivityPage {
+  return { version: 1, entries, oldest: entries[0]?.seq ?? 0, newest: entries.at(-1)?.seq ?? 0, reset: false, storage_error: false, ...overrides }
 }
 
 test("every page marks exactly its own sidebar entry as current", async () => {
@@ -499,6 +509,7 @@ test("controls page polls only the supervisor and keeps controls available", asy
   const page = openPage("controls")
   const status = systemStatus()
   page.setFetch((url) => {
+    if (url === "/api/system/journal") return json(activityPage())
     assert.equal(url, "/api/system")
     return json(status)
   })
@@ -510,7 +521,7 @@ test("controls page polls only the supervisor and keeps controls available", asy
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system"])
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/journal"])
   system.destroy()
   await page.close()
 })
@@ -527,7 +538,7 @@ test("pausing supervisor polling leaves manual refresh available", async () => {
   assert.equal(doc.querySelector("#refresh-note")?.textContent, "Automatic refresh paused")
   const calls = page.fetchCalls.length
   doc.querySelector<HTMLButtonElement>("#refresh-button")!.click()
-  assert.equal(page.fetchCalls.length, calls + 1)
+  assert.equal(page.fetchCalls.length, calls + 2)
   doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
   assert.equal(system.paused, false)
   system.destroy()
@@ -543,6 +554,7 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   const held = new Promise<Response>((resolve) => { release = resolve })
   page.setFetch((url, init) => {
     if (url === "/api/system") return json(status)
+    if (url.startsWith("/api/system/journal")) return json(activityPage())
     if (url === "/api/system/action") {
       actions.push(JSON.parse(String(init.body)))
       actionHeaders.push(init.headers ?? {})
@@ -552,6 +564,8 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   })
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
+  let revealed = 0
+  page.document.getElementById("activity-console")!.scrollIntoView = () => { revealed++ }
   page.setConfirm(() => true)
   const button = page.document.querySelector<HTMLButtonElement>("#open-desktop")!
   assert.equal(button.disabled, false)
@@ -563,6 +577,7 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   assert.equal(button.disabled, true)
   release(json({ accepted: true }, 202))
   await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(revealed, 1)
   system.destroy()
   await page.close()
 })
@@ -586,6 +601,102 @@ test("stale or unmanaged supervisor status keeps every service control disabled"
   assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
   assert.equal(doc.querySelector<HTMLButtonElement>("#open-desktop")?.disabled, true)
   assert.match(doc.querySelector("#connection-label")?.textContent ?? "", /Disconnected/)
+  system.destroy()
+  await page.close()
+})
+
+test("activity console renders actual output as text and follows incremental cursors without replacing existing rows", async () => {
+  const page = openPage("controls")
+  const payload = '<img src=x onerror="window.compromised=true">'
+  page.setFetch((url) => {
+    if (url === "/api/system/journal") return json(activityPage([
+      activityEntry(1, { stream: "command", text: "$ gh codespace ssh -c example" }),
+      activityEntry(2, { stream: "stderr", text: payload + "\nSSH: connection refused" }),
+    ]))
+    assert.equal(url, "/api/system/journal?after=2")
+    return json(activityPage([activityEntry(3, { component: "network", trigger: "automatic", text: "HTTP GET failed: DNS lookup timed out" })], { oldest: 1 }))
+  })
+  const console = mountActivity(page.document.getElementById("activity-console")!, false)
+  await console.refresh()
+  const output = page.document.getElementById("activity-output")!
+  const first = output.firstChild
+  assert.match(output.textContent ?? "", /gh codespace ssh/)
+  assert.match(output.textContent ?? "", /SSH: connection refused/)
+  assert.match(output.textContent ?? "", /<img src=x/)
+  assert.equal(output.querySelector("img"), null)
+  await console.refresh()
+  assert.equal(output.firstChild, first)
+  assert.equal(output.querySelectorAll(".activity-line").length, 3)
+  assert.match(output.textContent ?? "", /automatic:aaaaaaaaaaaaaaaa/)
+  assert.match(page.document.getElementById("activity-status")?.textContent ?? "", /Live/)
+  assert.ok(page.fetchCalls.every((call) => call.init.credentials === "same-origin" && call.init.cache === "no-store" && call.init.method !== "POST"))
+  console.destroy()
+  await page.close()
+})
+
+test("activity history, filtering, pause, copy and export operate on real loaded records", async () => {
+  const page = openPage("controls")
+  page.setFetch((url) => {
+    if (url === "/api/system/journal") return json(activityPage([activityEntry(3), activityEntry(4, { component: "network", trigger: "monitor", text: "relay probe: connected" })], { oldest: 1 }))
+    assert.equal(url, "/api/system/journal?before=3")
+    return json(activityPage([activityEntry(1), activityEntry(2)], { newest: 4 }))
+  })
+  const console = mountActivity(page.document.getElementById("activity-console")!, false)
+  await console.refresh()
+  const doc = page.document
+  doc.querySelector<HTMLButtonElement>("#activity-earlier")!.click()
+  await waitForText(doc.getElementById("activity-count"), /4 records loaded/, "earlier activity not loaded")
+  assert.equal(doc.querySelector<HTMLInputElement>("#activity-follow")!.checked, false)
+  const search = doc.querySelector<HTMLInputElement>("#activity-search")!
+  search.value = "relay probe"
+  page.fire(search, "input")
+  assert.equal(doc.querySelectorAll(".activity-line").length, 1)
+  search.value = ""
+  page.fire(search, "input")
+  const filter = doc.querySelector<HTMLSelectElement>("#activity-component")!
+  filter.value = "provider"
+  page.fire(filter, "change")
+  assert.equal(doc.querySelectorAll(".activity-line").length, 3)
+  let copied = ""
+  Object.defineProperty(page.window.navigator.clipboard, "writeText", { value: async (text: string) => { copied = text }, configurable: true })
+  doc.querySelector<HTMLButtonElement>("#activity-copy")!.click()
+  await waitForText(doc.getElementById("activity-notice"), /copied/, "copy result not reported")
+  assert.match(copied, /actual output 1/)
+  assert.doesNotMatch(copied, /relay probe/)
+  doc.querySelector<HTMLButtonElement>("#activity-pause")!.click()
+  assert.match(doc.getElementById("activity-status")?.textContent ?? "", /Paused.*still recording/)
+  let blob: Blob | undefined
+  let filename = ""
+  Object.defineProperty(page.window.URL, "createObjectURL", { value: (value: Blob) => { blob = value; return "blob:test" }, configurable: true })
+  Object.defineProperty(page.window.URL, "revokeObjectURL", { value: () => undefined, configurable: true })
+  page.window.HTMLAnchorElement.prototype.click = function () { filename = this.download }
+  doc.querySelector<HTMLButtonElement>("#activity-download")!.click()
+  assert.ok(blob)
+  assert.match(await blob.text(), /relay probe: connected/)
+  assert.match(filename, /^deltarelay-system-.*\.log$/)
+  console.destroy()
+  await page.close()
+})
+
+test("activity outages retain output, report gaps and storage problems, and never disable unrelated controls", async () => {
+  const page = openPage("controls")
+  let step = 0
+  page.setFetch((url) => {
+    if (url === "/api/system") return json(systemStatus())
+    step++
+    if (step === 1) return json(activityPage([activityEntry(1, { text: "retained diagnostic" })]))
+    if (step === 2) return json({ error: "supervisor_unavailable" }, 503)
+    return json(activityPage([activityEntry(10, { text: "new retained history" })], { reset: true, storage_error: true }))
+  })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  await system.refresh()
+  assert.match(page.document.getElementById("activity-output")?.textContent ?? "", /retained diagnostic/)
+  assert.match(page.document.getElementById("activity-notice")?.textContent ?? "", /unavailable/)
+  assert.equal(page.document.querySelector<HTMLButtonElement>("#wake-remote")!.disabled, false)
+  await system.refresh()
+  assert.match(page.document.getElementById("activity-output")?.textContent ?? "", /new retained history/)
+  assert.match(page.document.getElementById("activity-notice")?.textContent ?? "", /persistence is degraded/)
   system.destroy()
   await page.close()
 })

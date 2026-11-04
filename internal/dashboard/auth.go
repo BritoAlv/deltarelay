@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,10 +52,12 @@ func (h *Handler) authStatus(ctx context.Context) AuthStatus {
 	}
 	status, err := h.readAuth(ctx)
 	if err != nil {
+		log.Printf("dashboard auth metadata check failed: %v (credentials and response bodies omitted)", err)
 		status = h.authCache
 		status.Stale = true
 		status.State = "unavailable"
 	}
+	log.Printf("dashboard auth metadata check: state=%s stale=%t; no token refresh or model request", status.State, status.Stale)
 	h.authCache, h.authNext = status, time.Now().Add(10*time.Second)
 	return status
 }
@@ -80,11 +83,14 @@ func (h *Handler) readAuth(ctx context.Context) (AuthStatus, error) {
 		}
 		// OpenCode's registered local service authenticates with HTTP Basic.
 		request.SetBasicAuth("opencode", registration.Password)
+		started := time.Now()
+		log.Printf("dashboard auth metadata: GET %s (authentication headers omitted)", request.URL)
 		response, err := h.client.Do(request)
 		if err != nil {
 			return err
 		}
 		defer response.Body.Close()
+		log.Printf("dashboard auth metadata: HTTP status=%d elapsed=%s (response body omitted)", response.StatusCode, time.Since(started).Round(time.Millisecond))
 		if response.StatusCode != 200 {
 			return errors.New("service metadata unavailable")
 		}

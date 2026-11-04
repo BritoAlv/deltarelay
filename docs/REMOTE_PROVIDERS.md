@@ -138,7 +138,24 @@ EOF. Write exactly one JSON object to **stdout**, optionally followed by whitesp
 and exit 0. Structured errors also exit 0. Nonzero exit is `provider_failed` even
 if stdout contains JSON. No banners, progress output, trailing JSON, duplicate
 keys, nonfinite numbers, or unknown fields are accepted. Request and response
-limits are each 65,536 bytes. stderr is discarded; never print credentials.
+limits are each 65,536 bytes. Under supervision, stderr and the actual stdout
+response are captured in the private activity journal and displayed in the local
+dashboard console; outside supervision stderr is drained without being returned
+as a provider result. Never print credentials. Diagnostic output does not relax
+stdout validation or change error/retry semantics.
+
+Bundled providers additionally trace nested command execution over an optional
+inherited pipe, selected by `DELTARELAY_TRACE_FD`. This leaves the v1 request and
+stdout response unchanged and is not required of third-party providers. Each
+UTF-8 JSONL diagnostic record has exactly `stream`, `text` and `execution` fields:
+`stream` is `event`, `command`, `stdout`, `stderr`, `output`, `exit` or `error`;
+`text` is at most 16,384 characters; `execution` is an eight-character lowercase
+hex command ID. Records are bounded/validated, credential-masked and rendered as
+text. Do not pass the descriptor to daemonized children or use it as a management
+channel. A plugin that does not implement it still has its own invocation,
+stdout/stderr, timeout and exit status recorded; its silent internal actions are
+not invented by the console. The bundled `provider_command` runner implements
+the channel automatically.
 
 Request (all five fields required):
 
@@ -223,8 +240,10 @@ as transient:
   `unsafe_private_file`, `invalid_request`, `unsupported_operation`.
 - **Policy/cancellation (`false`):** `host_stopped`, `operation_cancelled`.
 
-Unknown error strings and free-form diagnostic fields are rejected, not forwarded
-to the browser. Fix permanent failures explicitly and restart the supervisor;
+Unknown error strings and free-form diagnostic fields in the **protocol
+response** are rejected; the separate local activity log preserves actual
+execution diagnostics without treating them as error codes or policy inputs.
+Fix permanent failures explicitly and restart the supervisor;
 recovery never weakens verification or resets the store to clear them.
 
 Core recovery first repairs the local tunnel, then optionally wakes the machine

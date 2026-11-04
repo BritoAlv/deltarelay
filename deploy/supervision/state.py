@@ -47,7 +47,8 @@ def save_json(path, value):
 
 
 class SupervisorState:
-    def __init__(self, config, settings, metadata):
+    def __init__(self, config, settings, metadata, journal=None):
+        self.journal = journal
         self.lock = threading.RLock()
         self.settings_lock = threading.Lock()
         self.settings = dict(settings)
@@ -92,14 +93,19 @@ class SupervisorState:
     def set_metadata(self, metadata):
         """Apply provider discovery metadata and recompute capability flags."""
         with self.lock:
+            previous = dict(self.metadata)
             self.metadata = dict(metadata)
             capabilities = self.metadata.get('capabilities', ())
             for name, spec in self._specs.items():
                 self._can_start[name] = bool(spec.get('command') or spec.get('start_command') or
                                                name == 'relay' and 'relay.ensure' in capabilities)
                 self._can_restart[name] = bool(spec.get('command') or spec.get('restart_command') or
-                                               name == 'relay' and 'relay.restart' in capabilities)
+                                                name == 'relay' and 'relay.restart' in capabilities)
+        self._changed('Provider metadata', previous, self.metadata, 'provider')
 
+    def _changed(self, name, previous, value, component=None):
+        if self.journal and previous != value:
+            self.journal.write('event', f'{name}: {previous} -> {value}', component=component)
 
     def snapshot(self):
         with self.lock:
@@ -138,11 +144,15 @@ class SupervisorState:
         with self.settings_lock:
             persist(value)
             with self.lock:
+                previous = self.settings
                 self.settings = dict(value)
+            self._changed('Recovery settings saved', previous, value, 'settings')
 
     def set_component(self, name, value):
         with self.lock:
+            previous = self.states[name]
             self.states[name] = value
+        self._changed('Service state', previous, value, name)
 
     def component_value(self, name):
         with self.lock:
@@ -150,7 +160,9 @@ class SupervisorState:
 
     def set_relay_state(self, value):
         with self.lock:
+            previous = self.relay_state
             self.relay_state = value
+        self._changed('Relay connectivity', previous, value, 'relay')
 
     def relay_value(self):
         with self.lock:
@@ -158,7 +170,9 @@ class SupervisorState:
 
     def set_host_state(self, value):
         with self.lock:
+            previous = self.host_state
             self.host_state = value
+        self._changed('Host state', previous, value, 'provider')
 
     def host_value(self):
         with self.lock:
@@ -166,40 +180,45 @@ class SupervisorState:
 
     def set_internet(self, state, checked_at, next_at):
         with self.lock:
+            previous = self.internet_state
             self.internet_state = state
             self.internet_checked_at = checked_at
             self.internet_next = next_at
+        self._changed('Internet connectivity', previous, state, 'network')
 
     def update_recovery(self, **changes):
         with self.lock:
+            previous = dict(self.recovery)
             self.recovery.update(changes)
+        for name, value in changes.items():
+            self._changed(f'Recovery {name}', previous.get(name), value)
 
     def recovery_value(self, key):
         with self.lock:
             return self.recovery[key]
 
     def begin_operation(self, phase):
-        with self.lock:
-            self.recovery.update(busy=True, phase=phase, last_error='', next_retry_at=None)
+        self.update_recovery(busy=True, phase=phase, last_error='', next_retry_at=None)
 
     def begin_attempt(self, phase):
         with self.lock:
-            self.recovery.update(busy=True, phase=phase, attempts=self.recovery['attempts'] + 1,
-                                 next_retry_at=None)
+            attempts = self.recovery['attempts'] + 1
+        self.update_recovery(busy=True, phase=phase, attempts=attempts, next_retry_at=None)
 
     def finish_operation(self):
-        with self.lock:
-            self.recovery.update(busy=False, phase='monitoring')
+        self.update_recovery(busy=False, phase='monitoring')
 
     def record_relay(self, relay_state):
         """Apply one completed relay probe atomically."""
         with self.lock:
+            previous = self.relay_state
             self.relay_state = relay_state
             stopped = relay_state == 'unreachable' and self.host_state == 'stopped'
             self.states['relay'] = ('running' if relay_state == 'connected'
                                     else 'stopped' if stopped else 'unknown')
             if relay_state == 'connected':
                 self.recovery.update(last_connected_at=stamp(), last_error='', next_retry_at=None)
+        self._changed('Relay connectivity', previous, relay_state, 'relay')
 
     def set_dashboard_enabled(self, value):
         with self.lock:

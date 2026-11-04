@@ -40,7 +40,7 @@ class SupervisorTest(unittest.TestCase):
 
     def supervisor(self):
         result = control.Supervisor(self.config)
-        self.addCleanup(result.stop.set)
+        self.addCleanup(result.close)
         return result
 
     def component(self, name, command=None):
@@ -585,7 +585,7 @@ class StateOwnershipTest(unittest.TestCase):
 
     def supervisor(self, **kwargs):
         result = control.Supervisor(self.config, **kwargs)
-        self.addCleanup(result.stop.set)
+        self.addCleanup(result.close)
         return result
 
     def test_snapshot_returns_copies_of_all_observable_state(self):
@@ -891,6 +891,7 @@ print(json.dumps({'protocol_version': 1, 'id': request['id'], 'result': result})
                 for release in releases: release.set()
                 if subject:
                     for child in subject.children.values(): SupervisorTest.cleanup_child(child)
+                    subject.close()
                 SupervisorTest.cleanup_child(relay)
                 log.close()
                 provider.shutdown()

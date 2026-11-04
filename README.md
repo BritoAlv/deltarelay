@@ -126,6 +126,10 @@ Each page polls only the API it needs and has its own refresh/pause state.
 Optional supervisor integration adds service Start/Restart controls, automatic
 network recovery, capability-based remote host wake/stop controls, and a ChatGPT
 access-token expiry countdown.
+System controls also includes a log-first activity console with actual command
+stdout/stderr, exit status, background probes and automatic recovery decisions.
+Its private rotating journal records activity with the browser closed and
+supports recent history, filtering, copy and download.
 It distinguishes **no internet** from an **unreachable VPS**. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.

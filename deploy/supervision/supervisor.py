@@ -6,18 +6,22 @@ protocols, and remote helpers in their existing modules.
 """
 
 import copy
+from functools import wraps
+import json
 import os
 from pathlib import Path
 import stat
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 
 from recover_relay import NoRedirect
 from remote_provider import (PERMANENT, ProviderError as ControlError, private_json,
                              run_command)
 from providers.legacy import load_provider, normalize_component
+from activity import ActivityJournal, operation_id
 
 from .config import COMPONENTS, INTERNET_CHECK_INTERVAL, validate
 from .process import ProcessManager, process
@@ -25,6 +29,20 @@ from .probes import RelayProbe
 from .recovery import RecoveryPolicy
 from .state import SupervisorState, save_json, stamp
 
+
+def component_step(method):
+    @wraps(method)
+    def wrapped(self, name):
+        with self.journal.context(component=name):
+            self.journal.write('event', f'{method.__name__}: {name}')
+            try:
+                result = method(self, name)
+            except Exception as error:
+                self.journal.write('error', f'{method.__name__}: {type(error).__name__}: {error}')
+                raise
+            self.journal.write('event', f'{method.__name__} returned; service state={self.state.component_value(name)}')
+            return result
+    return wrapped
 
 
 class Supervisor:
@@ -47,16 +65,22 @@ class Supervisor:
             settings = loaded
         self.operation = threading.Lock()
         self.stop = threading.Event()
+        self.journal = ActivityJournal(self.directory, self.config, self.stop)
+        self.journal.write('event', f'Supervisor starting pid={os.getpid()} profile={self.root}; settings={settings}')
         self.clock = clock or (lambda: time.monotonic())
         self.command_runner = command_runner
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         self.provider = load_provider(self.config, self._run, self.stop,
-                                      self.start_component, self.restart_component)
-        self.state = SupervisorState(self.config, settings, self.provider.metadata)
+                                      self.start_component, self.restart_component, trace=self.journal.sink('provider'))
+        self.state = SupervisorState(self.config, settings, self.provider.metadata, journal=self.journal)
         self.processes = processes or ProcessManager(self.config, self.root, self.directory,
-                                                     self.state, self.stop, clock=self.clock)
-        self.probes = probes or RelayProbe(self.config, self.opener)
+                                                     self.state, self.stop, clock=self.clock, journal=self.journal)
+        self.probes = probes or RelayProbe(self.config, self.opener, trace=self.journal.sink('network'))
         self.policy = policy or RecoveryPolicy(clock=self.clock)
+        if 'remote' in self.config:
+            self.journal.write('event', 'Executable provider diagnostics: capturing stdout/stderr and optional child-command trace pipe. A third-party provider cannot expose internal work it does not emit.', component='provider')
+        for name in self.config['components']:
+            self.journal.follow(name, self.directory / (name + '.log'))
 
     # Compatibility/review accessors. Production code uses the collaborators
     # directly; these keep status inspectable without exposing mutable state.
@@ -139,15 +163,31 @@ class Supervisor:
 
     def _run(self, command, **kwargs):
         runner = self.command_runner or run_command
-        return runner(command, cancel=self.stop, **kwargs)
+        return runner(command, cancel=self.stop, trace=self.journal.sink(), **kwargs)
+
+    def provider_call(self, method, params=None):
+        self.journal.write('event', f'Provider {method} started', component='provider')
+        try:
+            result = self.provider.call(method, params)
+        except Exception as error:
+            self.journal.write('error', f'Provider {method}: {type(error).__name__}: {error}', component='provider')
+            raise
+        self.journal.write('event', f'Provider {method} returned {json.dumps(result)}', component='provider')
+        return result
 
     def snapshot(self):
         return self.state.snapshot()
+
+    def close(self):
+        self.journal.close()
 
     def supports(self, method):
         return method in self.provider.metadata['capabilities']
 
     def prepare_provider(self):
+        discovering = self.provider.connection is None
+        if discovering:
+            self.journal.write('event', 'Discovering provider description and connection', component='provider')
         connection = self.provider.prepare()
         self.state.set_metadata(self.provider.metadata)
         tunnel = connection.get('tunnel')
@@ -157,6 +197,9 @@ class Supervisor:
             spec = {**tunnel, 'pid_file': str(self.directory / 'provider-tunnel.pid'), 'env': env}
             self.config['components']['tunnel'] = spec
             self.state.register_component('tunnel', spec)
+            self.journal.follow('tunnel', self.directory / 'tunnel.log')
+        if discovering:
+            self.journal.write('event', f'Provider ready: {self.provider.metadata}; connection={json.dumps(connection)}', component='provider')
 
     def expected_identity(self):
         return self.probes.expected_identity()
@@ -167,11 +210,13 @@ class Supervisor:
         if value['auto_wake'] and 'remote' in self.config and not self.supports('host.wake'):
             raise ControlError('unsupported_operation')
         self.state.apply_settings(value, lambda settings: save_json(self.directory / 'settings.json', settings))
+        self.journal.write('event', f'Recovery settings persisted: {value}', component='settings')
         self.policy.reset_attempt()
 
     def _identity(self, name):
         return self.processes.identity(name)
 
+    @component_step
     def start_component(self, name):
         if self.stop.is_set():
             raise ControlError('operation_cancelled')
@@ -179,7 +224,7 @@ class Supervisor:
         if not spec:
             raise ControlError('component_unmanaged')
         if name == 'tunnel' and self.supports('host.wake'):
-            host_state = self.provider.call('status')['host_state']
+            host_state = self.provider_call('status')['host_state']
             self.state.set_host_state(host_state)
             if host_state in ('stopped', 'stopping'):
                 raise ControlError('host_stopped')
@@ -192,6 +237,7 @@ class Supervisor:
             return
         self.processes.start(name)
 
+    @component_step
     def restart_component(self, name):
         spec = self.config['components'].get(name)
         if not spec:
@@ -205,6 +251,7 @@ class Supervisor:
         self.processes.stop(name)
         self.start_component(name)
 
+    @component_step
     def stop_component(self, name):
         spec = self.config['components'].get(name, {})
         if 'command' not in spec:
@@ -212,10 +259,14 @@ class Supervisor:
         self.processes.stop(name)
 
     def probe(self):
-        return self.probes.relay()
+        result = self.probes.relay()
+        self.journal.write('event', f'Authenticated relay probe result: {result}', component='network')
+        return result
 
     def internet_probe(self):
-        return self.probes.internet()
+        result = self.probes.internet()
+        self.journal.write('event', f'Internet probe result: {result}', component='network')
+        return result
 
     def update_internet(self, relay_state):
         if relay_state == 'unreachable':
@@ -223,6 +274,7 @@ class Supervisor:
             with self.state.lock:
                 due = self.state.internet_state == 'unknown' or now >= self.state.internet_next
             if not due:
+                self.journal.write('event', 'Internet probe skipped: using cached result (15s interval)', component='network')
                 return
             value = self.internet_probe()
             self.state.set_internet(value, stamp(), now + INTERNET_CHECK_INTERVAL)
@@ -237,11 +289,12 @@ class Supervisor:
         deadline = self.clock() + 120
         self.state.set_host_state(result['host_state'])
         while self.state.host_value() != wanted:
+            self.journal.write('event', f'Waiting for host={wanted}; observed={self.state.host_value()}; polling in 3s', component='provider')
             if self.stop.wait(3):
                 raise ControlError('operation_cancelled')
             if self.clock() >= deadline:
                 raise ControlError('host_stop_timeout' if wanted == 'stopped' else 'host_unavailable')
-            self.state.set_host_state(self.provider.call('status')['host_state'])
+            self.state.set_host_state(self.provider_call('status')['host_state'])
 
     def stop_host(self):
         # Persist suppression before any tunnel/provider operation, including a
@@ -249,7 +302,7 @@ class Supervisor:
         self.update_settings({'auto_reconnect': False, 'auto_wake': False})
         if 'command' in self.config['components'].get('tunnel', {}):
             self.stop_component('tunnel')
-        self.wait_for_host('stopped', self.provider.call('host.stop'))
+        self.wait_for_host('stopped', self.provider_call('host.stop'))
         self.state.set_relay_state('unreachable')
         self.state.set_component('relay', 'stopped')
         self.state.update_recovery(last_error='host_stopped')
@@ -257,6 +310,7 @@ class Supervisor:
     def remote(self, wake=False, restart=False):
         blocked = self.policy.provider_blocked_value()
         if blocked:
+            self.journal.write('error', f'Remote operation blocked by permanent failure: {blocked}')
             raise ControlError(blocked)
         self.prepare_provider()
         state = self.probe()
@@ -265,12 +319,12 @@ class Supervisor:
         expected = self.expected_identity()
         if wake and self.supports('host.wake'):
             self.state.update_recovery(phase='waking_remote_host')
-            self.wait_for_host('running', self.provider.call('host.wake'))
+            self.wait_for_host('running', self.provider_call('host.wake'))
         method = 'relay.restart' if restart else 'relay.ensure'
         if self.supports(method):
             self.state.update_recovery(phase='recovering_remote_relay')
             try:
-                result = self.provider.call(method, {'expected_state_id': expected})
+                result = self.provider_call(method, {'expected_state_id': expected})
             except ControlError as error:
                 if str(error) == 'host_stopped':
                     self.state.set_host_state('stopped')
@@ -279,7 +333,7 @@ class Supervisor:
                 raise ControlError('identity_mismatch')
             self.state.set_component('relay', 'starting')
         else:
-            host_state = self.provider.call('status')['host_state']
+            host_state = self.provider_call('status')['host_state']
             self.state.set_host_state(host_state)
             if host_state == 'stopped':
                 raise ControlError('host_stopped')
@@ -298,6 +352,7 @@ class Supervisor:
         # Port-forward setup can take longer than one probe. Keep the wait
         # bounded, and never treat a permanent failure as permission to repair.
         for attempt in range(5):
+            self.journal.write('event', f'Relay readiness check {attempt + 1}/5', component='network')
             if self.stop.wait(1 if attempt else 0):
                 raise ControlError('operation_cancelled')
             state = self.observe_relay()
@@ -308,6 +363,7 @@ class Supervisor:
         return False
 
     def recover(self, wake=False):
+        self.journal.write('event', f'Connection recovery started; wake permitted={wake}')
         blocked = self.policy.provider_blocked_value()
         if blocked:
             raise ControlError(blocked)
@@ -321,7 +377,7 @@ class Supervisor:
         if state == 'unreachable':
             # A vendor tunnel command must not accidentally resume stopped
             # compute before the supervisor has applied the wake policy.
-            host_state = self.provider.call('status')['host_state']
+            host_state = self.provider_call('status')['host_state']
             self.state.set_host_state(host_state)
             if host_state in ('stopped', 'stopping'):
                 if not wake:
@@ -344,6 +400,7 @@ class Supervisor:
         if 'gateway' in self.config['components']:
             self.start_component('gateway')
         self.state.update_recovery(phase='monitoring')
+        self.journal.write('event', 'Connection recovery finished; authenticated relay ready')
 
     def submit(self, value):
         if not isinstance(value, dict) or set(value) - {'component', 'action', 'confirmed'}:
@@ -363,9 +420,16 @@ class Supervisor:
             raise ControlError('unsupported_operation')
         if not self.operation.acquire(blocking=False):
             raise ControlError('operation_in_progress')
-        self.state.begin_operation(action + '_' + name)
+        operation = operation_id()
+        with self.journal.context(trigger='manual', operation=operation, component=name):
+            self.journal.write('event', f'Accepted control action: {action} {name}; confirmed={value.get("confirmed", False)}')
+            self.state.begin_operation(action + '_' + name)
 
         def work():
+            with self.journal.context(trigger='manual', operation=operation, component=name):
+                run_work()
+
+        def run_work():
             try:
                 if action == 'restart' and name in ('dashboard', 'all'):
                     # Let the accepted response reach the browser before its
@@ -408,12 +472,16 @@ class Supervisor:
                 else:
                     self.start_component(name)
             except ControlError as error:
+                self.journal.write('error', f'Control action failed: {action} {name}: {error}')
                 self.state.update_recovery(last_error=str(error))
                 if str(error) in PERMANENT:
                     self.policy.set_provider_blocked(str(error))
             except Exception as error:
                 self.state.update_recovery(last_error='operation_failed')
                 print(f'{stamp()} supervisor operation failed: {type(error).__name__}', file=sys.stderr, flush=True)
+                self.journal.write('error', traceback.format_exc())
+            else:
+                self.journal.write('event', f'Control action completed: {action} {name}')
             finally:
                 self.policy.defer()
                 self.state.finish_operation()
@@ -422,17 +490,27 @@ class Supervisor:
         threading.Thread(target=work, daemon=True).start()
 
     def tick(self):
+        with self.journal.context(trigger='monitor', operation=operation_id()):
+            self.journal.write('event', 'Scheduled supervisor check')
+            self._tick()
+
+    def _tick(self):
         if not self.operation.acquire(blocking=False):
+            self.journal.write('event', 'Scheduled check skipped: a control operation is in progress')
             return
         try:
             for name, spec in self.config['components'].items():
                 if 'command' in spec:
-                    self.state.set_component(name, 'running' if self._identity(name) else 'stopped')
+                    identity = self._identity(name)
+                    if (identity and self.state.component_value(name) != 'running') or (not identity and self.state.component_value(name) != 'stopped'):
+                        self.journal.write('event', f'Process identity check: {"verified pid=" + str(identity["pid"]) if identity else "no verified running process"}', component=name)
+                    self.state.set_component(name, 'running' if identity else 'stopped')
                 elif name == 'opencode' and self.config.get('opencode_service_file'):
                     try:
                         registered = private_json(Path(self.config['opencode_service_file']))
                         self.state.set_component(name, 'running' if process(registered.get('pid', 0)) else 'stopped')
-                    except (OSError, ValueError, ControlError):
+                    except (OSError, ValueError, ControlError) as error:
+                        self.journal.write('error', f'OpenCode process registration check: {type(error).__name__}: {error}', component=name)
                         self.state.set_component(name, 'unknown')
                 elif spec.get('status_command'):
                     try:
@@ -449,17 +527,19 @@ class Supervisor:
                 try:
                     self.prepare_provider()
                     if self.policy.host_status_due():
-                        host_state = self.provider.call('status')['host_state']
+                        host_state = self.provider_call('status')['host_state']
                         self.state.set_host_state(host_state)
                         self.policy.provider_ok(self.clock() + 15)
                     else:
                         self.policy.provider_ok()
                 except ControlError as error:
+                    self.journal.write('error', f'Provider discovery/status check failed: {error}', component='provider')
                     self.policy.provider_failed(str(error), str(error) in PERMANENT)
             previous = self.state.relay_value()
             state = self.observe_relay()
             error, blocked, retry_at = self.policy.provider_status()
             if error or blocked:
+                self.journal.write('event', f'Recovery deferred: provider_error={error} blocked={blocked} next_retry_at={retry_at}')
                 self.state.update_recovery(last_error=blocked or error, next_retry_at=retry_at)
                 return
             if state == 'connected':
@@ -476,14 +556,19 @@ class Supervisor:
                 self.state.update_recovery(last_error=state)
             settings = self.state.settings_copy()
             if state != 'unreachable' or not settings['auto_reconnect'] or blocked:
+                self.journal.write('event', f'Automatic recovery skipped: relay={state} auto_reconnect={settings["auto_reconnect"]} blocked={blocked}')
                 self.state.update_recovery(next_retry_at=None)
                 return
             if not self.policy.recovery_due():
+                self.journal.write('event', f'Automatic recovery waiting for debounce/backoff; next_retry_at={self.state.recovery_value("next_retry_at")}')
                 return
             self.state.begin_attempt('recovering_connection')
             try:
-                self.recover(wake=settings['auto_wake'])
+                with self.journal.context(trigger='automatic'):
+                    self.journal.write('event', f'Automatic recovery attempt {self.state.recovery_value("attempts")} triggered')
+                    self.recover(wake=settings['auto_wake'])
             except ControlError as error:
+                self.journal.write('error', f'Automatic recovery failed: {error}')
                 self.state.update_recovery(last_error=str(error))
                 if str(error) in PERMANENT:
                     self.policy.set_provider_blocked(str(error))
@@ -492,6 +577,7 @@ class Supervisor:
             retry_at = self.policy.schedule_retry()
             self.state.update_recovery(next_retry_at=retry_at)
         except ControlError as error:
+            self.journal.write('error', f'Scheduled supervisor check failed: {error}')
             self.state.update_recovery(last_error=str(error))
             if str(error) in PERMANENT:
                 self.policy.set_provider_blocked(str(error))
@@ -500,6 +586,7 @@ class Supervisor:
             # The private controller log gets only the exception type; never
             # command output, credentials, request bodies, or full paths.
             print(f'{stamp()} supervisor tick failed: {type(error).__name__}', file=__import__('sys').stderr, flush=True)
+            self.journal.write('error', traceback.format_exc())
         finally:
             self.state.finish_operation()
             self.operation.release()

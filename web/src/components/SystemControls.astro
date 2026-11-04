@@ -1,9 +1,11 @@
 ---
 import Icon from "./Icon.astro"
+import ActivityConsole from "./ActivityConsole.astro"
 ---
 <section id="controls" class="system-section" aria-label="System controls">
   <div class="section-heading"><div><p>Recovery runs independently of this page.</p></div><div class="heading-actions"><button class="button" id="open-desktop" type="button" aria-describedby="desktop-status" disabled><Icon name="desktop" size={16} />Open OpenCode Desktop</button><button class="button" id="recover-all" type="button" disabled>Recover all</button></div></div>
   <p id="desktop-status" class="control-detail" role="status">Checking the local Desktop launcher…</p>
+  <ActivityConsole />
   <div class="control-overview">
     <article class="panel control-panel">
       <div class="control-heading"><h3>PC → VPS connection</h3><span id="control-connection" class="status-pill neutral">Checking</span></div>
