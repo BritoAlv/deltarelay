@@ -2,7 +2,7 @@
 
 DeltaRelay is not tied to GitHub Codespaces. Any existing machine that runs the
 relay and exposes trusted HTTPS or an encrypted tunnel can be used. The remote
-relay still implements [relay protocol v2](PROTOCOL_V2.md); hosting plugins do not
+relay still implements the [DeltaRelay protocol](PROTOCOL.md); hosting plugins do not
 replace uploads, forwarding, durable responses, authentication, or identity pins.
 The bundled relay and supervisor currently target Linux/POSIX environments.
 
@@ -63,9 +63,9 @@ connection specifications, and status. It never launches a tunnel, performs a
 model request, or invokes an advertised mutation. A trusted plugin can itself do
 anything your account can do; the checker cannot prove that its code is read-only.
 
-Without `--config`, `startup.sh` checks `DELTARELAY_PROFILE`, then
-`${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json`, then an existing
-private `.runtime/codespace-test` profile. It never provisions a default Codespace.
+Without `--config`, `startup.sh` reads
+`${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json`.
+It never discovers private test profiles or provisions a default remote host.
 Local controls start before any plugin invocation, so a broken/offline provider
 does not prevent the dashboard from opening.
 
@@ -248,7 +248,7 @@ recovery never weakens verification or resets the store to clear them.
 
 Core recovery first repairs the local tunnel, then optionally wakes the machine
 only with saved opt-in or confirmed manual consent, then ensures the existing
-relay is running. Success is established only by core authenticated `/v2/info`
+relay is running. Success is established only by core authenticated `/info`
 with the existing identity pin. Plugin return values never establish readiness.
 No management operation submits a model request or replays a generation.
 
@@ -275,17 +275,14 @@ pnpm check
 pnpm test
 ```
 
-## Compatibility
+## Supported configuration and status
 
-Existing private `codespace` objects are adapted to the bundled Codespaces
-implementation in memory. Existing `components.tunnel` and command-managed
-`components.relay` profiles remain supported through the legacy adapter. Their
-private configuration, credentials, PID paths, identity pins, cache, and saved
-responses are not rewritten. Old bounded recovery scripts remain explicit legacy
-tools; do not run multiple service managers concurrently.
+The supervisor requires `remote`; inline `codespace` settings and separately
+configured tunnel/relay components are rejected. Use the bundled Codespaces
+plugin for an existing Codespace deployment. Startup does not rewrite private
+configuration or automatically restart live services to apply an upgrade.
 
-Supervisor status v2 replaces `codespace_state` with `remote` containing only
-`id`, `label`, `host_state`, and `capabilities`. The Go dashboard also normalizes
-status from a running v1 supervisor and retains its old action target, allowing a
-controlled upgrade without automatically restarting live gateways or remote
-relays. Old configuration format `version: 1` is unchanged.
+Supervisor status uses version 2 and exposes `remote` containing only `id`,
+`label`, `host_state`, and `capabilities`. Remote power actions target `remote`.
+The provider envelope and supervisor configuration retain their independent
+version-1 data formats; there are no alternate implementations for older shapes.

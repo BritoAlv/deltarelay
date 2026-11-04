@@ -84,7 +84,7 @@ func TestClientCloseAfterCompletedStreamIsRecordedAsCompleted(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, local.URL+"/v1/proxy", bytes.NewReader([]byte(`{"input":"test"}`)))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, local.URL+"/proxy", bytes.NewReader([]byte(`{"input":"test"}`)))
 	if err != nil {
 		t.Fatal(err)
 	}

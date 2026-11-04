@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -11,6 +10,7 @@ from activity import ActivityJournal, MAX_LINE, OutputLines
 from remote_provider import ExecutableProvider, ProviderError, run_command
 from supervision.control import Handler, Server, control_request
 from supervision.supervisor import Supervisor
+from test_support import configure_provider
 
 
 class ActivityTest(unittest.TestCase):
@@ -23,6 +23,7 @@ class ActivityTest(unittest.TestCase):
                        'relay_token_file': str(self.private('relay.token', 'relay-private-secret')),
                        'local_token_file': str(self.private('local.token', 'local-private-secret')),
                        'relay_state_file': str(self.private('identity.json', json.dumps('a' * 64)))}
+        configure_provider(self.config)
 
     def private(self, name, text):
         path = self.root / name

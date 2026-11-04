@@ -35,7 +35,7 @@ func (c *Client) upload(ctx context.Context, spool *os.File, local map[string]lo
 		if attempted {
 			target = max(c.config.Chunking.Max+protocol.ChunkHeaderSize+protocol.BatchHeaderSize, target/2)
 			var missing protocol.MissingResponse
-			if err := c.postJSON(ctx, "/v2/missing", inventory, &missing, sent, requests); err != nil {
+			if err := c.postJSON(ctx, "/missing", inventory, &missing, sent, requests); err != nil {
 				return err
 			}
 			allowed := make(map[string]protocol.Chunk, len(original))
@@ -93,7 +93,7 @@ func (c *Client) uploadOnce(ctx context.Context, spool *os.File, local map[strin
 	}
 	var result protocol.UploadResponse
 	ctx = inspection.WithChunks(ctx, chunks)
-	attempt, err := c.postOnceObserved(ctx, "/v2/chunks", protocol.BatchContentType, batch.Bytes(), &result, sent, requests)
+	attempt, err := c.postOnceObserved(ctx, "/chunks", protocol.BatchContentType, batch.Bytes(), &result, sent, requests)
 	if err == nil && (result.Chunks != len(chunks) || result.Bytes != expectedBytes) {
 		err = errors.New("server chunk acknowledgment does not match uploaded batch")
 		inspection.FromContext(ctx).RefineOutcome(attempt, "ack_mismatch")

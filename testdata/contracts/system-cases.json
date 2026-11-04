@@ -1,7 +1,6 @@
 [
   {"name":"current","fixture":"system-v2.json","supervisor_fixture":"supervisor-v2.json","boundary":"both","valid":true},
-  {"name":"legacy","fixture":"system-v1.json","supervisor_fixture":"supervisor-v1.json","boundary":"both","valid":true},
-  {"name":"legacy-before-internet-probe","fixture":"system-v1-early.json","supervisor_fixture":"supervisor-v1-early.json","boundary":"both","valid":true},
+  {"name":"old-version","boundary":"both","valid":false,"changes":[{"path":"version","value":1}]},
   {"name":"unmanaged","fixture":"system-unmanaged-v2.json","boundary":"system","valid":true},
   {"name":"optional-auth-and-times","boundary":"both","valid":true,"changes":[{"path":"auth.expires_at","value":"2026-11-01T13:00:00Z"},{"path":"auth.checked_at","value":"2026-11-01T12:00:00Z"},{"path":"recovery.last_connected_at","value":"2026-11-01T11:00:00Z"},{"path":"recovery.next_retry_at","value":"2026-11-01T12:00:05Z"},{"path":"internet_checked_at","value":"2026-11-01T12:00:00Z"},{"path":"error","value":"unreachable"}]},
   {"name":"remote-unicode-label","boundary":"both","valid":true,"changes":[{"path":"remote.label","value":"Servidor 🌍"},{"path":"remote.capabilities","value":["relay.ensure","host.wake"]}]},

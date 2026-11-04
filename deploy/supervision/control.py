@@ -43,7 +43,7 @@ def control_request(path, method, endpoint, body=None):
 
 def controller_status(path):
     status, value = control_request(path, 'GET', '/status')
-    return value if status == 200 and isinstance(value, dict) and value.get('version') in (1, 2) else None
+    return value if status == 200 and isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 2 else None
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -137,12 +137,6 @@ def main(argv=None):
                 continue
             try:
                 supervisor.start_component(name)
-                if name == 'dashboard':
-                    current = supervisor._identity(name)
-                    if current and '--control-socket' not in current['args']:
-                        # Upgrade only the positively identified legacy read-only
-                        # dashboard. Never replace the gateway or Desktop here.
-                        supervisor.restart_component(name)
             except Exception as error:
                 supervisor.journal.write('error', f'Startup {name} failed: {type(error).__name__}: {error}')
                 supervisor.state.set_component(name, 'start_failed')

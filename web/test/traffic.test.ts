@@ -99,19 +99,15 @@ test("traffic data aggregates hourly and daily buckets across ranges", () => {
   assert.equal(quarter.truncated, false)
 })
 
-test("traffic data falls back to retained requests for older gateways", () => {
+test("empty traffic aggregates do not reconstruct data from retained requests", () => {
   const snapshot = makeSnapshot(now)
-  const legacy = structuredClone(snapshot)
-  delete legacy.history.traffic
-  const day = trafficData(legacy, presetRange("24h", now))
-  assert.equal(day.source, "requests")
-  assert.equal(day.totals.requests, 72)
-  assert.equal(day.totals.body, snapshot.history.totals.body_bytes)
-  assert.equal(day.truncated, true)
-
-  const week = trafficData(legacy, presetRange("7d", now))
-  assert.equal(week.totals.requests, 72)
-  assert.equal(week.truncated, true)
+  snapshot.history.traffic.hourly.buckets = []
+  snapshot.history.traffic.daily.buckets = []
+  const day = trafficData(snapshot, presetRange("24h", now))
+  assert.equal(day.source, "none")
+  assert.equal(day.totals.requests, 0)
+  assert.equal(day.coverageStart, null)
+  assert.equal(day.truncated, false)
 })
 
 test("totals and composition preserve savings and negative overshoot", () => {

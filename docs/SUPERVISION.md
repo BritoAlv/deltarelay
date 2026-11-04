@@ -10,56 +10,32 @@ Remote hosting is extensible through the versioned, language-independent
 HTTPS, and Codespaces providers manage existing deployments only. The dashboard
 uses provider capabilities, not a hardcoded hosting vendor, for power controls.
 
-## Existing private Codespace profile
+## Configure an existing remote host
 
 ```sh
-./startup.sh
+./startup.sh --config /private/supervisor.json
 # Leave OpenCode/Desktop alone while starting local controls and network recovery:
-./startup.sh --no-desktop
+./startup.sh --config /private/supervisor.json --no-desktop
 ```
 
-On first use, the launcher adapts the existing profile into a mode-600
-`.runtime/codespace-test/supervisor.local.json`. It reads the Codespace selection
-from the existing tunnel wrapper, not from committed machine-specific settings.
-It requires the existing token files, pinned relay identity, deployment, and
-offline build tools/cache. It does not provision a new Codespace or copy accounts.
-The first generated dashboard port defaults to 8790; set
-`DELTARELAY_DASHBOARD_PORT` before that first launch to choose another port.
-Subsequent launches use the saved configuration. `DELTARELAY_PROFILE` selects a
-different already-configured profile.
+Copy the current supervisor example and choose an executable `remote` provider
+as described in [REMOTE_PROVIDERS.md](REMOTE_PROVIDERS.md). An explicit provider
+is required. Without `--config`, startup reads
+`${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json`. It never discovers
+private test profiles, generates configuration, or provisions a deployment.
+Set the dashboard address in that file; the example uses port 8790.
 
-Codespace recovery requires a current GitHub CLI. Older distribution packages
-can fail inside `gh codespace ssh` with an internal-server timeout even when
-GitHub's API and ordinary internet access work. An optional `github_cli` absolute
-path inside the private `codespace` object selects a trusted, separately installed
-CLI for status, wake, stop, and SSH recovery; the default is `gh` on `PATH`. For example:
+Codespaces use the bundled `deploy/providers/codespaces.py` plugin, just like
+SSH and HTTPS deployments. Its private provider file accepts an optional
+absolute `github_cli` path. Use a current GitHub CLI; the launcher never
+downloads or upgrades it. The provider supplies the foreground tunnel command.
 
-```json
-{
-  "codespace": {
-    "name": "your-existing-codespace",
-    "remote_directory": "~/.local/share/deltarelay/codespace-test",
-    "github_cli": "/absolute/private/path/to/gh"
-  }
-}
-```
-
-The launcher never downloads or upgrades the CLI. Tunnel component commands are
-configured separately. Restart only the supervisor after changing its private
-configuration; existing local services remain running.
-
-The controller adopts verified existing gateway, tunnel and Desktop processes.
-It upgrades a positively identified old **read-only dashboard** on startup, but
-does not restart a live gateway, remote relay, or OpenCode to apply new code.
-Use the dashboard's explicit Restart action when that is safe. Restarts of the
-gateway use the newly built local binary and preserve its state/history paths.
-Unknown port owners are never killed or replaced. The existing gateway must
-support `/v1/dashboard` to show session statistics; controls do not depend on it.
-
-The old `recover.sh` remains a deliberate, bounded, on-demand command and can
-still wake a stopped Codespace. It does not consult the dashboard's auto-wake
-policy. Do not run legacy stop/recovery scripts concurrently with dashboard
-management. Only one manager should own a deployment's services.
+The controller adopts verified existing gateway, tunnel, and Desktop processes.
+It does not automatically replace running services to apply code changes.
+Upgrade the relay, gateway, plugin, supervisor, and dashboard together, retaining
+the existing identity pins, cache, replay journal, and response mailbox. Only
+one manager should own each deployment's services; unknown port owners are never
+killed or replaced. Controls do not depend on the gateway's `/dashboard` route.
 
 ## Regular SSH or HTTPS VPS
 
@@ -85,8 +61,8 @@ the same identity/state directory as the gateway. Each component can use:
   a persistent local child owned/adopted by this controller.
 - `start_command`, `restart_command`, optional `status_command` / `env`: existing
   service-manager commands, such as SSH to a preconfigured systemd service.
-- Optional `match` arguments for an executable that rewrites its argv (Desktop),
-  or `adopt_match` for a known legacy launcher. Do not use broad process matches.
+- Optional `match` arguments for an executable that rewrites its argv (Desktop).
+  Do not use broad process matches.
 
 Commands are trusted local configuration, **not browser inputs**. Never put
 tokens/passwords in command arguments. The SSH provider's example remote commands
@@ -101,8 +77,8 @@ file with the HTTPS `relay_url`, and set the supervisor URL and gateway's `--ser
 to that same origin. Certificate verification remains mandatory; this provider
 does not advertise service/power management. A custom provider can add explicit
 authenticated management without a new public relay administration endpoint.
-Existing configurations without `remote` still support legacy `tunnel` and
-SSH/service-manager component commands; do not combine both ownership models.
+The `remote` provider exclusively owns the tunnel and relay; do not also declare
+`components.tunnel` or `components.relay`.
 
 Omit OpenCode/Desktop components to leave them unmanaged, or configure only the
 specific isolated profile you want controlled. In particular, do not accidentally
@@ -214,8 +190,8 @@ uses the saved store and its server lock; it never initializes a replacement sto
 
 The dashboard's `--opencode-service-file` points to the **correct profile's**
 private OpenCode V2 service registration (usually
-`$XDG_STATE_HOME/opencode/service.json`). The default Codespace adapter supplies
-its isolated profile path. `--auth-integration` defaults to `openai`.
+`$XDG_STATE_HOME/opencode/service.json`). Configure the isolated profile's path
+explicitly. `--auth-integration` defaults to `openai`.
 
 Go reads that registration without editing it, authenticates only to its loopback
 endpoint, reads the active integration credential's `expires` metadata using the
@@ -271,10 +247,9 @@ send real nested command traces on a separate diagnostic pipe, preserving their
 strict JSON stdout contract. Other providers' emitted stdout/stderr and invocation
 boundaries are visible, but uninstrumented internal work cannot be inferred.
 
-After upgrading, rebuild the dashboard assets and Go binary, then restart the
-independent supervisor and dashboard to activate collection/API support. Existing
-gateway, remote host and OpenCode services need not be restarted. Old supervisors
-produce an explicit upgrade notice in the console rather than simulated output.
+Build and deploy matching component revisions before restarting the services
+when safe. Unsupported status shapes fail closed; no configuration or history
+adapters are run and no private files are reset.
 
 PID adoption and
 signals require the expected owner's arguments and process birth time. A verified
@@ -283,7 +258,7 @@ a recycled PID, unrecognized port owner, or unrelated process is never signaled.
 Stopping the supervisor leaves existing services running; rerun `startup.sh` to
 resume monitoring. Configuration is read at controller startup, not live-reloaded.
 Runtime code is organized in `deploy/supervision/`; `deploy/supervisor.py` remains
-the executable compatibility entry point and `deploy/start_supervisor.py` remains
+the supervisor executable and `deploy/start_supervisor.py` is
 the launcher entry point.
 
 ```sh

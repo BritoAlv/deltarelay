@@ -8,7 +8,7 @@ export interface AuthStatus {
 }
 
 export interface SystemStatus {
-  version: 1 | 2
+  version: 2
   managed: boolean
   collected_at: string
   csrf_token: string
@@ -36,13 +36,8 @@ export function supportsRemote(system: SystemStatus | null, capability: RemoteCa
   return Boolean(system?.remote.capabilities.includes(capability))
 }
 
-export function remoteActionTarget(system: SystemStatus): "remote" | "codespace" {
-  // The Go dashboard normalizes v1 snapshots while an old supervisor is running.
-  return system.version === 1 ? "codespace" : "remote"
-}
-
 export function isSystemStatus(v: unknown): v is SystemStatus {
-  if (!object(v) || (v.version !== 1 && v.version !== 2) || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token) || !optionalString(v.error)) return false
+  if (!object(v) || v.version !== 2 || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token) || !optionalString(v.error)) return false
   if (typeof v.internet_state !== "string" || !nullableTimestamp(v.internet_checked_at)) return false
   if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || !optionalTimestamp(v.auth.expires_at) || !optionalTimestamp(v.auth.checked_at)) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
@@ -59,7 +54,7 @@ export function connectionState(system: SystemStatus): ConnectionState {
   if (system.relay_state === "connected") return "connected"
   if (system.relay_state === "unreachable" && system.remote.host_state === "stopped" && !system.settings.auto_reconnect && !system.settings.auto_wake) return "remote_stopped"
   // Only claim "no internet" when the independent external check also failed.
-  // An old or disabled supervisor leaves internet_state unknown.
+  // An unavailable supervisor leaves internet_state unknown.
   if (system.relay_state === "unreachable" && system.internet_state === "unreachable") return "no_internet"
   if (system.relay_state === "unreachable" && system.internet_state === "connected") return "vps_unreachable"
   return "unknown"
@@ -116,10 +111,6 @@ export function controlError(code: string): string {
     invalid_provider_response: "The remote-host plugin returned an invalid response. Automatic recovery is blocked.",
     provider_version_mismatch: "The remote-host plugin contract version is incompatible. Automatic recovery is blocked.",
     unsupported_operation: "This remote-host provider does not support that operation.",
-    codespace_stopped: "The Codespace is stopped. Use Wake Codespace, or enable automatic wake. Waking resumes GitHub billing.",
-    codespace_stop_timeout: "Codespace shutdown was not confirmed before the timeout. Automatic reconnect and wake remain off. Check its state in GitHub before retrying.",
-    codespace_ssh_timeout: "Codespace SSH relay recovery timed out. The Codespace can report Available while its SSH service or relay is unreachable. Check the Codespace and VPN/tunnel.",
-    codespace_recovery_failed: "Codespace SSH/relay recovery failed. Available does not confirm relay health. Check the Codespace, deployment, and VPN/tunnel; no state was reset.",
     command_failed: "A configured service command failed. Check the private supervisor/service logs.",
     command_timeout: "A configured service command timed out. Check the private supervisor/service logs.",
     operation_cancelled: "Recovery stopped because the supervisor is shutting down. Existing services and saved state were left intact.",

@@ -131,7 +131,7 @@ func (c *Client) Fetch(ctx context.Context, hash, output string) error {
 	var head attemptResponse
 	err = c.retry(ctx, func() error {
 		var err error
-		head, err = c.rpc(ctx, http.MethodHead, "/v2/bodies/"+hash, nil, nil, 0, nil, nil)
+		head, err = c.rpc(ctx, http.MethodHead, "/bodies/"+hash, nil, nil, 0, nil, nil)
 		return err
 	})
 	if err != nil {
@@ -147,7 +147,7 @@ func (c *Client) Fetch(ctx context.Context, hash, output string) error {
 		var response attemptResponse
 		err := c.retry(ctx, func() error {
 			var err error
-			response, err = c.rpc(ctx, http.MethodGet, "/v2/bodies/"+hash, nil, headers, protocol.ResponseSegmentBytes, nil, nil)
+			response, err = c.rpc(ctx, http.MethodGet, "/bodies/"+hash, nil, headers, protocol.ResponseSegmentBytes, nil, nil)
 			return err
 		})
 		if err != nil {

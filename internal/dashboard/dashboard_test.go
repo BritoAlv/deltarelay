@@ -43,7 +43,7 @@ func TestReadOnlyProxyKeepsCredentialsOnServer(t *testing.T) {
 	var calls atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		if r.Method != "GET" || r.URL.String() != "/v1/dashboard" || r.Header.Get("X-DeltaRelay-Local-Token") != "private-local-test-token" || r.Header.Get("Cookie") != "" || r.Header.Get("Authorization") != "" || r.Header.Get("Origin") != "" {
+		if r.Method != "GET" || r.URL.String() != "/dashboard" || r.Header.Get("X-DeltaRelay-Local-Token") != "private-local-test-token" || r.Header.Get("Cookie") != "" || r.Header.Get("Authorization") != "" || r.Header.Get("Origin") != "" {
 			t.Errorf("unexpected upstream request: %v %v %v", r.Method, r.URL, r.Header)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -95,7 +95,7 @@ func TestRejectsRemoteOriginsDNSRebindingWritesAndOtherRoutes(t *testing.T) {
 		{"POST", "/api/dashboard", "127.0.0.1:8790", "", "", 405},
 		{"PUT", "/api/dashboard", "127.0.0.1:8790", "", "", 405},
 		{"GET", "/api/requests/request/cancel", "127.0.0.1:8790", "", "", 404},
-		{"GET", "/v1/proxy", "127.0.0.1:8790", "", "", 404},
+		{"GET", "/proxy", "127.0.0.1:8790", "", "", 404},
 		{"GET", "/package.json", "127.0.0.1:8790", "", "", 404},
 		{"GET", "/_astro/", "127.0.0.1:8790", "", "", 404},
 	}

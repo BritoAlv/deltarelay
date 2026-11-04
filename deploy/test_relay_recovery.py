@@ -9,9 +9,8 @@ import tempfile
 import time
 import unittest
 import urllib.error
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-import recover_codespace as local
 import recover_relay as remote
 
 
@@ -49,14 +48,6 @@ class ProfileTest(FixtureTest):
             self.assertEqual(remote.main(), 0)
         ensure.assert_called_once_with(self.root, IDENTITY, 18787)
 
-    @patch.object(local, 'recover')
-    def test_local_default_remote_root_does_not_assume_a_username(self, recover):
-        with patch.object(sys, 'argv', [
-            'recover_codespace.py', '--codespace', 'example', '--profile', str(self.root),
-        ]):
-            self.assertEqual(local.main(), 0)
-        recover.assert_called_once_with(self.root, 'example', '~/.local/share/deltarelay/codespace-test', 600)
-
     def test_missing_or_changed_identity_never_initializes_store(self):
         with self.assertRaises(remote.RecoveryError):
             remote.saved_store(self.root, IDENTITY)
@@ -87,17 +78,15 @@ class ProfileTest(FixtureTest):
         args = os.fsdecode((Path('/proc') / str(os.getpid()) / 'cmdline').read_bytes()).split('\0')
         self.assertEqual(remote.owned_pid(path, [args[0]]), os.getpid())
         self.assertIsNone(remote.owned_pid(path, ['not-the-expected-command']))
-        path.write_text('1')
-        self.assertIsNone(remote.owned_pid(path, []))
-        path.write_text('stale')
-        self.assertIsNone(remote.owned_pid(path, []))
+        for value in ('1', 'stale'):
+            path.write_text(value)
+            self.assertIsNone(remote.owned_pid(path, []))
 
     @patch.object(remote.subprocess, 'Popen')
     @patch.object(remote, 'relay_info', return_value={'state_id': IDENTITY})
     def test_running_remote_relay_is_not_restarted(self, info, popen):
         self.store()
-        result = remote.ensure_relay(self.root, IDENTITY)
-        self.assertFalse(result['started'])
+        self.assertFalse(remote.ensure_relay(self.root, IDENTITY)['started'])
         popen.assert_not_called()
 
     @patch.object(remote.subprocess, 'Popen')
@@ -105,8 +94,7 @@ class ProfileTest(FixtureTest):
     @patch.object(remote, 'relay_info', side_effect=[None, {'state_id': IDENTITY}])
     def test_live_remote_pid_still_starting_is_not_duplicated(self, info, pid, popen):
         self.store()
-        result = remote.ensure_relay(self.root, IDENTITY)
-        self.assertFalse(result['started'])
+        self.assertFalse(remote.ensure_relay(self.root, IDENTITY)['started'])
         popen.assert_not_called()
 
     @patch.object(remote.subprocess, 'Popen')
@@ -117,11 +105,9 @@ class ProfileTest(FixtureTest):
         binary = self.private('deltarelay-linux-amd64', '')
         binary.chmod(0o700)
         self.private('upstreams.json', '{}')
-        child = popen.return_value
-        child.pid = 123456
-        child.poll.return_value = None
-        result = remote.ensure_relay(self.root, IDENTITY)
-        self.assertTrue(result['started'])
+        popen.return_value.pid = 123456
+        popen.return_value.poll.return_value = None
+        self.assertTrue(remote.ensure_relay(self.root, IDENTITY)['started'])
         args = popen.call_args.args[0]
         self.assertEqual(args[args.index('--data') + 1], str(data))
         self.assertIn(str(self.root / 'relay.token'), args)
@@ -129,91 +115,8 @@ class ProfileTest(FixtureTest):
         self.assertEqual((self.root / 'server.pid').read_text(), '123456\n')
         self.assertTrue(popen.call_args.kwargs['start_new_session'])
 
-    @patch.object(local, 'owned_pid', return_value=123)
-    @patch.object(local.subprocess, 'Popen')
-    def test_existing_local_service_is_not_restarted(self, popen, pid):
-        self.assertFalse(local.ensure_process(self.root, 'gateway.pid', [], [], 'gateway.log', 18788))
-        popen.assert_not_called()
-
-    @patch.object(local, 'owned_pid', return_value=None)
-    @patch.object(local, 'port_open', return_value=True)
-    @patch.object(local.subprocess, 'Popen')
-    def test_occupied_port_is_not_replaced(self, popen, port, pid):
-        with self.assertRaises(local.RecoveryError):
-            local.ensure_process(self.root, 'gateway.pid', [], [], 'gateway.log', 18788)
-        popen.assert_not_called()
-
-    @patch.object(local, 'run')
-    def test_invalid_local_identity_fails_before_network_or_startup(self, run):
-        self.private('deltarelay-linux-amd64', '')
-        self.private('tunnel-supervisor.sh', 'CODESPACE=test')
-        self.private('upstreams.json', '{}')
-        self.private('state/relay-state.json', '"invalid"')
-        with self.assertRaises(local.RecoveryError):
-            local.recover(self.root, 'test', '/remote', 60)
-        run.assert_not_called()
-
-
-class RetryTest(unittest.TestCase):
-    @patch.object(local, 'run', return_value='{"state":"Available","idle_timeout_minutes":30}')
-    def test_available_codespace_is_never_force_restarted_or_reconfigured(self, run):
-        self.assertEqual(local.ensure_codespace('example', float('inf'))['state'], 'Available')
-        self.assertEqual(run.call_count, 1)
-        self.assertIn('GET', run.call_args.args[0])
-
-    @patch.object(local.time, 'sleep')
-    @patch.object(local, 'run', side_effect=[
-        '{"state":"Shutdown"}', '', '{"state":"Starting"}',
-        '{"state":"Available","idle_timeout_minutes":240}',
-    ])
-    def test_shutdown_starts_existing_codespace_then_waits(self, run, sleep):
-        local.ensure_codespace('example', float('inf'))
-        posts = [call.args[0] for call in run.call_args_list if 'POST' in call.args[0]]
-        self.assertEqual(len(posts), 1)
-        self.assertIn('/user/codespaces/example/start', posts[0])
-
-    @patch.object(local, 'run', return_value='{"state":"Failed"}')
-    def test_failed_codespace_is_not_deleted_or_recreated(self, run):
-        with self.assertRaises(local.RecoveryError):
-            local.ensure_codespace('example', float('inf'))
-        self.assertEqual(run.call_count, 1)
-
-    @patch.object(local.time, 'sleep')
-    def test_transient_link_failure_retries_with_backoff(self, sleep):
-        operation = Mock(side_effect=[local.LinkError('offline'), local.LinkError('offline'), True])
-        self.assertTrue(local.retry('test', operation, float('inf')))
-        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2, 4])
-
-    def test_expired_deadline_does_not_attempt_operation(self):
-        operation = Mock()
-        with self.assertRaises(local.RecoveryError):
-            local.retry('test', operation, 0)
-        operation.assert_not_called()
-
-    @patch.object(local.time, 'sleep')
-    def test_identity_errors_are_not_retried(self, sleep):
-        operation = Mock(side_effect=local.RecoveryError('identity mismatch'))
-        with self.assertRaises(local.RecoveryError):
-            local.retry('test', operation, float('inf'))
-        self.assertEqual(operation.call_count, 1)
-        sleep.assert_not_called()
-
-    def test_connection_command_timeout_is_bounded(self):
-        with self.assertRaises(local.LinkError):
-            local.run([sys.executable, '-c', 'import time; time.sleep(60)'], 0.05)
-
-    def test_remote_refusal_is_permanent(self):
-        code = 'import json; print(json.dumps({"error":"saved state missing"})); raise SystemExit(73)'
-        with self.assertRaisesRegex(local.RecoveryError, 'saved state missing'):
-            local.run([sys.executable, '-c', code], 5)
-
-    def test_remote_health_outage_is_retryable(self):
-        code = 'import json; print(json.dumps({"error":"connection dropped"})); raise SystemExit(74)'
-        with self.assertRaisesRegex(local.LinkError, 'connection dropped'):
-            local.run([sys.executable, '-c', code], 5)
-
     def test_remote_payload_is_self_contained(self):
-        result = subprocess.run([sys.executable, str(Path(remote.__file__)), '--help'], capture_output=True, text=True, check=True)
+        result = subprocess.run([sys.executable, '-B', str(Path(remote.__file__)), '--help'], capture_output=True, text=True, check=True)
         self.assertIn('--expected-state-id', result.stdout)
 
 
@@ -255,7 +158,7 @@ class RealRelayTest(FixtureTest):
         binary = self.root / 'deltarelay-linux-amd64'
         shutil.copyfile(os.environ['DELTARELAY_RECOVERY_TEST_BINARY'], binary)
         binary.chmod(0o700)
-        self.private('upstreams.json', '[{"name":"unused","origin":"https://example.invalid","path_prefix":"/"}]')
+        self.private('upstreams.json', '[{"name":"mock","origin":"https://example.invalid","path_prefix":"/"}]')
         with socket.socket() as listener:
             listener.bind(('127.0.0.1', 0))
             port = listener.getsockname()[1]
@@ -299,7 +202,3 @@ class RealRelayTest(FixtureTest):
         self.assertEqual(warm['uploaded_chunks'], 0)
         self.assertEqual(warm['hash'], cold['hash'])
         self.assertEqual((data / 'mailbox/identity.json').read_bytes(), identity_before)
-
-
-if __name__ == '__main__':
-    unittest.main()

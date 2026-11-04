@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidRequestIDCompatibility(t *testing.T) {
+func TestValidRequestID(t *testing.T) {
 	for _, n := range []int{0, 1, 15, 16, 17, 127, 128, 129} {
 		if got := ValidRequestID(strings.Repeat("a", n)); got != (n >= 16 && n <= 128) {
 			t.Errorf("length %d: %v", n, got)

@@ -19,7 +19,7 @@ import (
 func captureDetail(t *testing.T, s *inspection.Store, id string) inspection.Detail {
 	t.Helper()
 	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest("GET", "/v1/inspection/"+id, nil))
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/inspection/"+id, nil))
 	var detail inspection.Detail
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &detail) != nil {
 		t.Fatalf("capture unavailable: %d %s", w.Code, w.Body.String())

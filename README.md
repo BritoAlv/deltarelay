@@ -34,20 +34,9 @@ then follow [the setup guide](docs/SETUP.md) to generate fresh credentials, conf
 your own VPS, and generate the OpenCode plugin entry for this checkout.
 
 - [OpenCode Desktop and VPS setup](docs/SETUP.md)
-- [Architecture, ownership, and compatibility boundaries](docs/ARCHITECTURE.md)
-- [Relay protocol and recovery contract](docs/PROTOCOL_V2.md)
+- [Architecture and ownership](docs/ARCHITECTURE.md)
+- [Relay protocol and recovery contract](docs/PROTOCOL.md)
 - [Remote-host plugins: contract, SSH/HTTPS/Codespaces providers, and examples](docs/REMOTE_PROVIDERS.md)
-- [Sanitized implementation and testing history](docs/SESSION_LOG.md)
-- [Refactor Phase 0: compatibility, regression, and performance baseline](docs/REFACTOR_BASELINE.md)
-- [Refactor Phase 1: shared contracts and semantic ownership](docs/REFACTOR_PHASE1.md)
-- [Refactor Phase 2: client transport consolidation](docs/REFACTOR_PHASE2.md)
-- [Refactor Phase 3: modular supervision and state ownership](docs/REFACTOR_PHASE3.md)
-- [Refactor Phase 4: provider-job service and shared request validation](docs/REFACTOR_PHASE4.md)
-- [Refactor Phase 5: shared filesystem primitives](docs/REFACTOR_PHASE5.md)
-- [Refactor Phase 6: nonblocking telemetry persistence](docs/REFACTOR_PHASE6.md)
-- [Refactor Phase 7: feature-oriented dashboard and browser regressions](docs/REFACTOR_PHASE7.md)
-- [Refactor Phase 8: thin CLI, aligned defaults, and architecture guide](docs/REFACTOR_PHASE8.md)
-- [Optional recovery for an existing private Codespace profile](docs/CODESPACE_RECOVERY.md)
 
 Private configuration, tokens, logs, conversation exports, and relay state are
 **not distributed through Git**. Keep them outside the checkout or in the ignored
@@ -61,8 +50,8 @@ or transfer the existing relay token securely if intentionally using the same VP
 Desktop. [Remote-host providers](docs/REMOTE_PROVIDERS.md) support SSH computers,
 HTTPS VPS deployments, Codespaces, or your own executable plugin in any language.
 Controls come up before remote recovery; wake/stop appear only when supported,
-and automatic wake starts off. Default startup reads your XDG configuration or
-an existing private Codespace profile for compatibility. Private credentials and
+and automatic wake starts off. Default startup reads your XDG configuration.
+An explicit `remote` provider is required in that configuration. Private credentials and
 Desktop profiles are not included in a clone. Use the setup guide, not that
 script, to provision a new VPS. See [supervision and controls](docs/SUPERVISION.md).
 
@@ -260,23 +249,23 @@ Transient network failures are retried automatically for up to one hour
 (`--retry-window`). Each retry re-checks which chunks the relay already holds, so
 only missing data is sent. Permanent errors (authentication, changed relay
 identity, integrity failures) are never retried. Provider generation is never
-retried by the transport layer; see [PROTOCOL_V2.md](docs/PROTOCOL_V2.md).
+retried by the transport layer; see [PROTOCOL.md](docs/PROTOCOL.md).
 
 ## How it works
 
 1. The PC reads the body into a private temporary spool while computing its hash
    and content-defined boundaries. Memory use is bounded, not proportional to
    the entire body. The spool is removed on ordinary completion or error.
-2. `POST /v1/missing` sends a versioned manifest with the complete hash, byte
+2. `POST /missing` sends a manifest with the complete hash, byte
    length, and ordered chunk hashes/lengths. The VPS verifies cache contents
    before reporting which unique chunks are missing.
-3. The PC uploads only those chunks using `POST /v1/chunks`. Binary framing
+3. The PC uploads only those chunks using `POST /chunks`. Binary framing
    avoids base64 expansion. Default 256 KiB batches and four concurrent workers
    avoid a network round trip per chunk and reuse HTTP connections.
 4. Both manifests and batches use gzip at its fastest level **only when it makes
    the payload smaller**. `--no-compression` disables this. Hashes identify the
    original bytes, never their compressed representation.
-5. The VPS verifies each chunk before atomic persistence. `POST /v1/assemble`
+5. The VPS verifies each chunk before atomic persistence. `POST /assemble`
    reconstructs chunks in the manifest's order into a temporary file, verifies
    every chunk, total length, and complete SHA-256, then atomically publishes it.
 6. An incorrect body hash, unavailable chunk, or corrupt chunk cannot publish a
@@ -318,22 +307,27 @@ still proportional to the chunk count.
 
 ## Protocol and storage
 
-All routes require `Authorization: Bearer <token>`. The relay contract is version 2;
-see **[docs/PROTOCOL_V2.md](docs/PROTOCOL_V2.md)** for the complete, provider-independent
+All relay routes require `Authorization: Bearer <token>`. There is one API, with
+unversioned URLs and no compatibility aliases. See **[docs/PROTOCOL.md](docs/PROTOCOL.md)** for the complete, provider-independent
 specification: identity pinning, durable response mailbox, resumable downloads,
 retention, cancellation, and failure states.
 
 | Route | Purpose |
 | --- | --- |
-| `GET /v2/info` | Protocol, relay state identity, capabilities, limits |
-| `POST /v2/missing`, `POST /v2/chunks`, `POST /v2/assemble` | Chunk inventory, upload and body assembly |
-| `GET /v2/bodies/{sha256}` | Ranged, verified body download |
-| `PUT /v2/requests/{id}` | Idempotent submission; the only operation that dispatches to the provider |
-| `GET /v2/requests/{id}` | Request state (`accepted`, `running`, `completed`, `failed`, `cancelled`, `interrupted`) |
-| `GET /v2/requests/{id}/response?offset=N` | Saved provider bytes from an offset |
-| `POST /v2/requests/{id}/ack` | Confirm receipt; releases storage, keeps duplicate protection |
-| `POST /v2/requests/{id}/cancel` | Explicit cancellation |
-| `GET /healthz`, `POST /v1/forward` (legacy) | Diagnostics and the previous forwarding path, kept for compatibility |
+| `GET /info` | Protocol, relay state identity, capabilities, limits |
+| `POST /missing`, `POST /chunks`, `POST /assemble` | Chunk inventory, upload and body assembly |
+| `GET /bodies/{sha256}` | Ranged, verified body download |
+| `PUT /requests/{id}` | Idempotent submission; the only operation that dispatches to the provider |
+| `GET /requests/{id}` | Request state (`accepted`, `running`, `completed`, `failed`, `cancelled`, `interrupted`) |
+| `GET /requests/{id}/response?offset=N` | Saved provider bytes from an offset |
+| `POST /requests/{id}/ack` | Confirm receipt; releases storage, keeps duplicate protection |
+| `POST /requests/{id}/cancel` | Explicit cancellation |
+
+The loopback gateway exposes `/proxy`, `/dashboard`, `/inspection/...`, `/healthz`,
+and `/metrics`. The browser dashboard uses same-origin `/api/...` endpoints.
+Upgrade all components together; startup does not translate old configurations or
+restart running services to apply an upgrade. Current identity pins, saved
+responses, cache, and replay claims are never reset.
 
 Recovering a saved answer needs only its request ID:
 

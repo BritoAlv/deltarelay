@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import remote_provider as contract
-import supervisor
+from supervision.supervisor import Supervisor
 import supervision.state as supervision_state
 from providers import common
 
@@ -46,12 +46,13 @@ class SharedContractTest(unittest.TestCase):
             config = {'version': 1, 'profile': root, 'relay_url': 'http://127.0.0.1:8787',
                       'gateway_url': 'http://127.0.0.1:8788', 'components': {},
                       **{key: str(Path(root) / key) for key in
-                         ('relay_token_file', 'local_token_file', 'relay_state_file')}}
-            subject = supervisor.Supervisor(config)
-            self.addCleanup(subject.stop.set)
+                          ('relay_token_file', 'local_token_file', 'relay_state_file')}}
+            config['remote'] = {'command': ['/sanitized/provider'], 'config_file': str(Path(root) / 'provider.json')}
+            subject = Supervisor(config)
+            self.addCleanup(subject.close)
             with patch.object(supervision_state, 'stamp', return_value='2026-11-01T12:00:00Z'):
                 self.assertEqual(subject.snapshot(), read('supervisor-v2.json'))
-            self.assertEqual(subject.children, {})
+            self.assertEqual(subject.processes.children, {})
 
     def test_provider_metadata_and_browser_remote_constraints_agree(self):
         for case in read('system-cases.json'):

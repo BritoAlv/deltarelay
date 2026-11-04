@@ -72,7 +72,7 @@ class ProcessManager:
         except (OSError, ValueError):
             pass
         expected = spec.get('match', spec['command'])
-        if info and (matches(info, expected) or matches(info, spec.get('adopt_match', []))):
+        if info and matches(info, expected):
             # Status/adoption may follow a service manager's own restart. The
             # destructive path rechecks PID birth immediately before signaling.
             identity = (info['pid'], info['birth'])
@@ -117,7 +117,7 @@ class ProcessManager:
             if os.fstat(output.fileno()).st_mode & 0o077:
                 raise ControlError('unsafe_log_file')
             env = (plugin_environment(self.config['remote'])
-                   if name == 'tunnel' and 'remote' in self.config else environment(spec.get('env')))
+                   if name == 'tunnel' else environment(spec.get('env')))
             self.log(name, 'command', f'$ {shlex.join(spec["command"])}\ncwd={spec.get("directory", self.root)}; stdout/stderr -> {log}')
             child = self.popen(spec['command'], stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                                start_new_session=True, cwd=spec.get('directory', self.root), env=env)
@@ -196,7 +196,3 @@ class ProcessManager:
             self.log(name, 'event', 'Stop skipped: no verified running process')
         self.identities.pop(name, None)
         self.state.set_component(name, 'stopped')
-
-    def restart(self, name):
-        self.stop(name)
-        self.start(name)

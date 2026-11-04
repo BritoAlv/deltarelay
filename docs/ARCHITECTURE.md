@@ -1,11 +1,8 @@
 # Architecture and ownership
 
 This document is the short map of DeltaRelay's packages, data/control flows,
-lifecycle ownership, dependency direction, and compatibility boundaries. It
-describes the implementation after the architecture-refactor program; the
-normative relay contract remains [PROTOCOL_V2.md](PROTOCOL_V2.md), and observed
-defaults/precedence remain recorded in
-[REFACTOR_BASELINE.md](REFACTOR_BASELINE.md).
+lifecycle ownership, and dependency direction. The normative relay contract is
+[PROTOCOL.md](PROTOCOL.md). There is one supported API with unversioned URLs.
 
 ## Non-negotiable boundaries
 
@@ -15,7 +12,7 @@ defaults/precedence remain recorded in
   retries nor recovery can automatically generate a second provider response.
 - Relay identity is fail-closed. Existing stores, journals, mailbox records,
   fingerprints, and cancellation checkpoints are not migrated or reset.
-- Provider generation and legacy forwarding are never wrapped in generic
+- Provider generation is never wrapped in generic
   retries. Retries apply only to reads or operations whose idempotency the
   protocol enforces.
 - Optional dashboard statistics are not durable mailbox storage.
@@ -41,13 +38,13 @@ defaults/precedence remain recorded in
 | `internal/store` | Content-addressed chunk/body cache, verification, assembly, and cache quota accounting. |
 | `internal/journal` | Exclusive, durable provider-dispatch claims and replay refusal. |
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
-| `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, shutdown, and legacy streaming. |
+| `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, and shutdown. |
 | `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
 | `deploy/supervision` | Importable Python configuration, observable state, process ownership, probes, recovery policy, and control API. |
-| `deploy/*.py`, `deploy/providers` | Executable compatibility entry points, provider plugins, remote recovery helpers, and provider contract checking. |
+| `deploy/*.py`, `deploy/providers` | Supervisor launchers, provider plugins, remote recovery helpers, and provider contract checking. |
 | `integration/opencode` | OpenCode V2 plugin that routes selected providers through the local gateway without automatic retries. |
 | `web` | Static Astro dashboard, feature controllers, pure library helpers, and DOM-level browser tests. |
 
@@ -85,34 +82,30 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
 
 1. `client` spools the body to a private temporary file while the chunker emits
    content-defined boundaries and the complete SHA-256.
-2. `POST /v2/missing` returns the unique chunks the relay lacks.
-3. `POST /v2/chunks` uploads only missing content in bounded batches, with
+2. `POST /missing` returns the unique chunks the relay lacks.
+3. `POST /chunks` uploads only missing content in bounded batches, with
    adaptive gzip and re-inventory after ambiguous batch failures.
-4. `POST /v2/assemble` verifies every chunk, total length, and whole-body hash
+4. `POST /assemble` verifies every chunk, total length, and whole-body hash
    before publishing the body; `server` delegates persistence to `store`.
 
 ### Durable provider request
 
 1. The local gateway (or `sync`) submits provider metadata plus the manifest to
-   `PUT /v2/requests/{id}`.
+   `PUT /requests/{id}`.
 2. `server.jobService` acquires a provider slot, durably claims the ID in the
    journal, reconstructs the request body from verified chunks, and dispatches
    through the allowlisted `upstream` policy.
 3. The response is stored synchronously as checksummed mailbox frames before it
-   is advertised. The PC resumes from `GET /v2/requests/{id}/response?offset=N`.
+   is advertised. The PC resumes from `GET /requests/{id}/response?offset=N`.
 4. An ACK releases payload storage only after the client verifies and publishes
    its local file. The tombstone and replay protection remain.
 5. Cancellation is explicit. An offline client keeps a private outbox and
    retries only the cancellation command, never generation.
 
-Legacy `POST /v1/forward` shares validation, header normalization, and
-fingerprint construction with durable submission, but keeps a request-scoped
-streaming lifetime and does not create a durable response.
-
 ### Dashboard and supervision control
 
 - Browser diagnostics request same-origin `/api/dashboard`; the Go dashboard
-  authenticates its own `GET /v1/dashboard` to the gateway. Gateway tokens never
+  authenticates its own `GET /dashboard` to the gateway. Gateway tokens never
   enter browser storage.
 - With the default `--capture-dir`, the gateway attaches request evidence to a
   metadata observation. An empty `--capture-dir` disables capture. The dashboard
@@ -130,8 +123,8 @@ streaming lifetime and does not create a durable response.
   the action.
 - The supervisor composes configuration, process ownership, probes, recovery
   policy, provider plugins, and the control API in `deploy/supervision`.
-  Compatibility entry points under `deploy/` remain executable for existing
-  private configurations.
+  Startup requires an explicit executable-provider configuration, supplied by
+  `--config` or the XDG configuration file. No profile adaptation is performed.
 
 ## Lifecycle ownership
 
@@ -139,7 +132,6 @@ streaming lifetime and does not create a durable response.
 | --- | --- |
 | `cmd/deltarelay` | Parses flags, constructs components, defers cleanup, and uses one `runHTTPServer` helper for context-driven graceful shutdown. TLS selection, listener timeouts, header limits, and component `Close` calls stay explicit at each command. |
 | `server.Server` / `jobService` | Refuses new admission after shutdown, cancels running jobs, closes the mailbox, waits for terminal job records, and releases all provider slots. |
-| Legacy forward handler | Ties provider streaming to the requesting HTTP request; it is not part of job-service background execution. |
 | `client.Client` | Stops the cancellation-outbox worker and closes idle HTTP connections. Persisted pending cancellations remain for the next start. |
 | `gateway.Gateway` | Closes the telemetry recorder and capture store after HTTP shutdown so their bounded final flushes can run. |
 | `telemetry.Recorder` | One worker per persistent recorder. In-memory `Begin`/`Finish` update synchronously; dirty snapshots are coalesced and written at most about once per second. |
@@ -163,19 +155,18 @@ mailbox frames, request claims, cancellations, or ACKs: those remain synchronous
 and durable on the request path. A memory-only recorder (`--stats-file ''`) has
 no worker and no lock.
 
-## Compatibility boundaries
+## Active data contracts
 
-| Boundary | Preserved contract |
+| Boundary | Contract |
 | --- | --- |
-| Chunk format | v1 framing, chunk sizes, hashes, and batch encoding. |
-| Relay API | v2 routes, capabilities, limits, fingerprint representation, states, and error codes. |
-| Legacy forwarding | `/v1/forward` remains available for compatible callers; no v2 client falls back to it. |
+| Chunk format | Manifest version 1, `DRLY0001` framing, chunk sizes, hashes, and batch encoding. |
+| Relay API | Unversioned routes, discovery/submission version 2, capabilities, limits, fingerprint representation, states, and error codes. |
 | Remote-provider plugin | v1 JSON envelope and required/optional operations. |
-| Supervisor status | v1 payloads are normalized at the compatibility boundary; current responses are v2. |
-| Dashboard history | v1 metadata-only statistics snapshot. Optional `capture_id` links and the `inspection` snapshot block are additive; older gateways and saved history remain valid. |
+| Supervisor status | Only current version 2 status with `remote` metadata and remote-host actions is accepted. |
+| Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates. Optional `capture_id` links identify retained request evidence. |
 | Request inspection | Optional and enabled by default. A gateway with an empty `--capture-dir` omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
 | Persisted state | Mailbox identity/records/frames, exclusive journal markers, client relay pin, download checkpoints, and cancellation outbox use their existing formats. No storage migration is planned. |
-| Private execution paths | `deploy/supervisor.py`, `deploy/start_supervisor.py`, `deploy/start_dashboard.py`, `deploy/recover_*.py`, and provider executable paths remain usable without rewriting private configuration. |
+| Launchers | `deploy/start_supervisor.py` launches `deploy/supervisor.py`; `deploy/supervision/build.py` owns offline builds. |
 
 ## Defaults and verification
 
@@ -198,3 +189,9 @@ make verify
 It uses temporary local services and mocked providers, never real accounts,
 private profiles, or live deployments. `make opencode-test` (installed OpenCode)
 and `make baseline-benchmark` (performance) are separate opt-ins.
+
+After building, exercise real-binary recovery without a live provider using:
+
+```sh
+DELTARELAY_RECOVERY_TEST_BINARY="$PWD/bin/deltarelay" make recovery-test
+```

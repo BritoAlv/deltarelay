@@ -184,8 +184,8 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   request.transfer = { ...request.transfer, hash, body_bytes: body.length, chunks: 1, unique_chunks: 1, uploaded_chunks: 1, uploaded_chunk_bytes: body.length, missing_chunk_bytes: body.length, reused_body_bytes: 0, request_body_bytes_sent: encoded, requests: 2 }
   snapshot.inspection = { enabled: true, max_bytes: 64 << 20, max_capture_bytes: 16 << 20, max_captures: 100, max_age_seconds: 86_400, captures: 1, used_bytes: 4096, storage_error: false }
   const artifact = (id: string, source: number, captured: number, contentType: string, representation: "captured" | "redacted" = "captured") => ({ id, representation, content_type: contentType, encoding: "identity" as const, source_bytes: source, captured_bytes: captured, sha256: hash, complete: true, truncated: false, write_error: false })
-  const attempt0 = { index: 0, operation: "chunks", method: "POST", path: "/v2/chunks", started_at: new Date(now - 20_000).toISOString(), finished_at: new Date(now - 19_000).toISOString(), encoding: "identity" as const, content_type: "application/vnd.deltarelay.chunks.v1", decoded_bytes: chunksPrepared, prepared_bytes: chunksPrepared, consumed_bytes: chunksPrepared, counted: true, status: 0, outcome: "transport_error", acknowledgment_ok: false, payload: artifact("attempt-0", chunksPrepared, chunksPrepared, "application/vnd.deltarelay.chunks.v1"), chunk_count: 1 }
-  const attempt1 = { index: 1, operation: "dispatch", method: "PUT", path: `/v2/requests/${request.id}`, started_at: new Date(now - 18_000).toISOString(), finished_at: new Date(now - 17_000).toISOString(), encoding: "identity" as const, content_type: "application/json", decoded_bytes: dispatchPrepared, prepared_bytes: dispatchPrepared, consumed_bytes: dispatchPrepared, counted: true, status: 200, outcome: "response_ok", acknowledgment_ok: false, payload: artifact("attempt-1", dispatchPrepared, dispatchPrepared, "application/json", "redacted"), chunk_count: 0 }
+  const attempt0 = { index: 0, operation: "chunks", method: "POST", path: "/chunks", started_at: new Date(now - 20_000).toISOString(), finished_at: new Date(now - 19_000).toISOString(), encoding: "identity" as const, content_type: "application/vnd.deltarelay.chunks.v1", decoded_bytes: chunksPrepared, prepared_bytes: chunksPrepared, consumed_bytes: chunksPrepared, counted: true, status: 0, outcome: "transport_error", acknowledgment_ok: false, payload: artifact("attempt-0", chunksPrepared, chunksPrepared, "application/vnd.deltarelay.chunks.v1"), chunk_count: 1 }
+  const attempt1 = { index: 1, operation: "dispatch", method: "PUT", path: `/requests/${request.id}`, started_at: new Date(now - 18_000).toISOString(), finished_at: new Date(now - 17_000).toISOString(), encoding: "identity" as const, content_type: "application/json", decoded_bytes: dispatchPrepared, prepared_bytes: dispatchPrepared, consumed_bytes: dispatchPrepared, counted: true, status: 200, outcome: "response_ok", acknowledgment_ok: false, payload: artifact("attempt-1", dispatchPrepared, dispatchPrepared, "application/json", "redacted"), chunk_count: 0 }
   const capture = {
     version: 1, id: captureID, request_id: request.id, sequence: request.sequence, started_at: new Date(now - 21_000).toISOString(), finished_at: new Date(now - 16_000).toISOString(), state: "completed",
     body: artifact("body", body.length, body.length, "application/json"), chunk_count: 1,
@@ -485,17 +485,17 @@ test("measurement session selection is deep-linked through the URL", async () =>
   await page.close()
 })
 
-test("older gateways fall back to retained request entries", async () => {
+test("missing traffic aggregates are rejected instead of reconstructing old request entries", async () => {
   const page = openPage()
-  const snapshot = makeSnapshot(now)
+  const snapshot = makeSnapshot(now) as { history: { traffic?: unknown } }
   delete snapshot.history.traffic
   page.setFetch(() => json(snapshot))
   const dashboard = startDashboard(page.document, { autoStart: false })
   await dashboard.refresh()
   const doc = page.document
-  assert.match(doc.querySelector("#traffic-chart")?.innerHTML ?? "", /<svg/)
-  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /does not expose traffic aggregates/)
-  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /retained request entries/)
+  assert.equal(doc.querySelector("#connection-label")?.textContent, "Disconnected")
+  assert.match(doc.querySelector("#notice")?.textContent ?? "", /incompatible diagnostics/)
+  assert.doesNotMatch(doc.querySelector("#traffic-chart")?.innerHTML ?? "", /<svg/)
   dashboard.destroy()
   await page.close()
 })

@@ -140,8 +140,8 @@ func ValidHash(hash string) bool {
 	return true
 }
 
-// ValidRequestID validates the opaque ID shared by legacy forwarding, durable
-// submissions, receipts, and cancellation records. Telemetry labels are distinct.
+// ValidRequestID validates the opaque ID shared by submissions, receipts, and
+// cancellation records. Telemetry labels are distinct.
 func ValidRequestID(id string) bool {
 	if len(id) < 16 || len(id) > 128 {
 		return false

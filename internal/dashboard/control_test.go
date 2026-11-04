@@ -38,7 +38,7 @@ func unixServer(t *testing.T, handler http.Handler) string {
 
 func TestSystemControlsSurviveGatewayOutageAndRejectCrossSiteWrites(t *testing.T) {
 	var actions atomic.Int32
-	fixture := contracts.Read(t, "supervisor-v1.json")
+	fixture := contracts.Read(t, "supervisor-v2.json")
 	socket := unixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" || r.Header.Get("X-DeltaRelay-Control") != "" || r.URL.RawQuery != "" {
 			t.Error("browser headers, credentials, or query reached supervisor")
@@ -66,7 +66,7 @@ func TestSystemControlsSurviveGatewayOutageAndRejectCrossSiteWrites(t *testing.T
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &status) != nil || !status.Managed || status.CSRFToken == "" || strings.Contains(w.Body.String(), "secret-gateway") {
 		t.Fatalf("controls unavailable with gateway down: %d %s", w.Code, w.Body)
 	}
-	if status.InternetState != "connected" || status.InternetCheckedAt != nil {
+	if status.InternetState != "unknown" || status.InternetCheckedAt != nil {
 		t.Fatalf("internet reachability not preserved: %s", w.Body)
 	}
 	for _, tc := range []struct {
@@ -118,14 +118,13 @@ func TestSystemWithoutSupervisorIsExplicitAndReadOnly(t *testing.T) {
 	}
 }
 
-func TestRemoteProviderStatusAndLegacyUpgrade(t *testing.T) {
+func TestRemoteProviderStatusAndMetadataFiltering(t *testing.T) {
 	for _, tc := range []struct {
 		name, snapshot, id, state string
 		managed                   bool
 	}{
 		{"custom", `{"version":2,"managed":true,"components":[],"remote":{"id":"custom_host","label":"My VPS","host_state":"unknown","capabilities":["relay.ensure"],"command":["private-command"],"config_file":"private-path"}}`, "custom_host", "unknown", true},
-		{"legacy-stopped", `{"version":1,"managed":true,"components":[],"codespace_state":"Shutdown"}`, "codespaces", "stopped", true},
-		{"legacy-vps", `{"version":1,"managed":true,"components":[],"codespace_state":"not_configured"}`, "configured", "unknown", true},
+		{"old-version", `{"version":1,"managed":true,"components":[],"codespace_state":"Shutdown"}`, "configured", "unknown", false},
 		{"unknown-capability", `{"version":2,"managed":true,"components":[],"remote":{"id":"custom_host","label":"VPS","host_state":"running","capabilities":["execute"]}}`, "configured", "unknown", false},
 		{"duplicate-capability", `{"version":2,"managed":true,"components":[],"remote":{"id":"custom_host","label":"VPS","host_state":"running","capabilities":["host.wake","host.wake"]}}`, "configured", "unknown", false},
 		{"vendor-state", `{"version":2,"managed":true,"components":[],"remote":{"id":"custom_host","label":"VPS","host_state":"Available","capabilities":[]}}`, "configured", "unknown", false},
@@ -133,8 +132,7 @@ func TestRemoteProviderStatusAndLegacyUpgrade(t *testing.T) {
 		{"future-version", `{"version":3,"managed":true,"components":[]}`, "configured", "unknown", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			// Use complete legacy/current status shapes; the case only overrides
-			// fields relevant to remote normalization and metadata filtering.
+			// Override only fields relevant to status validation and filtering.
 			var base, changes map[string]any
 			if err := json.Unmarshal(contracts.Read(t, "supervisor-v2.json"), &base); err != nil {
 				t.Fatal(err)
@@ -168,7 +166,7 @@ func TestRemoteProviderStatusAndLegacyUpgrade(t *testing.T) {
 			}
 			for _, secret := range []string{"private-command", "private-path", "private-token", "codespace_state"} {
 				if strings.Contains(w.Body.String(), secret) {
-					t.Fatalf("private or legacy field leaked: %s", w.Body)
+					t.Fatalf("private or unsupported field leaked: %s", w.Body)
 				}
 			}
 		})

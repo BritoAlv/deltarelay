@@ -86,7 +86,7 @@ func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (tran
 	if _, err := c.Info(ctx); err != nil {
 		return finish(err)
 	}
-	if err := c.postJSON(ctx, "/v2/missing", manifest, &missing, &sent, &requests); err != nil {
+	if err := c.postJSON(ctx, "/missing", manifest, &missing, &sent, &requests); err != nil {
 		return finish(err)
 	}
 	seen := make(map[string]bool, len(missing.Missing))
@@ -165,7 +165,7 @@ func (c *Client) sync(ctx context.Context, source io.Reader, persist bool) (tran
 	}
 	if persist {
 		var assembled protocol.AssembleResponse
-		if err := c.postJSON(ctx, "/v2/assemble", manifest, &assembled, &sent, &requests); err != nil {
+		if err := c.postJSON(ctx, "/assemble", manifest, &assembled, &sent, &requests); err != nil {
 			return finish(err)
 		}
 		if assembled.Hash != manifest.Hash || assembled.Size != manifest.Size {

@@ -44,9 +44,8 @@ type jobServiceConfig struct {
 	Context       context.Context
 }
 
-// jobService owns durable provider-job submission, admission, execution,
-// cancellation, and shutdown. Legacy streaming remains request-scoped, but
-// shares provider validation and claim fingerprints with this service.
+// jobService owns provider-job submission, admission, execution, cancellation,
+// and shutdown.
 type jobService struct {
 	store       *store.Store
 	mailbox     *mailbox.Mailbox
@@ -92,16 +91,6 @@ func newJobService(config jobServiceConfig) *jobService {
 func (j *jobService) Enabled() bool             { return j.policy.Enabled() }
 func (j *jobService) MaxConcurrent() int        { return cap(j.slots) }
 func (j *jobService) MaxRuntime() time.Duration { return j.maxRuntime }
-
-// Claim persists the legacy dispatch claim. Legacy streaming keeps its own
-// request lifetime, but uses the same journal and fingerprint rules as durable
-// submission.
-func (j *jobService) Claim(id, fingerprint string) error {
-	if j.journal == nil {
-		return errForwardingDisabled
-	}
-	return j.journal.Claim(id, fingerprint)
-}
 
 // Submit owns durable submission from replay lookup through terminal job
 // ownership. It never regenerates an existing request: same-content retries

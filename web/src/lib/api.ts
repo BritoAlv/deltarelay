@@ -58,7 +58,7 @@ export function isSnapshot(value: unknown): value is Snapshot {
   if ((history.session_limit as number) > 256 || (history.request_limit as number) > 1000) return false
   if (!Array.isArray(history.sessions) || history.sessions.length > (history.session_limit as number) || !history.sessions.every(session)) return false
   if (!Array.isArray(history.recent_requests) || history.recent_requests.length > (history.request_limit as number) || !history.recent_requests.every(request)) return false
-  if (history.traffic !== undefined && !traffic(history.traffic)) return false
+  if (!traffic(history.traffic)) return false
   return Array.isArray(providers) && providers.every((p) => object(p) && typeof p.name === "string" && counters(p, ["active", "last_status"]) && optionalString(p.last_error) && optionalTimestamp(p.last_seen))
 }
 

@@ -40,7 +40,7 @@ class RelayProbe:
             expected = private_json(Path(self.config['relay_state_file']), 4096)
             if not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected):
                 return 'identity_unavailable'
-            request = urllib.request.Request(self.config['relay_url'].rstrip('/') + '/v2/info',
+            request = urllib.request.Request(self.config['relay_url'].rstrip('/') + '/info',
                                              headers={'Authorization': 'Bearer ' + token})
             self.log('event', f'HTTP GET {request.full_url} timeout=2s; authenticated headers omitted')
             with self.opener.open(request, timeout=2) as response:

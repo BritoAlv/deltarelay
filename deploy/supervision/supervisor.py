@@ -18,9 +18,8 @@ import traceback
 import urllib.request
 
 from recover_relay import NoRedirect
-from remote_provider import (PERMANENT, ProviderError as ControlError, private_json,
-                             run_command)
-from providers.legacy import load_provider, normalize_component
+from remote_provider import (PERMANENT, ExecutableProvider, ProviderError as ControlError,
+                             private_json, run_command)
 from activity import ActivityJournal, operation_id
 
 from .config import COMPONENTS, INTERNET_CHECK_INTERVAL, validate
@@ -70,96 +69,16 @@ class Supervisor:
         self.clock = clock or (lambda: time.monotonic())
         self.command_runner = command_runner
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        self.provider = load_provider(self.config, self._run, self.stop,
-                                      self.start_component, self.restart_component, trace=self.journal.sink('provider'))
+        self.provider = ExecutableProvider(self.config['remote'], self.config['relay_url'],
+                                           self.stop, trace=self.journal.sink('provider'))
         self.state = SupervisorState(self.config, settings, self.provider.metadata, journal=self.journal)
         self.processes = processes or ProcessManager(self.config, self.root, self.directory,
                                                      self.state, self.stop, clock=self.clock, journal=self.journal)
         self.probes = probes or RelayProbe(self.config, self.opener, trace=self.journal.sink('network'))
         self.policy = policy or RecoveryPolicy(clock=self.clock)
-        if 'remote' in self.config:
-            self.journal.write('event', 'Executable provider diagnostics: capturing stdout/stderr and optional child-command trace pipe. A third-party provider cannot expose internal work it does not emit.', component='provider')
+        self.journal.write('event', 'Executable provider diagnostics: capturing stdout/stderr and optional child-command trace pipe. A third-party provider cannot expose internal work it does not emit.', component='provider')
         for name in self.config['components']:
             self.journal.follow(name, self.directory / (name + '.log'))
-
-    # Compatibility/review accessors. Production code uses the collaborators
-    # directly; these keep status inspectable without exposing mutable state.
-    @property
-    def settings(self):
-        return self.state.settings_copy()
-
-    @property
-    def recovery(self):
-        return self.state.recovery_copy()
-
-    @property
-    def states(self):
-        return self.state.states_copy()
-
-    @property
-    def relay_state(self):
-        return self.state.relay_value()
-
-    @relay_state.setter
-    def relay_state(self, value):
-        self.state.set_relay_state(value)
-
-    @property
-    def host_state(self):
-        return self.state.host_value()
-
-    @host_state.setter
-    def host_state(self, value):
-        self.state.set_host_state(value)
-
-    @property
-    def internet_state(self):
-        with self.state.lock:
-            return self.state.internet_state
-
-    @internet_state.setter
-    def internet_state(self, value):
-        with self.state.lock:
-            self.state.internet_state = value
-
-    @property
-    def internet_checked_at(self):
-        with self.state.lock:
-            return self.state.internet_checked_at
-
-    @property
-    def internet_next(self):
-        with self.state.lock:
-            return self.state.internet_next
-
-    @internet_next.setter
-    def internet_next(self, value):
-        with self.state.lock:
-            self.state.internet_next = value
-
-    @property
-    def provider_blocked(self):
-        return self.policy.provider_blocked_value()
-
-    @provider_blocked.setter
-    def provider_blocked(self, value):
-        self.policy.set_provider_blocked(value)
-
-    @property
-    def next_attempt(self):
-        return self.policy.next_attempt_value()
-
-    @next_attempt.setter
-    def next_attempt(self, value):
-        self.policy.set_next_attempt(value)
-
-    @property
-    def children(self):
-        return self.processes.children
-
-    @property
-    def identities(self):
-        return self.processes.identities
 
     def _run(self, command, **kwargs):
         runner = self.command_runner or run_command
@@ -205,9 +124,9 @@ class Supervisor:
         return self.probes.expected_identity()
 
     def update_settings(self, value):
-        if not isinstance(value, dict) or set(value) != set(self.settings) or any(type(v) is not bool for v in value.values()):
+        if not isinstance(value, dict) or set(value) != {'auto_reconnect', 'auto_wake'} or any(type(v) is not bool for v in value.values()):
             raise ControlError('invalid_settings')
-        if value['auto_wake'] and 'remote' in self.config and not self.supports('host.wake'):
+        if value['auto_wake'] and not self.supports('host.wake'):
             raise ControlError('unsupported_operation')
         self.state.apply_settings(value, lambda settings: save_json(self.directory / 'settings.json', settings))
         self.journal.write('event', f'Recovery settings persisted: {value}', component='settings')
@@ -407,7 +326,7 @@ class Supervisor:
             raise ControlError('invalid_action')
         if self.stop.is_set():
             raise ControlError('operation_cancelled')
-        name, action = normalize_component(self.config, value.get('component')), value.get('action')
+        name, action = value.get('component'), value.get('action')
         if name not in (*COMPONENTS, 'all', 'remote') or action not in ('start', 'restart', 'recover', 'wake', 'stop'):
             raise ControlError('invalid_action')
         if action in ('restart', 'stop', 'wake') and value.get('confirmed') is not True:

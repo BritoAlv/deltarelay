@@ -16,7 +16,3 @@ export function requiredById<T extends Element>(root: ParentNode, id: string): T
 export function text(scope: ParentNode, selector: string, value: string | number): void {
   required(scope, selector).textContent = String(value)
 }
-
-export function textById(scope: ParentNode, id: string, value: string | number): void {
-  requiredById(scope, id).textContent = String(value)
-}

@@ -46,7 +46,7 @@ func TestInspectionProxyAcceptsOnlyValidatedCaptureRoutes(t *testing.T) {
 		}
 	}
 	invalid := []string{
-		"/api/inspection/../../v1/dashboard",
+		"/api/inspection/../../dashboard",
 		"/api/inspection/" + id + "/artifacts/body?url=http://attacker.example",
 		"/api/inspection/" + id + "/chunks?limit=100000",
 		"/api/inspection/" + id + "/chunks?start=-1",

@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -456,7 +457,7 @@ func TestTrafficRetentionTrimsOldBuckets(t *testing.T) {
 	}
 }
 
-func TestTrafficBackfillsLegacyHistory(t *testing.T) {
+func TestHistoryRequiresTrafficAggregates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.json")
 	r := recorder(t, "")
 	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
@@ -465,21 +466,20 @@ func TestTrafficBackfillsLegacyHistory(t *testing.T) {
 	r.Finish(failed, 503, true, "relay_unreachable", sampleTransfer, 30, 120)
 	cancelled := r.Begin("request-00000000003", "ses_1", "mock", "primary")
 	r.Finish(cancelled, 499, true, "request_cancelled", sampleTransfer, 5, 40)
-	legacy := r.Snapshot()
-	legacy.Traffic = Traffic{}
-	data, err := json.Marshal(legacy)
+	snapshot := r.Snapshot()
+	snapshot.Traffic = Traffic{}
+	data, err := json.Marshal(snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	reopened := recorder(t, path)
-	s := reopened.Snapshot()
-	for _, series := range []TrafficSeries{s.Traffic.Hourly, s.Traffic.Daily} {
-		if series.Since.IsZero() || len(series.Buckets) != 1 || series.Buckets[0].Requests != 3 || series.Buckets[0].Failed != 1 || series.Buckets[0].Cancelled != 1 || series.Buckets[0].BodyBytes != sampleTransfer.BodyBytes*3 {
-			t.Fatalf("legacy traffic was not backfilled: %+v", series.Buckets)
-		}
+	if _, err := Open(path); err == nil {
+		t.Fatal("accepted history without traffic aggregates")
+	}
+	if saved, err := os.ReadFile(path); err != nil || !bytes.Equal(saved, data) {
+		t.Fatal("rejected history was modified")
 	}
 }
 

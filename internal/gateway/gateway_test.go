@@ -71,7 +71,7 @@ func newFixture(t *testing.T, provider *httptest.Server, idle time.Duration, con
 
 func proxyRequest(t *testing.T, ctx context.Context, local, target, id string, body []byte) *http.Response {
 	t.Helper()
-	r, err := http.NewRequestWithContext(ctx, http.MethodPost, local+"/v1/proxy", bytes.NewReader(body))
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, local+"/proxy", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

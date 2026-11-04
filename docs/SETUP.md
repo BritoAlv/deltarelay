@@ -1,6 +1,5 @@
 # OpenCode Desktop setup
 
-For sanitized implementation and testing history, see [SESSION_LOG.md](SESSION_LOG.md).
 This guide is self-contained for a fresh clone; no original developer paths,
 private test profiles, or Codespace deployment are required.
 
@@ -106,7 +105,7 @@ The same allowlist will be used on the VPS. If intentionally connecting another
 PC to an existing relay, transfer its existing `relay.token` securely instead of
 creating a different shared token. Each PC can have its own `local.token`. Never
 commit either token or copy private `.runtime/` state into Git. Relay-state
-migration is a separate operation described in [PROTOCOL_V2.md](PROTOCOL_V2.md#8-migrating-relay-state).
+migration is a separate operation described in [PROTOCOL.md](PROTOCOL.md#8-migrating-relay-state).
 
 ## 3. Start the VPS side
 
@@ -302,7 +301,7 @@ idle project eviction, and subsequent token refreshes.
 
 The option defaults to `[]` and must contain only IDs in `providers`. Enable it
 only for providers you deliberately use with token sharing; remove the opt-in
-when switching that provider to an ordinary API key or legacy Codex connection.
+when switching that provider to an ordinary API-key connection.
 It does not fix expired authorization, provider outages, or a stopped Codespace.
 
 Avoid another plugin rewriting the destination after this plugin. Verify that
@@ -349,7 +348,7 @@ permits bootstrap; `0` allows cache hits only. Metadata still crosses the link.
 Each OpenCode request gets a logical ID (`X-DeltaRelay-Request-ID`). The VPS
 claims it durably **after hash verification and before provider dispatch**, then
 stores the provider response in a checksummed mailbox while it is produced. The
-full protocol is in [PROTOCOL_V2.md](PROTOCOL_V2.md).
+full protocol is in [PROTOCOL.md](PROTOCOL.md).
 
 What happens when the link fails:
 

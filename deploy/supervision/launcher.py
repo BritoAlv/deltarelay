@@ -7,28 +7,17 @@ import sys
 import time
 
 from remote_provider import ProviderError as ControlError, environment, private_json
-from start_dashboard import prepare_build
+from .build import prepare_build
 
-from .config import codespace_config, validate
+from .config import validate
 from .control import control_request, controller_status
-from .state import save_json
 
 
-def start(project, profile=None, config_file=None, port=8790, no_dashboard=False, no_desktop=False):
-    if config_file:
-        config_file = config_file.resolve(strict=True)
-        config = private_json(config_file)
-        validate(config)
-        profile = Path(config['profile'])
-    else:
-        profile = profile.resolve(strict=True)
-        config_file = profile / 'supervisor.local.json'
-        if config_file.exists() or config_file.is_symlink():
-            config = private_json(config_file)
-            validate(config)
-        else:
-            config = codespace_config(project, profile, port)
-            save_json(config_file, config)
+def start(project, config_file, no_dashboard=False, no_desktop=False):
+    config_file = config_file.resolve(strict=True)
+    config = private_json(config_file)
+    validate(config)
+    profile = Path(config['profile'])
     directory = profile / 'control'
     directory.mkdir(mode=0o700, exist_ok=True)
     status = controller_status(directory / 'supervisor.sock')

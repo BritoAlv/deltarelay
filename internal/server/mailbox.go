@@ -39,13 +39,13 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, protocol.MaxManifestBytes, &input) {
 		return
 	}
-	if !validProviderEnvelope(input, protocol.RelayVersion, id) {
+	if !validProviderEnvelope(input, id) {
 		writeError(w, 400, "invalid version, request ID or method")
 		return
 	}
 	input, fingerprint, err := prepareProviderRequest(s.policy, s.maxBodySize, input)
 	if err != nil {
-		s.providerValidationError(w, err, false)
+		s.providerValidationError(w, err)
 		return
 	}
 	record, created, err := s.jobs.Submit(r.Context(), input, fingerprint)
@@ -192,7 +192,7 @@ func (s *Server) mailboxError(w http.ResponseWriter, err error) {
 	case errors.Is(err, os.ErrNotExist):
 		writeCode(w, 404, "request_not_found", "request ID not found; never redispatch an uncertain request to another relay")
 	case errors.Is(err, mailbox.ErrConflict), errors.Is(err, journal.ErrUsed):
-		writeCode(w, 409, "request_conflict", "request ID conflicts or has a legacy/uncertain dispatch claim; automatic replay refused")
+		writeCode(w, 409, "request_conflict", "request ID conflicts or has an uncertain dispatch claim; automatic replay refused")
 	case errors.Is(err, mailbox.ErrGone):
 		writeCode(w, 410, "response_gone", "response was acknowledged or expired; generation will not be repeated")
 	case errors.Is(err, mailbox.ErrFull), errors.Is(err, journal.ErrFull):

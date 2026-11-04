@@ -136,7 +136,7 @@ export interface Snapshot {
     totals: Totals
     sessions: Session[]
     recent_requests: RelayRequest[]
-    traffic?: Traffic
+    traffic: Traffic
     session_limit: number
     request_limit: number
     evicted_sessions: number

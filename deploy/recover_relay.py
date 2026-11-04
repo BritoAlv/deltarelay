@@ -64,7 +64,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def relay_info(port, token, expected, timeout=5):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     request = urllib.request.Request(
-        f'http://127.0.0.1:{port}/v2/info',
+        f'http://127.0.0.1:{port}/info',
         headers={'Authorization': f'Bearer {token}'},
     )
     try:

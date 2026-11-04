@@ -25,7 +25,7 @@ func (h *Handler) inspect(w http.ResponseWriter, r *http.Request) {
 		writeUnavailable(w, http.StatusBadRequest, "invalid_inspection_route")
 		return
 	}
-	target := h.config.GatewayURL + "/v1/inspection/" + suffix
+	target := h.config.GatewayURL + "/inspection/" + suffix
 	if len(query) > 0 {
 		target += "?" + query.Encode()
 	}

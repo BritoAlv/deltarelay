@@ -38,7 +38,7 @@ test("forces HTTP, routes all model flows, preserves content/auth, and vetoes re
       const controller = new AbortController()
       const event = { sessionID: "ses_dashboard_test", kind, request: new Request("https://api.openai.com/v1/responses", { method: "POST", body: '{"input":"hello"}', headers: { authorization: "Bearer original-provider-token" }, signal: controller.signal }) }
       hook.fn(event)
-      assert.equal(event.request.url, "http://127.0.0.1:8788/v1/proxy")
+      assert.equal(event.request.url, "http://127.0.0.1:8788/proxy")
       assert.equal(event.request.headers.get("authorization"), "Bearer original-provider-token")
       assert.equal(event.request.headers.get("x-deltarelay-target"), "https://api.openai.com/v1/responses")
       assert.equal(event.request.headers.get("x-deltarelay-local-token"), "private-local-token")

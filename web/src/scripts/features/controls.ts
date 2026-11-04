@@ -1,4 +1,4 @@
-import { connectionState, controlError, countdown, desktopLaunchState, recoveryStatus, remoteActionTarget, sendControl, supportsRemote, type SystemStatus } from "../../lib/system.js"
+import { connectionState, controlError, countdown, desktopLaunchState, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../../lib/system.js"
 import { requiredById } from "../dom.js"
 
 export interface ControlsOptions {
@@ -147,7 +147,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     lastMessage = "Submitting service operation…"
     render()
     try {
-      await sendControl("action", { component: component === "remote" ? remoteActionTarget(system) : component, action, confirmed: ["restart", "stop", "wake"].includes(action) }, system.csrf_token)
+      await sendControl("action", { component, action, confirmed: ["restart", "stop", "wake"].includes(action) }, system.csrf_token)
       lastMessage = "Operation accepted. Follow its actual execution in System activity above; no model generation was submitted."
       onAction?.()
     } catch (error) {

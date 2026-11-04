@@ -18,7 +18,7 @@ import (
 
 func readDashboard(t *testing.T, local string) gateway.DashboardSnapshot {
 	t.Helper()
-	r, _ := http.NewRequest("GET", local+"/v1/dashboard", nil)
+	r, _ := http.NewRequest("GET", local+"/dashboard", nil)
 	r.Header.Set("X-DeltaRelay-Local-Token", localToken)
 	response, err := http.DefaultClient.Do(r)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestDashboardSessionSavingsAndFailureAccounting(t *testing.T) {
 	f := newFixture(t, provider, 0)
 	body := []byte(strings.Repeat("private-conversation ", 15000))
 	for i, session := range []string{"ses_alpha", "ses_alpha", "ses_beta"} {
-		r, _ := http.NewRequest("POST", f.gateway.URL+"/v1/proxy", bytes.NewReader(body))
+		r, _ := http.NewRequest("POST", f.gateway.URL+"/proxy", bytes.NewReader(body))
 		r.Header.Set("X-DeltaRelay-Local-Token", localToken)
 		r.Header.Set("X-DeltaRelay-Target", provider.URL+"/v1/responses?secret=query")
 		r.Header.Set("X-DeltaRelay-Request-ID", fmt.Sprintf("dashboard-request-%04d", i))
@@ -144,7 +144,7 @@ func TestDashboardGatewayEndpointRequiresTokenAndRejectsBrowserOrigins(t *testin
 	defer provider.Close()
 	f := newFixture(t, provider, 0)
 	for _, origin := range []string{"", "http://attacker.example"} {
-		r, _ := http.NewRequest("GET", f.gateway.URL+"/v1/dashboard", nil)
+		r, _ := http.NewRequest("GET", f.gateway.URL+"/dashboard", nil)
 		want := 401
 		if origin != "" {
 			r.Header.Set("Origin", origin)

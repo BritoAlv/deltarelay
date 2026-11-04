@@ -29,10 +29,11 @@ func testServer(t *testing.T) (*Server, *store.Store) {
 	return h, s
 }
 
-func request(h http.Handler, path, contentType string, body []byte, encoding string) *httptest.ResponseRecorder {
+func request(h *Server, path, contentType string, body []byte, encoding string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
 	r.Header.Set("Authorization", "Bearer secret")
 	r.Header.Set("Content-Type", contentType)
+	r.Header.Set("X-DeltaRelay-State-ID", h.mailbox.StateID())
 	if encoding != "" {
 		r.Header.Set("Content-Encoding", encoding)
 	}
@@ -64,7 +65,7 @@ func TestRejectsMissingChunksAndWrongWholeBodyHash(t *testing.T) {
 	data := []byte("real content")
 	m := manifest(data)
 	encoded, _ := json.Marshal(m)
-	if got := request(h, "/v1/assemble", "application/json", encoded, ""); got.Code != http.StatusConflict {
+	if got := request(h, "/assemble", "application/json", encoded, ""); got.Code != http.StatusConflict {
 		t.Fatalf("missing chunks: HTTP %d", got.Code)
 	}
 	if err := s.PutChunk(m.Chunks[0], data); err != nil {
@@ -72,7 +73,7 @@ func TestRejectsMissingChunksAndWrongWholeBodyHash(t *testing.T) {
 	}
 	m.Hash = protocol.Sum([]byte("not the actual reconstructed content"))
 	encoded, _ = json.Marshal(m)
-	if got := request(h, "/v1/assemble", "application/json", encoded, ""); got.Code != http.StatusUnprocessableEntity {
+	if got := request(h, "/assemble", "application/json", encoded, ""); got.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("wrong body hash: HTTP %d", got.Code)
 	}
 	if _, _, err := s.OpenBody(m.Hash); err == nil {
@@ -85,23 +86,23 @@ func TestCorruptTruncatedAndTrailingBatches(t *testing.T) {
 	data := []byte("correct")
 	chunk := protocol.Chunk{Hash: protocol.Sum(data), Size: int64(len(data))}
 	corrupt := batch(t, []protocol.Chunk{chunk}, [][]byte{[]byte("WRONG!!")})
-	if got := request(h, "/v1/chunks", protocol.BatchContentType, corrupt, ""); got.Code != http.StatusUnprocessableEntity {
+	if got := request(h, "/chunks", protocol.BatchContentType, corrupt, ""); got.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("corrupt chunk: HTTP %d", got.Code)
 	}
 	if s.HasChunk(chunk) {
 		t.Fatal("corrupt chunk persisted")
 	}
 	valid := batch(t, []protocol.Chunk{chunk}, [][]byte{data})
-	if got := request(h, "/v1/chunks", protocol.BatchContentType, valid[:len(valid)-1], ""); got.Code != http.StatusBadRequest {
+	if got := request(h, "/chunks", protocol.BatchContentType, valid[:len(valid)-1], ""); got.Code != http.StatusBadRequest {
 		t.Fatalf("truncated frame: HTTP %d", got.Code)
 	}
-	if got := request(h, "/v1/chunks", protocol.BatchContentType, append(bytes.Clone(valid), 42), ""); got.Code != http.StatusBadRequest {
+	if got := request(h, "/chunks", protocol.BatchContentType, append(bytes.Clone(valid), 42), ""); got.Code != http.StatusBadRequest {
 		t.Fatalf("trailing data: HTTP %d", got.Code)
 	}
-	if got := request(h, "/v1/chunks", protocol.BatchContentType, valid, ""); got.Code != http.StatusOK {
+	if got := request(h, "/chunks", protocol.BatchContentType, valid, ""); got.Code != http.StatusOK {
 		t.Fatalf("valid retry: HTTP %d", got.Code)
 	}
-	if got := request(h, "/v1/chunks", protocol.BatchContentType, valid, ""); got.Code != http.StatusOK {
+	if got := request(h, "/chunks", protocol.BatchContentType, valid, ""); got.Code != http.StatusOK {
 		t.Fatal("chunk upload is not idempotent")
 	}
 }
@@ -112,11 +113,11 @@ func TestInterruptedBatchPreservesVerifiedChunksForRetry(t *testing.T) {
 	ca := protocol.Chunk{Hash: protocol.Sum(a), Size: int64(len(a))}
 	cb := protocol.Chunk{Hash: protocol.Sum(b), Size: int64(len(b))}
 	encoded := batch(t, []protocol.Chunk{ca, cb}, [][]byte{a, b})
-	got := request(h, "/v1/chunks", protocol.BatchContentType, encoded[:len(encoded)-3], "")
+	got := request(h, "/chunks", protocol.BatchContentType, encoded[:len(encoded)-3], "")
 	if got.Code != http.StatusBadRequest || !s.HasChunk(ca) || s.HasChunk(cb) {
 		t.Fatal("interrupted batch did not preserve exactly its verified chunks")
 	}
-	if got := request(h, "/v1/chunks", protocol.BatchContentType, batch(t, []protocol.Chunk{cb}, [][]byte{b}), ""); got.Code != http.StatusOK {
+	if got := request(h, "/chunks", protocol.BatchContentType, batch(t, []protocol.Chunk{cb}, [][]byte{b}), ""); got.Code != http.StatusOK {
 		t.Fatal("could not resume missing chunk")
 	}
 }
@@ -130,18 +131,18 @@ func TestGzipChecksumAndManifestValidation(t *testing.T) {
 	gz := gzip.NewWriter(&compressed)
 	_, _ = gz.Write(encoded)
 	_ = gz.Close()
-	if got := request(h, "/v1/missing", "application/json", compressed.Bytes(), "gzip"); got.Code != http.StatusOK {
+	if got := request(h, "/missing", "application/json", compressed.Bytes(), "gzip"); got.Code != http.StatusOK {
 		t.Fatalf("valid gzip: HTTP %d", got.Code)
 	}
-	if got := request(h, "/v1/missing", "application/json", compressed.Bytes()[:compressed.Len()-4], "gzip"); got.Code == http.StatusOK {
+	if got := request(h, "/missing", "application/json", compressed.Bytes()[:compressed.Len()-4], "gzip"); got.Code == http.StatusOK {
 		t.Fatal("truncated gzip accepted")
 	}
 	for _, body := range []string{string(encoded) + "{}", `{"version":1,"hash":"../outside","size":0,"chunks":[]}`, `{"version":1,"unknown":true}`} {
-		if got := request(h, "/v1/missing", "application/json", []byte(body), ""); got.Code == http.StatusOK {
+		if got := request(h, "/missing", "application/json", []byte(body), ""); got.Code == http.StatusOK {
 			t.Fatalf("invalid manifest accepted: %s", body)
 		}
 	}
-	if got := request(h, "/v1/missing", "application/json", encoded, "br"); got.Code != http.StatusBadRequest {
+	if got := request(h, "/missing", "application/json", encoded, "br"); got.Code != http.StatusBadRequest {
 		t.Fatal("unsupported content encoding accepted")
 	}
 	// Compress a manifest-sized bomb: the decoded size limit must still apply.
@@ -149,14 +150,14 @@ func TestGzipChecksumAndManifestValidation(t *testing.T) {
 	gz = gzip.NewWriter(&compressed)
 	_, _ = io.Copy(gz, strings.NewReader(strings.Repeat(" ", protocol.MaxManifestBytes+1)))
 	_ = gz.Close()
-	if got := request(h, "/v1/missing", "application/json", compressed.Bytes(), "gzip"); got.Code != http.StatusRequestEntityTooLarge {
+	if got := request(h, "/missing", "application/json", compressed.Bytes(), "gzip"); got.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("gzip bomb: HTTP %d", got.Code)
 	}
 }
 
 func TestAuthenticationAndConcurrencyLimit(t *testing.T) {
 	h, _ := testServer(t)
-	r := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	r := httptest.NewRequest(http.MethodGet, "/info", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
@@ -165,7 +166,7 @@ func TestAuthenticationAndConcurrencyLimit(t *testing.T) {
 	for i := 0; i < cap(h.slots); i++ {
 		h.slots <- struct{}{}
 	}
-	r = httptest.NewRequest(http.MethodGet, "/healthz", nil).WithContext(context.Background())
+	r = httptest.NewRequest(http.MethodGet, "/info", nil).WithContext(context.Background())
 	r.Header.Set("Authorization", "Bearer secret")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)

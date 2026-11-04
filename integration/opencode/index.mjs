@@ -103,7 +103,7 @@ export async function setup(ctx) {
           headers.set("x-deltarelay-request-kind", event.kind)
         }
         if (!headers.has("user-agent")) headers.set("user-agent", "opencode-deltarelay/0.2")
-        event.request = new Request(new URL("/v1/proxy", gateway), {
+        event.request = new Request(new URL("/proxy", gateway), {
           method: original.method, headers, body: original.body,
           signal: original.signal, redirect: "error", duplex: "half",
         })

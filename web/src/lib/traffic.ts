@@ -1,5 +1,5 @@
 import { savings } from "./metrics.js"
-import type { RelayRequest, Snapshot, Traffic, TrafficBucket, TrafficSeries } from "./types.js"
+import type { Snapshot, Traffic, TrafficBucket, TrafficSeries } from "./types.js"
 
 export const HOUR_MS = 3_600_000
 export const DAY_MS = 86_400_000
@@ -49,7 +49,7 @@ export interface TrafficData {
   points: TrafficPoint[]
   totals: TrafficTotals
   coverageStart: number | null
-  source: "hourly" | "daily" | "requests" | "none"
+  source: "hourly" | "daily" | "none"
   truncated: boolean
 }
 
@@ -156,18 +156,6 @@ function addBucket(point: TrafficPoint, bucket: TrafficBucket): void {
   point.duration += bucket.duration_ms
 }
 
-function addRequest(point: TrafficPoint, request: RelayRequest): void {
-  point.requests++
-  if (request.state === "cancelled") point.cancelled++
-  else if (request.state !== "completed") point.failed++
-  point.body += request.transfer.body_bytes
-  point.encoded += request.transfer.request_body_bytes_sent
-  point.reused += request.transfer.reused_body_bytes
-  point.uploadedChunkBytes += request.transfer.uploaded_chunk_bytes
-  point.response += request.response_bytes
-  point.duration += request.duration_ms
-}
-
 function pointCount(range: TrafficRange): number {
   return Math.max(1, Math.min(200, Math.ceil((range.end - range.start) / range.bucketMs)))
 }
@@ -191,19 +179,6 @@ function aggregateSeries(series: TrafficSeries, range: TrafficRange): TrafficPoi
     const index = Math.max(0, Math.min(points.length - 1, Math.floor((Math.max(at, range.start) - range.start) / range.bucketMs)))
     const point = points[index]
     if (point) addBucket(point, bucket)
-  }
-  return points
-}
-
-function fallbackSeries(requests: RelayRequest[], range: TrafficRange): TrafficPoint[] {
-  const points = emptyPoints(range)
-  for (const request of requests) {
-    if (!request.finished_at || request.state === "running") continue
-    const at = Date.parse(request.finished_at)
-    if (!Number.isFinite(at) || at < range.start || at > range.end) continue
-    const index = Math.max(0, Math.min(points.length - 1, Math.floor((at - range.start) / range.bucketMs)))
-    const point = points[index]
-    if (point) addRequest(point, request)
   }
   return points
 }
@@ -243,38 +218,29 @@ export function trafficTotals(points: TrafficPoint[]): TrafficTotals {
 export function trafficData(snapshot: Snapshot, range: TrafficRange): TrafficData {
   const history = snapshot.history
   const now = Date.parse(snapshot.collected_at)
-  if (history.traffic) {
-    const selected = selectSeries(history.traffic, range)
-    if (selected) {
-      const points = aggregateSeries(selected.series, range)
-      const retentionMs = selected.series.retention_seconds * 1000
-      const nowMs = Number.isFinite(now) ? now : range.end
-      const seriesSince = Date.parse(selected.series.since)
-      const seriesStart = Math.max(Number.isFinite(seriesSince) ? seriesSince : nowMs - retentionMs, nowMs - retentionMs)
-      const coverageStart = Math.max(range.start, seriesStart)
-      return {
-        points,
-        totals: trafficTotals(points),
-        coverageStart,
-        source: selected.source,
-        truncated: range.start < coverageStart - Math.min(range.bucketMs, DAY_MS),
-      }
+  const selected = selectSeries(history.traffic, range)
+  if (selected) {
+    const points = aggregateSeries(selected.series, range)
+    const retentionMs = selected.series.retention_seconds * 1000
+    const nowMs = Number.isFinite(now) ? now : range.end
+    const seriesSince = Date.parse(selected.series.since)
+    const seriesStart = Math.max(Number.isFinite(seriesSince) ? seriesSince : nowMs - retentionMs, nowMs - retentionMs)
+    const coverageStart = Math.max(range.start, seriesStart)
+    return {
+      points,
+      totals: trafficTotals(points),
+      coverageStart,
+      source: selected.source,
+      truncated: range.start < coverageStart - Math.min(range.bucketMs, DAY_MS),
     }
   }
-  const points = fallbackSeries(history.recent_requests, range)
-  let coverageStart: number | null = null
-  for (const request of history.recent_requests) {
-    if (!request.finished_at || request.state === "running") continue
-    const at = Date.parse(request.finished_at)
-    if (!Number.isFinite(at)) continue
-    if (coverageStart === null || at < coverageStart) coverageStart = at
-  }
+  const points = emptyPoints(range)
   return {
     points,
     totals: trafficTotals(points),
-    coverageStart,
-    source: "requests",
-    truncated: coverageStart !== null && range.start < coverageStart - Math.min(range.bucketMs, DAY_MS),
+    coverageStart: null,
+    source: "none",
+    truncated: false,
   }
 }
 

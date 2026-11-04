@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { isSnapshot } from "../src/lib/api.js"
-import { remoteActionTarget, isSystemStatus } from "../src/lib/system.js"
+import { isSystemStatus } from "../src/lib/system.js"
 import { savings } from "../src/lib/metrics.js"
 import { contractCases, contractPayload, readContract } from "./contracts.js"
 
@@ -24,7 +24,7 @@ test("all declared required fields and numeric counters are checked, not just di
       for (const [key, value] of Object.entries(node)) {
         if (Array.isArray(node)) { visit(value, [...path, key]); continue }
         const field = [...path, key].join(".")
-        const optional = ["last_error", "error_code", "control_error", "finished_at", "last_seen", "expires_at", "checked_at", "error", "traffic"].includes(key) &&
+        const optional = ["last_error", "error_code", "control_error", "finished_at", "last_seen", "expires_at", "checked_at", "error"].includes(key) &&
           field !== "recovery.last_error"
         if (!optional) assert.equal(guard(contractPayload({ name: field, valid: false, fixture: file, changes: [{ path: field, remove: true }] }, file)), false, `missing ${field}`)
         if (typeof value === "number") {
@@ -43,19 +43,15 @@ test("all declared required fields and numeric counters are checked, not just di
   }
 })
 
-test("legacy diagnostics without traffic aggregates remain compatible", () => {
-  const legacy = structuredClone(readContract("dashboard-v1.json")) as { history: Record<string, unknown> }
-  delete legacy.history.traffic
-  assert.equal(isSnapshot(legacy), true)
+test("diagnostics without required traffic aggregates are rejected", () => {
+  const incomplete = structuredClone(readContract("dashboard-v1.json")) as { history: Record<string, unknown> }
+  delete incomplete.history.traffic
+  assert.equal(isSnapshot(incomplete), false)
 })
 
-test("legacy normalization preserves action routing, and encoded overhead is not a negative wire counter", () => {
-  const legacy = readContract("system-v1.json")
+test("encoded overhead is not a negative wire counter", () => {
   const current = readContract("system-v2.json")
-  assert.ok(isSystemStatus(legacy))
   assert.ok(isSystemStatus(current))
-  assert.equal(remoteActionTarget(legacy), "codespace")
-  assert.equal(remoteActionTarget(current), "remote")
   const dashboard = readContract("dashboard-v1.json")
   assert.ok(isSnapshot(dashboard))
   assert.equal(savings(dashboard.history.totals.body_bytes, dashboard.history.totals.encoded_upload_bytes), -50)

@@ -141,25 +141,16 @@ func New(config Config) (*Server, error) {
 		Upstream: policy.HTTPClient(config.HeaderTimeout), MaxConcurrent: config.MaxConcurrent,
 		MaxRuntime: config.MaxRuntime, IdleTimeout: config.IdleTimeout, Context: config.Context,
 	})
-	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		used, limit := s.store.Usage()
-		writeJSON(w, http.StatusOK, map[string]any{"version": protocol.Version, "forwarding": policy.Enabled(), "cache_bytes": used, "max_cache_bytes": limit})
-	})
-	s.mux.HandleFunc("POST /v1/missing", s.missing)
-	s.mux.HandleFunc("POST /v1/chunks", s.upload)
-	s.mux.HandleFunc("POST /v1/assemble", s.assemble)
-	s.mux.HandleFunc("GET /v1/bodies/{hash}", s.body)
-	s.mux.HandleFunc("POST /v1/forward", s.forward)
-	s.mux.HandleFunc("GET /v2/info", s.info)
-	s.mux.HandleFunc("POST /v2/missing", s.missing)
-	s.mux.HandleFunc("POST /v2/chunks", s.upload)
-	s.mux.HandleFunc("POST /v2/assemble", s.assemble)
-	s.mux.HandleFunc("GET /v2/bodies/{hash}", s.body)
-	s.mux.HandleFunc("PUT /v2/requests/{id}", s.submit)
-	s.mux.HandleFunc("GET /v2/requests/{id}", s.requestStatus)
-	s.mux.HandleFunc("GET /v2/requests/{id}/response", s.requestResponse)
-	s.mux.HandleFunc("POST /v2/requests/{id}/ack", s.acknowledge)
-	s.mux.HandleFunc("POST /v2/requests/{id}/cancel", s.cancelRequest)
+	s.mux.HandleFunc("GET /info", func(w http.ResponseWriter, r *http.Request) { s.admit(w, r, s.info) })
+	s.handle("POST /missing", s.missing)
+	s.handle("POST /chunks", s.upload)
+	s.handle("POST /assemble", s.assemble)
+	s.handle("GET /bodies/{hash}", s.body)
+	s.handle("PUT /requests/{id}", s.submit)
+	s.handle("GET /requests/{id}", s.requestStatus)
+	s.handle("GET /requests/{id}/response", s.requestResponse)
+	s.handle("POST /requests/{id}/ack", s.acknowledge)
+	s.handle("POST /requests/{id}/cancel", s.cancelRequest)
 	return s, nil
 }
 
@@ -181,16 +172,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid bearer token")
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/v2/") && r.URL.Path != "/v2/info" {
+	s.mux.ServeHTTP(w, r)
+}
+
+// handle protects every stateful route, independently of its URL spelling.
+// Unregistered paths never enter this middleware and remain ordinary 404s.
+func (s *Server) handle(pattern string, handler http.HandlerFunc) {
+	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-DeltaRelay-State-ID") != s.mailbox.StateID() {
 			writeCode(w, http.StatusConflict, "state_mismatch", "relay state identity changed or was not supplied; automatic dispatch refused")
 			return
 		}
-	}
+		s.admit(w, r, handler)
+	})
+}
+
+func (s *Server) admit(w http.ResponseWriter, r *http.Request, handler http.HandlerFunc) {
 	slots := s.slots
-	if r.URL.Path == "/v1/forward" {
-		slots = s.jobs.slots
-	} else if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v2/requests/") {
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasPrefix(r.URL.Path, "/requests/") {
 		slots = s.responseSlots
 	}
 	select {
@@ -201,7 +200,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "server concurrency limit reached")
 		return
 	}
-	s.mux.ServeHTTP(w, r)
+	handler(w, r)
 }
 
 func (s *Server) manifest(w http.ResponseWriter, r *http.Request) (protocol.Manifest, bool) {

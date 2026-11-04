@@ -4,6 +4,8 @@
   "exclude": ["dist", ".test-build"],
   "compilerOptions": {
     "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "types": ["node"]
   }
 }

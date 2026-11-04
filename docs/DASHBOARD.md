@@ -127,16 +127,13 @@ dashboard command needs no pnpm, Node, package store, or internet at runtime.
 
 ## Connect to your gateway
 
-For the **already configured private Codespace test profile**, `./startup.sh`
-starts/reuses the dashboard automatically before background recovery, including with
-`--no-desktop`. It selects the profile's gateway on port 18788 and its existing
-local token file. Missing/stale builds use Go and the offline pnpm cache. A
-verified legacy read-only dashboard is upgraded; other live services are adopted
-without restart. Use `--no-dashboard` to skip a new dashboard launch, or set
-`DELTARELAY_DASHBOARD_PORT` before the first supervised startup to choose another
-loopback port (default 8790).
-See [CODESPACE_RECOVERY.md](CODESPACE_RECOVERY.md) for prerequisites and logs.
-This shortcut does not provision a profile in a fresh clone.
+With a current executable-provider configuration, run
+`./startup.sh --config /private/supervisor.json` to start/reuse the dashboard
+before background recovery, including with `--no-desktop`. The configuration
+selects the gateway, token file, and dashboard address. Missing/stale builds use
+Go and the offline pnpm cache. Use `--no-dashboard` to skip a new dashboard
+launch. Existing services are not automatically replaced to apply upgrades.
+See [SUPERVISION.md](SUPERVISION.md) for configuration and logs.
 
 First follow [SETUP.md](SETUP.md) to configure the relay, tunnel, local gateway,
 and OpenCode plugin. Rebuild and restart an older **Go gateway** for the new
@@ -191,7 +188,7 @@ history; authentication failures and invalid/disallowed targets do not.
 ## Privacy, retention, and state
 
 For statistics, the browser requests `GET /api/dashboard`. The Go dashboard authenticates
-its own `GET /v1/dashboard` to the local gateway; it does not forward browser
+its own `GET /dashboard` to the local gateway; it does not forward browser
 headers, cookies, arbitrary routes, or query parameters. Statistics remain
 metadata-only: gateway and VPS tokens, provider credentials, target URLs, and
 response bodies are not included. The dashboard makes no model requests and has

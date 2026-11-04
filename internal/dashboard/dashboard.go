@@ -182,7 +182,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
-	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.config.GatewayURL+"/v1/dashboard", nil)
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.config.GatewayURL+"/dashboard", nil)
 	if err != nil {
 		http.Error(w, "invalid gateway configuration", http.StatusInternalServerError)
 		return

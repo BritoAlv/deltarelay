@@ -39,49 +39,41 @@ func TestSystemSerializationAndSupervisorContracts(t *testing.T) {
 	}
 }
 
-func TestSupervisorFixtureEnrichmentAndLegacyRouting(t *testing.T) {
-	for _, version := range []string{"1", "1-early", "2"} {
-		t.Run("v"+version, func(t *testing.T) {
-			fixture := contracts.Read(t, "supervisor-v"+version+".json")
-			body := `{"component":"remote","action":"restart"}`
-			if strings.HasPrefix(version, "1") {
-				body = `{"component":"codespace","action":"restart"}`
-			}
-			socket := unixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/status" {
-					_, _ = w.Write(fixture)
-					return
-				}
-				data, _ := io.ReadAll(r.Body)
-				if string(data) != body {
-					t.Errorf("action target changed: %s", data)
-				}
-				w.WriteHeader(202)
-				_, _ = io.WriteString(w, `{"accepted":true}`)
-			}))
-			h, err := New(Config{GatewayURL: "http://localhost:1", LocalToken: "synthetic-token", ControlSocket: socket})
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer h.Close()
-			h.nonce = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest("GET", "http://localhost/api/system", nil))
-			if w.Code != http.StatusOK {
-				t.Fatal(w.Code)
-			}
-			contracts.EqualJSON(t, w.Body.Bytes(), contracts.Read(t, "system-v"+version+".json"))
-			// The proxy never rewrites actions to a newer target while v1 runs.
-			r := httptest.NewRequest("POST", "http://localhost/api/system/action", strings.NewReader(body))
-			r.Header.Set("Origin", "http://localhost")
-			r.Header.Set("Content-Type", "application/json")
-			r.Header.Set("X-DeltaRelay-Control", h.nonce)
-			w = httptest.NewRecorder()
-			h.ServeHTTP(w, r)
-			if w.Code != 202 {
-				t.Fatal(w.Code, w.Body.String())
-			}
-		})
+func TestSupervisorFixtureEnrichmentAndActionRouting(t *testing.T) {
+	fixture := contracts.Read(t, "supervisor-v2.json")
+	body := `{"component":"remote","action":"wake","confirmed":true}`
+	socket := unixServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/status" {
+			_, _ = w.Write(fixture)
+			return
+		}
+		data, _ := io.ReadAll(r.Body)
+		if string(data) != body {
+			t.Errorf("action target changed: %s", data)
+		}
+		w.WriteHeader(202)
+		_, _ = io.WriteString(w, `{"accepted":true}`)
+	}))
+	h, err := New(Config{GatewayURL: "http://localhost:1", LocalToken: "synthetic-token", ControlSocket: socket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	h.nonce = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "http://localhost/api/system", nil))
+	if w.Code != http.StatusOK {
+		t.Fatal(w.Code)
+	}
+	contracts.EqualJSON(t, w.Body.Bytes(), contracts.Read(t, "system-v2.json"))
+	r := httptest.NewRequest("POST", "http://localhost/api/system/action", strings.NewReader(body))
+	r.Header.Set("Origin", "http://localhost")
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-DeltaRelay-Control", h.nonce)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body.String())
 	}
 }
 

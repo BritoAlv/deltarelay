@@ -17,7 +17,7 @@ import (
 )
 
 // retry applies only to reads or operations whose idempotency is enforced by
-// this protocol. It must never wrap a provider HTTP request or legacy forward.
+// this protocol. It must never wrap a provider HTTP request.
 func (c *Client) retry(ctx context.Context, operation func() error) error {
 	var deadline time.Time
 	delay := c.config.RetryMin
@@ -101,11 +101,11 @@ func (c *Client) jsonRPC(ctx context.Context, method, path string, data []byte, 
 
 func (c *Client) Info(ctx context.Context) (protocol.Info, error) {
 	var info protocol.Info
-	if err := c.jsonRPC(ctx, http.MethodGet, "/v2/info", nil, &info, nil, nil); err != nil {
+	if err := c.jsonRPC(ctx, http.MethodGet, "/info", nil, &info, nil, nil); err != nil {
 		return info, err
 	}
 	if info.Version != protocol.RelayVersion || info.ChunkVersion != protocol.Version || !protocol.ValidHash(info.StateID) {
-		return info, errors.New("relay does not implement the DeltaRelay v2 contract; upgrade the server (no legacy forwarding fallback)")
+		return info, errors.New("relay does not implement the DeltaRelay contract; upgrade the server")
 	}
 	capabilities := make(map[string]bool, len(info.Capabilities))
 	for _, capability := range info.Capabilities {
@@ -113,7 +113,7 @@ func (c *Client) Info(ctx context.Context) (protocol.Info, error) {
 	}
 	for _, required := range []string{"durable-mailbox", "idempotent-submit", "response-offsets", "body-ranges", "explicit-cancel", "receipt-ack"} {
 		if !capabilities[required] {
-			return info, errors.New("relay is missing a required v2 capability")
+			return info, errors.New("relay is missing a required capability")
 		}
 	}
 	c.stateMu.Lock()

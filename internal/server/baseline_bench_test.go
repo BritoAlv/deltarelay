@@ -124,7 +124,7 @@ func benchmarkGatewayRequestStartup(b *testing.B, persistent, concurrent bool) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/proxy", bytes.NewReader(body)).WithContext(ctx)
+		r := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/proxy", bytes.NewReader(body)).WithContext(ctx)
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-DeltaRelay-Local-Token", "synthetic-local-token")
 		r.Header.Set("X-DeltaRelay-Target", provider.URL+"/v1/responses")

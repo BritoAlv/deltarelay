@@ -58,7 +58,7 @@ func (c *Client) Forward(ctx context.Context, request Request, body io.Reader) (
 	}
 	var sent, requests atomic.Int64
 	var record protocol.RequestStatus
-	err = c.jsonRPC(ctx, http.MethodPut, "/v2/requests/"+request.ID, data, &record, &sent, &requests)
+	err = c.jsonRPC(ctx, http.MethodPut, "/requests/"+request.ID, data, &record, &sent, &requests)
 	stats.RequestBodyBytesSent += sent.Load()
 	stats.Requests += requests.Load()
 	stats.DurationMillis = time.Since(started).Milliseconds()
@@ -122,7 +122,7 @@ func (c *Client) status(ctx context.Context, id string, wait bool) (protocol.Req
 	if err := c.ensureState(ctx); err != nil {
 		return record, err
 	}
-	path := "/v2/requests/" + id
+	path := "/requests/" + id
 	if wait {
 		path += "?wait=1"
 	}
@@ -223,7 +223,7 @@ func (b *resumableBody) Read(p []byte) (int, error) {
 		var response attemptResponse
 		err := b.client.retry(b.ctx, func() error {
 			var err error
-			response, err = b.client.rpc(b.ctx, http.MethodGet, "/v2/requests/"+b.id+"/response?offset="+strconv.FormatInt(b.offset, 10), nil, nil, protocol.ResponseSegmentBytes, nil, nil)
+			response, err = b.client.rpc(b.ctx, http.MethodGet, "/requests/"+b.id+"/response?offset="+strconv.FormatInt(b.offset, 10), nil, nil, protocol.ResponseSegmentBytes, nil, nil)
 			return err
 		})
 		if err != nil {
@@ -286,7 +286,7 @@ func (c *Client) Ack(ctx context.Context, id string, receipt protocol.Receipt) e
 	}
 	data, _ := json.Marshal(receipt)
 	var status protocol.RequestStatus
-	if err := c.jsonRPC(ctx, http.MethodPost, "/v2/requests/"+id+"/ack", data, &status, nil, nil); err != nil {
+	if err := c.jsonRPC(ctx, http.MethodPost, "/requests/"+id+"/ack", data, &status, nil, nil); err != nil {
 		return err
 	}
 	return c.validateStatus(status, id, "")

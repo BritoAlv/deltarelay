@@ -138,16 +138,16 @@ func (c *Client) execute(ctx context.Context, spec attemptSpec) (attemptResponse
 	if capture != nil && spec.sent != nil && spec.requests != nil {
 		operation := "control"
 		switch spec.path {
-		case "/v2/missing":
+		case "/missing":
 			operation = "inventory"
-		case "/v2/chunks":
+		case "/chunks":
 			operation = "chunks"
-		case "/v2/assemble":
+		case "/assemble":
 			operation = "assemble"
 		default:
 			// Path-based rather than method-based: a future dispatch method must
 			// still get the redacted projection, never an accidental raw capture.
-			if strings.HasPrefix(spec.path, "/v2/requests/") {
+			if strings.HasPrefix(spec.path, "/requests/") {
 				operation = "dispatch"
 			}
 		}

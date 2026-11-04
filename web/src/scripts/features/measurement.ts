@@ -225,7 +225,6 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const active = doc.activeElement as HTMLElement | null
     const focusedChoice = active && rowsBody.contains(active) ? active.closest<HTMLButtonElement>("[data-session-choice]")?.dataset.sessionChoice : undefined
     rowsBody.innerHTML = visible.map((entry) => {
-      const current = catalogState(entry)
       const measured = Boolean(entry.gateway)
       const reduction = catalogReduction(entry)
       const title = entry.title || (entry.id ? "Untitled session" : "Unattributed requests")

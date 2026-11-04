@@ -258,15 +258,15 @@ func TestUntrustedInventoryAndAcknowledgmentFailClosed(t *testing.T) {
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
-				case "/v2/info":
+				case "/info":
 					_ = json.NewEncoder(w).Encode(protocol.Info{Version: 2, ChunkVersion: 1, StateID: protocol.Sum([]byte("test-state")), Capabilities: []string{"durable-mailbox", "idempotent-submit", "response-offsets", "body-ranges", "explicit-cancel", "receipt-ack"}})
-				case "/v2/missing":
+				case "/missing":
 					missing := []protocol.Chunk{}
 					if mode == "unknown-chunk" {
 						missing = append(missing, protocol.Chunk{Hash: protocol.Sum([]byte("not in request")), Size: 14})
 					}
 					_ = json.NewEncoder(w).Encode(protocol.MissingResponse{Missing: missing})
-				case "/v2/assemble":
+				case "/assemble":
 					_ = json.NewEncoder(w).Encode(protocol.AssembleResponse{Hash: protocol.Sum([]byte("wrong body")), Size: 10})
 				default:
 					t.Error("unexpected upload or bypass request")

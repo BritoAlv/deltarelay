@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import check_remote_provider
 import remote_provider as contract
-import supervisor as control
+import supervision.supervisor as control
 from providers.ssh import SSHProvider
 
 
@@ -238,7 +238,7 @@ class ProviderTest(unittest.TestCase):
             with self.assertRaisesRegex(contract.ProviderError, '^unreachable$'):
                 subject.recover()
         self.assertIn('relay.ensure', self.methods())
-        self.assertIsNone(subject.recovery['last_connected_at'])
+        self.assertIsNone(subject.state.recovery_copy()['last_connected_at'])
 
     def test_missing_pin_and_permanent_health_failures_never_dispatch_mutations(self):
         subject = self.subject()
@@ -263,8 +263,8 @@ class ProviderTest(unittest.TestCase):
             subject.submit({'component': 'remote', 'action': 'stop', 'confirmed': True})
             self.assertTrue(subject.operation.acquire(timeout=5))
             subject.operation.release()
-        self.assertEqual(subject.host_state, 'stopped')
-        self.assertEqual(self.subject().settings, {'auto_reconnect': False, 'auto_wake': False})
+        self.assertEqual(subject.state.host_value(), 'stopped')
+        self.assertEqual(self.subject().state.settings_copy(), {'auto_reconnect': False, 'auto_wake': False})
         self.assertEqual(json.loads(Path(subject.config['relay_state_file']).read_text()), 'a' * 64)
 
     def test_failed_stop_does_not_claim_shutdown_or_reenable_recovery(self):
@@ -273,8 +273,8 @@ class ProviderTest(unittest.TestCase):
         self.write_config(error_method='host.stop', error_code='unreachable', retryable=True)
         with self.assertRaisesRegex(contract.ProviderError, '^unreachable$'):
             subject.stop_host()
-        self.assertEqual(subject.host_state, 'unknown')
-        self.assertEqual(self.subject().settings, {'auto_reconnect': False, 'auto_wake': False})
+        self.assertEqual(subject.state.host_value(), 'unknown')
+        self.assertEqual(self.subject().state.settings_copy(), {'auto_reconnect': False, 'auto_wake': False})
 
     def test_stopped_host_is_never_woken_indirectly_through_tunnel_recovery(self):
         self.state.write_text('stopped')
@@ -290,7 +290,7 @@ class ProviderTest(unittest.TestCase):
             restart.assert_not_called()
         with self.assertRaisesRegex(contract.ProviderError, 'host_stopped'):
             subject.start_component('tunnel')
-        self.assertFalse(subject.children)
+        self.assertFalse(subject.processes.children)
         self.assertNotIn('host.wake', self.methods())
 
     def test_published_schema_matches_runtime_operations_states_and_errors(self):
@@ -307,19 +307,19 @@ class ProviderTest(unittest.TestCase):
         with patch.object(subject, 'probe', return_value='unreachable'), \
                 patch.object(subject, 'internet_probe', return_value='connected'), patch.object(subject.stop, 'wait', return_value=False):
             for _ in range(3): subject.tick()
-            self.assertEqual(subject.provider_blocked, 'authentication_failed')
-            subject.next_attempt = 0
+            self.assertEqual(subject.policy.provider_blocked_value(), 'authentication_failed')
+            subject.policy.set_next_attempt(0)
             for _ in range(4): subject.tick()
         self.assertEqual(self.methods().count('relay.ensure'), 1)
-        self.assertEqual(subject.recovery['last_error'], 'authentication_failed')
+        self.assertEqual(subject.state.recovery_copy()['last_error'], 'authentication_failed')
 
     def test_permanent_relay_failure_is_not_repaired_if_a_later_probe_is_unreachable(self):
         subject = self.subject()
         with patch.object(subject, 'probe', side_effect=['identity_mismatch'] + ['unreachable'] * 5), \
                 patch.object(subject, 'internet_probe', return_value='connected'):
             for _ in range(6): subject.tick()
-        self.assertEqual(subject.provider_blocked, 'identity_mismatch')
-        self.assertEqual(subject.recovery['last_error'], 'identity_mismatch')
+        self.assertEqual(subject.policy.provider_blocked_value(), 'identity_mismatch')
+        self.assertEqual(subject.state.recovery_copy()['last_error'], 'identity_mismatch')
         self.assertFalse(set(self.methods()) & set(contract.CAPABILITIES))
 
     def test_supervisor_cancellation_finishes_active_provider_job_and_preserves_policies(self):
@@ -336,8 +336,8 @@ class ProviderTest(unittest.TestCase):
             subject.stop.set()
             self.assertTrue(subject.operation.acquire(timeout=5), 'provider job did not finish cancellation')
             subject.operation.release()
-        self.assertEqual(subject.recovery['last_error'], 'operation_cancelled')
-        self.assertEqual(subject.settings, {'auto_reconnect': True, 'auto_wake': False})
+        self.assertEqual(subject.state.recovery_copy()['last_error'], 'operation_cancelled')
+        self.assertEqual(subject.state.settings_copy(), {'auto_reconnect': True, 'auto_wake': False})
         with self.assertRaisesRegex(contract.ProviderError, 'operation_cancelled'):
             subject.submit({'component': 'all', 'action': 'recover'})
 
@@ -349,7 +349,7 @@ class ProviderTest(unittest.TestCase):
         subject.prepare_provider()
         self.assertNotIn('tunnel', subject.provider.spec)
         subject.start_component('tunnel')
-        child = subject.children['tunnel']
+        child = subject.processes.children['tunnel']
         try:
             self.assertEqual(subject._identity('tunnel')['pid'], child.pid)
             self.assertEqual(subject.config['components']['tunnel']['pid_file'], str(subject.directory / 'provider-tunnel.pid'))

@@ -252,7 +252,7 @@ func TestInterruptedUploadReinventoriesPersistedChunks(t *testing.T) {
 	uploads := make(map[string]int)
 	_, link, _, _ := recoveryServer(t, provider, func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/v2/chunks" {
+			if r.URL.Path != "/chunks" {
 				h.ServeHTTP(w, r)
 				return
 			}
@@ -356,7 +356,7 @@ func TestBodyDownloadCheckpointSurvivesClientRestart(t *testing.T) {
 	var ranges []string
 	_, link, _, _ := recoveryServer(t, provider, func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/v2/bodies/") {
+			if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/bodies/") {
 				rangesMu.Lock()
 				ranges = append(ranges, r.Header.Get("Range"))
 				rangesMu.Unlock()

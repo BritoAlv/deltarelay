@@ -8,7 +8,7 @@ endpoints were sampled. Dates and IDs are fixed so tests do not depend on clocks
 | `dashboard-*.json` | Go dashboard/history/transfer serialization; TypeScript `isSnapshot` |
 | `supervisor-*.json`, `system-*.json` | Python supervisor snapshot; Go validation, enrichment, and serialization; TypeScript `isSystemStatus` and action routing |
 | `provider-*.json` | Python executable-provider response consumer and bundled-provider request consumer; published-schema field/enum/limit parity |
-| `fingerprints.json` | Byte-exact JSON and SHA-256 goldens, checked against both APIs' actual persisted claims |
+| `fingerprints.json` | Byte-exact JSON and SHA-256 goldens, checked against actual persisted request claims |
 
 The `*-cases.json` manifests select a base `fixture` (or the suite's default), a
 `valid` result, and named mutations. `changes` uses dot-separated object fields
@@ -23,25 +23,23 @@ it differs from the browser-enriched `fixture`. Browser-only nonce/auth cases us
 `boundary: "system"`. Provider cases select `request` or `response`, and response
 cases carry a `method` and, where applicable, an expected fixed `error` code.
 
-Important compatibility distinctions:
+Active contract distinctions:
 
 - Dashboard/history stay v1; relay health uses v2 or zero/empty values when no
   discovery result is available. Running requests legitimately have zero transfer
   counters and an empty hash. Client cancellations are a separate `cancelled`
   counter in global/session totals and traffic buckets; rebuild the gateway and
   dashboard together when upgrading because the browser validator requires it.
-- `history.traffic` is optional for compatibility with gateways that predate
-  traffic aggregates. When present, hourly and daily bucket arrays must be
-  strictly ordered and within their declared retention; when absent, the
-  dashboard falls back to retained request entries.
-- `inspection` is optional for compatibility with gateways that predate payload
-  capture. It appears only when capture is enabled (the CLI default).
+- `history.traffic` is required. Hourly and daily bucket arrays must be strictly
+  ordered and within their declared retention. Missing aggregates are rejected;
+  neither Go nor the browser reconstructs them from old request entries.
+- `inspection` is optional because capture can be disabled. It appears only when
+  capture is enabled (the CLI default).
   `recent_requests[].capture_id`
   is also optional; an absent ID means content was not retained, not that it was
   empty.
-- Raw legacy supervisor v1 uses `codespace_state`. Only the Go boundary normalizes
-  it to `remote`, retaining **version 1** for `codespace` action targets. Older v1
-  snapshots without an internet probe become `unknown`/`null`, not a failed probe.
+- Only current supervisor status is accepted, with `remote`, independent internet
+  probe fields, and version 2. Unsupported versions fail validation.
 - Counters are nonnegative integers. Encoded upload overhead can exceed raw body
   bytes; negative **calculated savings** are valid and remain separately tested.
 - The provider schema is not a runtime dependency. Tests extend the existing
@@ -51,7 +49,7 @@ Important compatibility distinctions:
   integral numeric value).
 - Fingerprint `representation` is a literal string: do not reformat or regenerate
   it merely to make a changed hash pass. Field capitalization/order, header
-  cleaning, escaping, and hashing are persisted compatibility requirements.
+  cleaning, escaping, and hashing are durable replay-protection requirements.
 
 Run from the repository root with existing offline dependencies:
 
@@ -62,6 +60,6 @@ pnpm check
 pnpm test
 ```
 
-See [`docs/REFACTOR_PHASE1.md`](../../docs/REFACTOR_PHASE1.md) for the full gate,
-including the isolated-binary Python opt-ins. Browser DOM smoke coverage remains
-Phase 7; these are contract/library tests, not browser automation.
+`make verify` runs the complete offline matrix, including browser DOM smoke tests.
+See [the architecture guide](../../docs/ARCHITECTURE.md#defaults-and-verification)
+for real-binary recovery checks.

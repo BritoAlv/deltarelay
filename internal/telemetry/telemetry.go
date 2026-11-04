@@ -277,12 +277,7 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 	if running != active {
 		return nil, errors.New("inconsistent active statistics")
 	}
-	if trafficMissing(r.data.Traffic) {
-		// Older history files predate traffic aggregates. Reconstruct the
-		// retained window from finished request entries before persisting.
-		r.data.Traffic = newTraffic(now)
-		r.backfillTrafficLocked(now)
-	} else if !validTraffic(r.data.Traffic) {
+	if !validTraffic(r.data.Traffic) {
 		return nil, errors.New("invalid statistics traffic")
 	}
 	r.trimTrafficLocked(now)
@@ -318,12 +313,6 @@ func newTraffic(since time.Time) Traffic {
 			Buckets:          []TrafficBucket{},
 		},
 	}
-}
-
-func trafficMissing(t Traffic) bool {
-	return t.Hourly.Since.IsZero() && t.Daily.Since.IsZero() &&
-		t.Hourly.BucketSeconds == 0 && t.Daily.BucketSeconds == 0 &&
-		len(t.Hourly.Buckets) == 0 && len(t.Daily.Buckets) == 0
 }
 
 func validTraffic(t Traffic) bool {
@@ -424,31 +413,6 @@ func trimTrafficSeries(series TrafficSeries, now time.Time) TrafficSeries {
 	}
 	series.Buckets = append([]TrafficBucket{}, series.Buckets[first:]...)
 	return series
-}
-
-func (r *Recorder) backfillTrafficLocked(now time.Time) {
-	earliest := time.Time{}
-	for _, request := range r.data.RecentRequests {
-		if request.FinishedAt == nil || request.State == "running" {
-			continue
-		}
-		failed := request.State == "failed" || request.State == "interrupted"
-		cancelled := request.State == "cancelled"
-		if earliest.IsZero() || request.FinishedAt.Before(earliest) {
-			earliest = *request.FinishedAt
-		}
-		addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed, cancelled)
-		addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(*request.FinishedAt), request.Transfer, request.ResponseBytes, request.DurationMillis, failed, cancelled)
-	}
-	if earliest.IsZero() {
-		earliest = now
-	}
-	if earliest.Before(r.data.Traffic.Hourly.Since) {
-		r.data.Traffic.Hourly.Since = earliest
-	}
-	if earliest.Before(r.data.Traffic.Daily.Since) {
-		r.data.Traffic.Daily.Since = earliest
-	}
 }
 
 // Close marks the recorder closed and, for a persistent recorder, requests the

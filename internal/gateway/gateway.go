@@ -117,11 +117,11 @@ func New(config Config) (*Gateway, error) {
 		return nil, err
 	}
 	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent), history: history, inspection: captures, startedAt: time.Now().UTC()}
-	g.mux.HandleFunc("POST /v1/proxy", g.proxy)
+	g.mux.HandleFunc("POST /proxy", g.proxy)
 	g.mux.HandleFunc("GET /healthz", g.health)
 	g.mux.HandleFunc("GET /metrics", g.metrics)
-	g.mux.HandleFunc("GET /v1/dashboard", g.dashboard)
-	g.mux.Handle("GET /v1/inspection/{rest...}", captures)
+	g.mux.HandleFunc("GET /dashboard", g.dashboard)
+	g.mux.Handle("GET /inspection/{rest...}", captures)
 	return g, nil
 }
 

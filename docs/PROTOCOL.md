@@ -1,4 +1,4 @@
-# DeltaRelay relay contract, version 2
+# DeltaRelay protocol
 
 This document is the provider-independent contract between the PC client
 (`deltarelay gateway`, `sync`, `request`) and any DeltaRelay server (`deltarelay serve`)
@@ -6,8 +6,9 @@ running on a Linux host with private persistent storage. It names no VPS vendor,
 cloud API, or VPN. A host qualifies if it can run the binary, keep a private
 data directory across restarts, and expose HTTPS or an encrypted SSH forward.
 
-Version 1 endpoints (`/v1/...`) remain for diagnostic compatibility only. A v2
-client never falls back to them.
+This is the only supported relay API. Routes are unversioned; there are no
+aliases, redirects, or alternative forwarding implementations. Deploy the relay,
+gateway, plugin, supervisor, and dashboard from the same checkout revision.
 
 ## 1. Guarantees
 
@@ -26,9 +27,9 @@ it is not immediate.
 
 ## 2. Identity and pinning
 
-`GET /v2/info` returns a `state_id`: a random SHA-256-shaped value generated once
-per data directory and stored in `mailbox/identity.json`. Every `/v2/...` request
-except `info` must send it in `X-DeltaRelay-State-ID`. The server rejects a
+`GET /info` returns a `state_id`: a random SHA-256-shaped value generated once
+per data directory and stored in `mailbox/identity.json`. Every stateful request
+must send it in `X-DeltaRelay-State-ID`. The server rejects a
 mismatch with `409 state_mismatch`.
 
 The client pins the first `state_id` it sees in `relay-state.json` inside its
@@ -43,20 +44,22 @@ section 8.
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /v2/info` | Protocol, identity, capabilities, and limits. Requires bearer auth only. |
-| `POST /v2/missing` | Return the unique chunks the server lacks. |
-| `POST /v2/chunks` | Upload a binary chunk batch (`DRLY0001` framing). |
-| `POST /v2/assemble` | Verify a complete body manifest and persist it. |
-| `GET` / `HEAD /v2/bodies/{sha256}` | Ranged download of a verified stored body (`Range`, `If-Range`, `ETag`). |
-| `PUT /v2/requests/{id}` | Idempotent submission of a logical request (JSON manifest and provider metadata). |
-| `GET /v2/requests/{id}[?wait=1]` | Status. `wait=1` long-polls up to 20 s for a change. |
-| `GET /v2/requests/{id}/response?offset=N` | Raw provider bytes from decoded offset `N`, one segment (≤256 KiB). `204` after 20 s with no new bytes. |
-| `POST /v2/requests/{id}/ack` | Confirm receipt. Body: `{"size":N,"hash":"sha256"}`. Idempotent. |
-| `POST /v2/requests/{id}/cancel` | Explicit, durable cancellation. Also valid before submission. |
+| `GET /info` | Protocol, identity, capabilities, and limits. Requires bearer auth only. |
+| `POST /missing` | Return the unique chunks the server lacks. |
+| `POST /chunks` | Upload a binary chunk batch (`DRLY0001` framing). |
+| `POST /assemble` | Verify a complete body manifest and persist it. |
+| `GET` / `HEAD /bodies/{sha256}` | Ranged download of a verified stored body (`Range`, `If-Range`, `ETag`). |
+| `PUT /requests/{id}` | Idempotent submission of a logical request (JSON manifest and provider metadata). |
+| `GET /requests/{id}[?wait=1]` | Status. `wait=1` long-polls up to 20 s for a change. |
+| `GET /requests/{id}/response?offset=N` | Raw provider bytes from decoded offset `N`, one segment (≤256 KiB). `204` after 20 s with no new bytes. |
+| `POST /requests/{id}/ack` | Confirm receipt. Body: `{"size":N,"hash":"sha256"}`. Idempotent. |
+| `POST /requests/{id}/cancel` | Explicit, durable cancellation. Also valid before submission. |
 
 Every JSON body is decoded strictly (`DisallowUnknownFields`, single object).
-Protocol and chunk formats are unchanged from v1; only routes and the request
-lifecycle are new.
+Discovery and submission use `version: 2`; manifests use `version: 1` and chunk
+batches use `application/vnd.deltarelay.chunks.v1`. These identify the active
+formats, not alternative APIs. Their bytes, persisted fingerprints, relay
+identity, journal claims, and mailbox records remain unchanged by URL cleanup.
 
 ### Request states
 
@@ -88,7 +91,7 @@ different content), `request_not_found` (404), `response_gone` (410),
 
 ## 4. Submission semantics
 
-`PUT /v2/requests/{id}` is the only operation that can dispatch to a provider.
+`PUT /requests/{id}` is the only operation that can dispatch to a provider.
 
 - New ID: verify the manifest, reconstruct the body, claim the ID in the journal
   and mailbox, then respond `202` with the record.
@@ -135,7 +138,7 @@ stream ends in `interrupted` or `failed`, never `completed`.
 Tombstones are never automatically removed while any client could still
 replay an ID. Payload expiry is explicit: `response_gone` and `expired: true`.
 
-The server exposes all active limits in `GET /v2/info`, including
+The server exposes all active limits in `GET /info`, including
 `retention_seconds`, `max_runtime_seconds`, and `response_storage_bytes`.
 
 ## 7. Client recovery
@@ -149,7 +152,7 @@ The server exposes all active limits in `GET /v2/info`, including
   without deciding the whole request has failed.
 - Upload batches shrink after a failure (`--batch-bytes` default 256 KiB,
   halved on retry). After an ambiguous batch, the client re-inventories with
-  `/v2/missing` and sends only what is missing.
+  `/missing` and sends only what is missing.
 - Downloads use a private `.deltarelay-*.part` file plus a checkpoint binding it
   to the destination, request ID, and state identity. A later run resumes from
   the checkpoint length. Existing destination files are never overwritten.

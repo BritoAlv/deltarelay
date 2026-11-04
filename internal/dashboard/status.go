@@ -12,21 +12,17 @@ import (
 // Unknown fields are still stripped, not forwarded to the browser.
 func decodeSupervisorStatus(data []byte) (SystemStatus, bool) {
 	var state SystemStatus
-	if json.Unmarshal(data, &state) != nil || (state.Version != 1 && state.Version != 2) || !state.Managed || !statusTimestamp(state.CollectedAt) || state.Recovery.Attempts < 0 || len(state.Components) > 6 {
+	if json.Unmarshal(data, &state) != nil || state.Version != 2 || !state.Managed || !statusTimestamp(state.CollectedAt) || state.Recovery.Attempts < 0 || len(state.Components) > 6 {
 		return SystemStatus{}, false
 	}
 	root := statusFields(data, "version", "managed", "collected_at", "settings", "recovery", "relay_state", "components")
 	if root == nil || bytes.Equal(root["error"], []byte("null")) || bytes.Equal(root["internet_state"], []byte("null")) {
 		return SystemStatus{}, false
 	}
-	if state.Version == 1 && root["internet_state"] == nil {
-		// Supervisors predating the independent internet probe have no such
-		// observation. Normalize only here, while retaining their action API.
-		state.InternetState = "unknown"
-	} else if root["internet_state"] == nil {
+	if root["internet_state"] == nil {
 		return SystemStatus{}, false
 	}
-	if state.Version == 2 && root["internet_checked_at"] == nil {
+	if root["internet_checked_at"] == nil {
 		return SystemStatus{}, false
 	}
 	if statusFields(root["settings"], "auto_reconnect", "auto_wake") == nil {
@@ -36,12 +32,7 @@ func decodeSupervisorStatus(data []byte) (SystemStatus, bool) {
 	if recovery == nil || recovery["last_connected_at"] == nil || recovery["next_retry_at"] == nil || !nullableStatusTimestamp(state.Recovery.LastConnectedAt) || !nullableStatusTimestamp(state.Recovery.NextRetryAt) || !nullableStatusTimestamp(state.InternetCheckedAt) {
 		return SystemStatus{}, false
 	}
-	if state.Version == 1 {
-		if statusFields(data, "codespace_state") == nil {
-			return SystemStatus{}, false
-		}
-		state.Remote = legacyRemote(state.CodespaceState)
-	} else if statusFields(root["remote"], "id", "label", "host_state", "capabilities") == nil {
+	if statusFields(root["remote"], "id", "label", "host_state", "capabilities") == nil {
 		return SystemStatus{}, false
 	}
 	if !validRemote(state.Remote) {
@@ -61,8 +52,6 @@ func decodeSupervisorStatus(data []byte) (SystemStatus, bool) {
 			return SystemStatus{}, false
 		}
 	}
-	// Do not upgrade Version: v1 actions must still target "codespace".
-	state.CodespaceState = ""
 	return state, true
 }
 

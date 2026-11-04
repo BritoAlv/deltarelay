@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, remoteActionTarget, sendControl, supportsRemote, type SystemStatus } from "../src/lib/system.js"
+import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../src/lib/system.js"
 
 const status: SystemStatus = {
   version: 2, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
@@ -38,10 +38,10 @@ test("connection state only blames the internet when the separate check also fai
 })
 
 test("recovery status shows the actual failure instead of masking it as VPS unreachable", () => {
-  const failed = { ...status, recovery: { ...status.recovery, last_error: "codespace_ssh_timeout" } }
+  const failed = { ...status, recovery: { ...status.recovery, last_error: "relay_ssh_timeout" } }
   assert.match(recoveryStatus(failed), /SSH.*timed out/)
-  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "codespace_recovery_failed" } }), /SSH\/relay recovery failed/)
-  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "codespace_stopped" } }), /Wake Codespace/)
+  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "relay_recovery_failed" } }), /SSH\/relay recovery failed/)
+  assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "host_stopped" } }), /Wake it manually/)
   assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, last_error: "command_failed" } }), /service command failed/)
   assert.match(recoveryStatus({ ...failed, recovery: { ...failed.recovery, busy: true, phase: "recovering_remote_relay" } }), /In progress: recovering remote relay/)
   assert.match(recoveryStatus({ ...failed, error: "supervisor_unavailable" }), /local supervisor is unavailable/)
@@ -126,19 +126,18 @@ test("control API uses same-origin POST with nonce, never credentials in URLs", 
   })
   assert.equal((await fetchSystem(new AbortController().signal)).remote.host_state, "stopped")
   await sendControl("action", { component: "tunnel", action: "start" }, status.csrf_token)
-  mock.mock.mockImplementation(async () => Response.json({ error: "codespace_stopped" }, { status: 409 }))
-  await assert.rejects(sendControl("action", {}, status.csrf_token), /Wake Codespace/)
+  mock.mock.mockImplementation(async () => Response.json({ error: "host_stopped" }, { status: 409 }))
+  await assert.rejects(sendControl("action", {}, status.csrf_token), /Wake it manually/)
   mock.mock.mockImplementation(async () => Response.json({ version: 999 }))
   await assert.rejects(fetchSystem(new AbortController().signal), /incompatible/)
 })
 
-test("remote capabilities are vendor-independent and old supervisor action targets remain usable", () => {
+test("remote capabilities are vendor-independent and only current snapshots are accepted", () => {
   assert.equal(supportsRemote(status, "host.wake"), true)
   assert.equal(supportsRemote(status, "relay.restart"), false)
   assert.equal(supportsRemote(null, "host.stop"), false)
   assert.equal(supportsRemote({ ...status, remote: { ...status.remote, capabilities: [] } }, "host.wake"), false)
-  assert.equal(remoteActionTarget(status), "remote")
-  assert.equal(remoteActionTarget({ ...status, version: 1 }), "codespace")
+  assert.equal(isSystemStatus({ ...status, version: 1 }), false)
   for (const remote of [null, { ...status.remote, id: "bad id" }, { ...status.remote, host_state: "Available" },
     { ...status.remote, label: "secret\nline" }, { ...status.remote, capabilities: ["execute"] },
     { ...status.remote, capabilities: ["host.wake", "host.wake"] }]) {

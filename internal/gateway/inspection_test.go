@@ -35,7 +35,7 @@ func TestOptInRequestInspectionAndCredentialIsolation(t *testing.T) {
 	gz := gzip.NewWriter(&compressed)
 	_, _ = gz.Write(body)
 	_ = gz.Close()
-	r, _ := http.NewRequest("POST", f.gateway.URL+"/v1/proxy", &compressed)
+	r, _ := http.NewRequest("POST", f.gateway.URL+"/proxy", &compressed)
 	r.Header.Set("Content-Encoding", "gzip")
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("X-DeltaRelay-Local-Token", localToken)
@@ -69,7 +69,7 @@ func TestOptInRequestInspectionAndCredentialIsolation(t *testing.T) {
 		data, _ := io.ReadAll(res.Body)
 		return res.StatusCode, data
 	}
-	path := "/v1/inspection/" + retained.CaptureID
+	path := "/inspection/" + retained.CaptureID
 	code, data := get(path, localToken, "")
 	var detail inspection.Detail
 	if code != 200 || json.Unmarshal(data, &detail) != nil || detail.RequestID != retained.ID || detail.Sequence != retained.Sequence {
@@ -122,7 +122,7 @@ func TestInspectionIsOptInAndDisabledByDefault(t *testing.T) {
 	if snapshot := readDashboard(t, f.gateway.URL); snapshot.Inspection != nil {
 		t.Fatalf("capture status exposed while disabled: %+v", snapshot.Inspection)
 	}
-	request, _ := http.NewRequest(http.MethodGet, f.gateway.URL+"/v1/inspection/"+strings.Repeat("a", 32), nil)
+	request, _ := http.NewRequest(http.MethodGet, f.gateway.URL+"/inspection/"+strings.Repeat("a", 32), nil)
 	request.Header.Set("X-DeltaRelay-Local-Token", localToken)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {

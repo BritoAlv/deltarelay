@@ -38,7 +38,7 @@ func openTestStore(t *testing.T, config Config) *Store {
 func inspect(t *testing.T, s *Store, suffix string, want int, target any) []byte {
 	t.Helper()
 	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/inspection/"+suffix, nil))
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/inspection/"+suffix, nil))
 	if w.Code != want {
 		t.Fatalf("inspection %s: %d %s", suffix, w.Code, w.Body.String())
 	}
@@ -118,7 +118,7 @@ func TestEncodedPayloadCompressionAndCredentialProjection(t *testing.T) {
 	gz := gzip.NewWriter(&compressed)
 	_, _ = gz.Write(plain)
 	_ = gz.Close()
-	index := c.BeginAttempt(ctx, "chunks", "POST", "/v2/chunks", protocol.BatchContentType, "gzip", plain, compressed.Bytes(), true)
+	index := c.BeginAttempt(ctx, "chunks", "POST", "/chunks", protocol.BatchContentType, "gzip", plain, compressed.Bytes(), true)
 	c.Consume(index, 7)
 	c.EndAttempt(index, 0, "transport_error")
 	var page struct {
@@ -136,7 +136,7 @@ func TestEncodedPayloadCompressionAndCredentialProjection(t *testing.T) {
 		t.Fatal("decoded view does not match actual gzip content")
 	}
 	forward, _ := json.Marshal(protocol.ForwardRequest{Version: 2, ID: "request-evidence-0002", Target: "https://private-target.example/path?secret=query", Method: "POST", Headers: http.Header{"Authorization": {"Bearer provider-secret"}, "X-Custom-Credential": {"custom-secret"}}})
-	index = c.BeginAttempt(ctx, "dispatch", "PUT", "/v2/requests/"+c.ID(), "application/json", "identity", forward, forward, true)
+	index = c.BeginAttempt(ctx, "dispatch", "PUT", "/requests/"+c.ID(), "application/json", "identity", forward, forward, true)
 	c.Consume(index, len(forward))
 	c.EndAttempt(index, 200, "response_read")
 	c.Finish(transfer.Stats{RequestBodyBytesSent: int64(len(forward) + 7)}, "completed")
@@ -163,13 +163,13 @@ func TestUnknownOperationRetainsLengthsButNoPayload(t *testing.T) {
 	s := openTestStore(t, Config{})
 	c := s.Begin("request-evidence-0011", 11, "application/json")
 	secret := []byte(`{"Authorization":"Bearer provider-secret","target":"https://private.example"}`)
-	index := c.BeginAttempt(WithCapture(context.Background(), c), "control", "POST", "/v2/unknown-future-operation", "application/json", "identity", secret, secret, true)
+	index := c.BeginAttempt(WithCapture(context.Background(), c), "control", "POST", "/unknown-future-operation", "application/json", "identity", secret, secret, true)
 	c.Consume(index, 7)
 	c.EndAttempt(index, 200, "response_ok")
 	c.Finish(transfer.Stats{BodyBytes: 7, RequestBodyBytesSent: int64(len(secret))}, "completed")
 	s.flush()
 	detail := inspect(t, s, c.ID(), 200, nil)
-	if !bytes.Contains(detail, []byte(`"path":"/v2/unknown-future-operation"`)) || bytes.Contains(detail, []byte("provider-secret")) {
+	if !bytes.Contains(detail, []byte(`"path":"/unknown-future-operation"`)) || bytes.Contains(detail, []byte("provider-secret")) {
 		t.Fatal("unknown operation metadata was lost or its payload was retained")
 	}
 	var d Detail
@@ -385,7 +385,7 @@ func TestConcurrentEvidenceAndStorageFailureDoNotChangeSource(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			ctx := WithCapture(context.Background(), c)
-			index := c.BeginAttempt(ctx, "inventory", "POST", "/v2/missing", "application/json", "identity", []byte("{}"), []byte("{}"), true)
+			index := c.BeginAttempt(ctx, "inventory", "POST", "/missing", "application/json", "identity", []byte("{}"), []byte("{}"), true)
 			c.Consume(index, 2)
 			c.EndAttempt(index, 200, "response_read")
 			_ = c.snapshot()

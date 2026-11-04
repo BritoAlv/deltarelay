@@ -51,7 +51,6 @@ type SystemStatus struct {
 	InternetState     string            `json:"internet_state"`
 	InternetCheckedAt *string           `json:"internet_checked_at"`
 	Remote            RemoteStatus      `json:"remote"`
-	CodespaceState    string            `json:"codespace_state,omitempty"` // Decode old supervisors only.
 	Components        []ComponentStatus `json:"components"`
 	Auth              AuthStatus        `json:"auth"`
 }
@@ -87,26 +86,6 @@ func validRemote(remote RemoteStatus) bool {
 	return true
 }
 
-func legacyRemote(state string) RemoteStatus {
-	remote := RemoteStatus{ID: "configured", Label: "Remote host", HostState: "unknown", Capabilities: []string{}}
-	if state == "" || state == "not_configured" {
-		return remote
-	}
-	remote.ID, remote.Label = "codespaces", "GitHub Codespaces"
-	remote.Capabilities = []string{"relay.ensure", "relay.restart", "host.wake", "host.stop"}
-	switch state {
-	case "Available":
-		remote.HostState = "running"
-	case "Shutdown":
-		remote.HostState = "stopped"
-	case "ShuttingDown":
-		remote.HostState = "stopping"
-	case "Starting", "Queued", "Provisioning", "Awaiting":
-		remote.HostState = "starting"
-	}
-	return remote
-}
-
 func controlClient(socket string) *http.Client {
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
@@ -115,7 +94,7 @@ func controlClient(socket string) *http.Client {
 }
 
 func (h *Handler) system(w http.ResponseWriter, r *http.Request) {
-	result := SystemStatus{Version: 2, CollectedAt: time.Now().UTC().Format(time.RFC3339), Components: []ComponentStatus{}, Error: "controls_not_configured", Remote: legacyRemote("")}
+	result := SystemStatus{Version: 2, CollectedAt: time.Now().UTC().Format(time.RFC3339), Components: []ComponentStatus{}, Error: "controls_not_configured", Remote: RemoteStatus{ID: "configured", Label: "Remote host", HostState: "unknown", Capabilities: []string{}}}
 	if h.control != nil {
 		result.Error = "supervisor_unavailable"
 		request, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://supervisor/status", nil)

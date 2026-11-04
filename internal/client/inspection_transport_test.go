@@ -26,12 +26,12 @@ func TestInspectionMarksUnusableSuccessfulResponse(t *testing.T) {
 	}, 1)
 	var sent, requests atomic.Int64
 	var result map[string]any
-	_, err = c.postOnceObserved(inspection.WithCapture(context.Background(), capture), "/v2/missing", "application/json", []byte("{}"), &result, &sent, &requests)
+	_, err = c.postOnceObserved(inspection.WithCapture(context.Background(), capture), "/missing", "application/json", []byte("{}"), &result, &sent, &requests)
 	if err == nil {
 		t.Fatal("invalid response was accepted")
 	}
 	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest("GET", "/v1/inspection/"+capture.ID(), nil))
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/inspection/"+capture.ID(), nil))
 	var detail inspection.Detail
 	if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)
@@ -53,12 +53,12 @@ func TestInspectionDistinguishesPreparedFromPartiallyConsumedPayload(t *testing.
 		return nil, errors.New("simulated failed connection")
 	}, 1)
 	var sent, requests atomic.Int64
-	_, err = c.execute(inspection.WithCapture(context.Background(), capture), attemptSpec{method: "POST", path: "/v2/missing", contentType: "application/json", data: []byte(strings.Repeat("payload", 100)), sent: &sent, requests: &requests})
+	_, err = c.execute(inspection.WithCapture(context.Background(), capture), attemptSpec{method: "POST", path: "/missing", contentType: "application/json", data: []byte(strings.Repeat("payload", 100)), sent: &sent, requests: &requests})
 	if err == nil {
 		t.Fatal("transport failure was hidden")
 	}
 	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest("GET", "/v1/inspection/"+capture.ID(), nil))
+	s.ServeHTTP(w, httptest.NewRequest("GET", "/inspection/"+capture.ID(), nil))
 	var detail inspection.Detail
 	if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil {
 		t.Fatal(err)

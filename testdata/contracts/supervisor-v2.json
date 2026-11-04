@@ -3,7 +3,7 @@
   "settings": {"auto_reconnect": true, "auto_wake": false},
   "recovery": {"busy": false, "phase": "starting", "attempts": 0, "last_error": "", "last_connected_at": null, "next_retry_at": null},
   "relay_state": "unknown", "internet_state": "unknown", "internet_checked_at": null,
-  "remote": {"id": "configured", "label": "Remote host", "host_state": "unknown", "capabilities": []},
+  "remote": {"id": "custom", "label": "Remote host", "host_state": "unknown", "capabilities": []},
   "components": [
     {"id": "dashboard", "label": "Dashboard", "state": "unmanaged", "can_start": false, "can_restart": false},
     {"id": "gateway", "label": "Local gateway", "state": "unmanaged", "can_start": false, "can_restart": false},

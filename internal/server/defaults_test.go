@@ -23,13 +23,13 @@ func TestConstructorDefaultsMatchOwnerConstants(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(handler.Close)
-	request := httptest.NewRequest("GET", "/v2/info", nil)
+	request := httptest.NewRequest("GET", "/info", nil)
 	request.Header.Set("Authorization", "Bearer defaults-test-token")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	var info protocol.Info
 	if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &info) != nil {
-		t.Fatalf("v2 info failed: %d %s", response.Code, response.Body.String())
+		t.Fatalf("info failed: %d %s", response.Code, response.Body.String())
 	}
 	for name, check := range map[string]struct{ got, want int64 }{
 		"max body":            {info.MaxBodyBytes, protocol.DefaultMaxBodySize},

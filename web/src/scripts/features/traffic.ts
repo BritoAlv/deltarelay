@@ -170,16 +170,10 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     }).join("")
   }
 
-  function updateNotice(data: TrafficData, state: DashboardViewState): void {
+  function updateNotice(data: TrafficData): void {
     const messages: string[] = []
-    if (data.source === "requests") {
-      messages.push(state.snapshot?.history.traffic
-        ? "No aggregated traffic is available yet. Showing retained request entries only."
-        : "This gateway does not expose traffic aggregates yet. Showing retained request entries only; multi-day ranges may be incomplete.")
-    }
     if (data.truncated && data.coverageStart !== null) {
-      const coverage = data.source === "requests" ? "Retained request coverage starts" : "Aggregated traffic starts"
-      messages.push(`${coverage} ${formatDate(data.coverageStart)}; earlier totals are preserved but not plotted.`)
+      messages.push(`Aggregated traffic starts ${formatDate(data.coverageStart)}; earlier totals are preserved but not plotted.`)
     }
     if (data.totals.requests === 0) messages.push("No finished requests in this range. Widen the range or wait for new traffic.")
     const text = messages.join(" ")
@@ -414,7 +408,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     updateSummary(data)
     renderChart(data, resolved.range)
     if (previous !== null) showTooltip(previous)
-    updateNotice(data, state)
+    updateNotice(data)
   }
 
   rangeSelect.addEventListener("change", () => {

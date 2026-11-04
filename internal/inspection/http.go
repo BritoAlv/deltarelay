@@ -130,7 +130,7 @@ func (s *Store) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		unavailable(w, http.StatusNotFound, "capture_disabled")
 		return
 	}
-	suffix := strings.TrimPrefix(r.URL.Path, "/v1/inspection/")
+	suffix := strings.TrimPrefix(r.URL.Path, "/inspection/")
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil || !ValidRoute(suffix, q) {
 		unavailable(w, http.StatusBadRequest, "invalid_inspection_route")
