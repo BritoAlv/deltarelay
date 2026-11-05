@@ -48,15 +48,17 @@ class StartupScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('/private configuration/vps.json', json.loads(self.events.read_text()))
 
-    def test_missing_configuration_explains_setup_without_provisioning(self):
+    def test_missing_configuration_launches_first_run_setup_without_discovering_private_profiles(self):
         self.config.unlink()
         self.environment['DELTARELAY_PROFILE'] = str(self.root)
         (self.root / '.runtime/codespace-test').mkdir(parents=True)
         (self.root / '.runtime/codespace-test/tunnel-supervisor.sh').write_text('CODESPACE=unused\n')
         result = self.startup('--no-desktop')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('docs/REMOTE_PROVIDERS.md', result.stderr)
-        self.assertFalse(self.events.exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = json.loads(self.events.read_text())
+        self.assertIn('--setup', args)
+        self.assertIn(str(self.config), args)
+        self.assertNotIn(str(self.root / '.runtime/codespace-test'), args)
 
     def test_removed_or_unknown_arguments_fail_before_starting_anything(self):
         for args in [('--timeout', '1200'), ('--profile', str(self.root)), ('--unknown',)]:

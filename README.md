@@ -10,7 +10,8 @@ streaming, cancellation, persistent replay protection, resource limits, and an
 OpenCode V2 plugin. Files, tools and sign-ins stay local. There is no automatic
 direct-provider fallback.
 
-**Start here: [OpenCode Desktop and VPS setup](docs/SETUP.md).** Deployment and
+**Start here: [dashboard remote setup](docs/REMOTE_SETUP.md)** or the manual
+**[OpenCode Desktop and VPS setup](docs/SETUP.md)**. Deployment and
 plugin activation are explicit; building the tool does not change your existing
 OpenCode configuration or session routing. The setup guide explains verification
 and remaining live-provider/deployment requirements.
@@ -45,15 +46,22 @@ Private configuration, tokens, logs, conversation exports, and relay state are
 ignored files. On another computer, regenerate credentials for a new deployment
 or transfer the existing relay token securely if intentionally using the same VPS.
 
+`./startup.sh --no-desktop` opens first-run **System controls → Set up remote host**
+when the default configuration is missing. Select an existing SSH host or Codespace
+and confirm; the dashboard builds/transfers/starts the relay and saves private
+credentials, its identity pin, and connection configuration. See
+[dashboard remote setup](docs/REMOTE_SETUP.md). It never overwrites an existing
+deployment or creates paid machines.
+
 `./startup.sh --config /private/supervisor.json` starts persistent recovery for an
 **already configured** remote host, its local dashboard, and optional isolated
 Desktop. [Remote-host providers](docs/REMOTE_PROVIDERS.md) support SSH computers,
 HTTPS VPS deployments, Codespaces, or your own executable plugin in any language.
 Controls come up before remote recovery; wake/stop appear only when supported,
 and automatic wake starts off. Default startup reads your XDG configuration.
-An explicit `remote` provider is required in that configuration. Private credentials and
-Desktop profiles are not included in a clone. Use the setup guide, not that
-script, to provision a new VPS. See [supervision and controls](docs/SUPERVISION.md).
+An explicit `remote` provider is required outside first-run onboarding. Private
+credentials and Desktop profiles are not included in a clone. See
+[supervision and controls](docs/SUPERVISION.md).
 
 ## Build and test
 

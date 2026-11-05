@@ -3,6 +3,11 @@
 This guide is self-contained for a fresh clone; no original developer paths,
 private test profiles, or Codespace deployment are required.
 
+For an existing Linux SSH host or Codespace, [dashboard remote setup](REMOTE_SETUP.md)
+automates the build, credential generation, transfer, startup, identity pin, and
+local connection configuration. The instructions below remain the manual path,
+including direct HTTPS and OpenCode plugin activation.
+
 This installs the complete path:
 
 ```text

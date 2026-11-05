@@ -145,9 +145,11 @@ func (h *Handler) writeControl(w http.ResponseWriter, r *http.Request) {
 	path := "/action"
 	if r.URL.Path == "/api/system/settings" {
 		path = "/settings"
+	} else if r.URL.Path == "/api/system/setup" {
+		path = "/setup"
 	}
-	// The supervisor validates the fixed action/settings schema; it never accepts
-	// commands or paths from this endpoint. No incoming headers or queries follow.
+	// The supervisor validates fixed schemas, including the setup destination.
+	// No shell commands, incoming headers, or queries follow.
 	request, _ := http.NewRequestWithContext(r.Context(), http.MethodPost, "http://supervisor"+path, bytes.NewReader(data))
 	request.Header.Set("Content-Type", "application/json")
 	response, err := h.control.Do(request)

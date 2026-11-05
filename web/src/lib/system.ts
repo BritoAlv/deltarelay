@@ -102,6 +102,15 @@ export function countdown(deadline: string, now = Date.now()): string {
 export function controlError(code: string): string {
   const messages: Record<string, string> = {
     controls_not_configured: "Controls are not configured. Start with startup.sh, or configure a private supervisor socket.",
+    setup_required: "Set up your remote host using the setup form on System controls. Recovery never initializes a new relay store.",
+    setup_not_available: "First-time setup is not available for this configured deployment. Existing credentials and relay data were not changed.",
+    invalid_setup_request: "Check the host, remote directory, and port numbers. Use an SSH alias/user@host or an existing Codespace name.",
+    setup_target_locked: "An interrupted setup already selected a destination. Resume that same destination; no credentials or identity will be replaced.",
+    setup_configuration_changed: "Private configuration changed during setup. Your changes were preserved. Review System activity and the configuration before resuming.",
+    identity_already_configured: "A saved relay identity already exists. Use its existing deployment configuration; setup will not overwrite the pin.",
+    unsupported_remote_platform: "Remote setup requires Linux amd64 or arm64 and Python 3.",
+    setup_go_required: "Go is required locally to build the remote relay. Install Go, then resume setup.",
+    setup_failed: "Remote setup failed. Check the actual error in System activity, fix it, then resume the same setup.",
     supervisor_unavailable: "The local supervisor is unavailable. Run startup.sh to recover it; the gateway is not required for these controls.",
     host_stopped: "The remote host is stopped. Wake it manually, or enable automatic wake if supported. Compute billing may resume.",
     host_unavailable: "The remote host could not be confirmed ready. Check your hosting provider and network connection.",
@@ -140,7 +149,7 @@ export async function fetchSystem(signal: AbortSignal): Promise<SystemStatus> {
   return data
 }
 
-export async function sendControl(path: "action" | "settings", data: unknown, nonce: string): Promise<void> {
+export async function sendControl(path: "action" | "settings" | "setup", data: unknown, nonce: string): Promise<void> {
   const response = await fetch(`/api/system/${path}`, {
     method: "POST", credentials: "same-origin", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(6000),
     headers: { "Content-Type": "application/json", "X-DeltaRelay-Control": nonce }, body: JSON.stringify(data),

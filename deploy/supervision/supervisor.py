@@ -27,6 +27,7 @@ from .process import ProcessManager, process
 from .probes import RelayProbe
 from .recovery import RecoveryPolicy
 from .state import SupervisorState, save_json, stamp
+from .onboarding import RemoteSetup
 
 
 def component_step(method):
@@ -69,9 +70,12 @@ class Supervisor:
         self.clock = clock or (lambda: time.monotonic())
         self.command_runner = command_runner
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-        self.provider = ExecutableProvider(self.config['remote'], self.config['relay_url'],
-                                           self.stop, trace=self.journal.sink('provider'))
-        self.state = SupervisorState(self.config, settings, self.provider.metadata, journal=self.journal)
+        self.provider = (ExecutableProvider(self.config['remote'], self.config['relay_url'],
+                                            self.stop, trace=self.journal.sink('provider'))
+                         if 'remote' in self.config else None)
+        metadata = self.provider.metadata if self.provider else {'id': 'unconfigured', 'label': 'Remote host not set up', 'capabilities': []}
+        self.state = SupervisorState(self.config, settings, metadata, journal=self.journal)
+        self.setup = RemoteSetup(self.config, self.directory, self.journal, self.stop)
         self.processes = processes or ProcessManager(self.config, self.root, self.directory,
                                                      self.state, self.stop, clock=self.clock, journal=self.journal)
         self.probes = probes or RelayProbe(self.config, self.opener, trace=self.journal.sink('network'))
@@ -101,9 +105,11 @@ class Supervisor:
         self.journal.close()
 
     def supports(self, method):
-        return method in self.provider.metadata['capabilities']
+        return self.provider is not None and method in self.provider.metadata['capabilities']
 
     def prepare_provider(self):
+        if self.provider is None:
+            raise ControlError('setup_required')
         discovering = self.provider.connection is None
         if discovering:
             self.journal.write('event', 'Discovering provider description and connection', component='provider')
@@ -123,6 +129,48 @@ class Supervisor:
     def expected_identity(self):
         return self.probes.expected_identity()
 
+    def setup_status(self):
+        return self.setup.status(self.state.recovery_value('busy'))
+
+    def submit_setup(self, value):
+        if self.stop.is_set():
+            raise ControlError('operation_cancelled')
+        if not self.operation.acquire(blocking=False):
+            raise ControlError('operation_in_progress')
+        try:
+            request = self.setup.request(value)
+        except Exception:
+            self.operation.release()
+            raise
+        operation = operation_id()
+        self.setup.last_error = ''
+        self.state.begin_operation('setting_up_remote_host')
+
+        def work():
+            with self.journal.context(trigger='manual', operation=operation, component='setup'):
+                self.journal.write('event', f'Confirmed first-time remote setup: {request}')
+                try:
+                    remote = self.setup.install(request)
+                    self.config['remote'] = remote
+                    self.provider = ExecutableProvider(remote, self.config['relay_url'], self.stop,
+                                                       trace=self.journal.sink('provider'))
+                    self.recover()
+                except ControlError as error:
+                    self.setup.last_error = str(error)
+                    self.state.update_recovery(last_error=str(error))
+                    self.journal.write('error', f'Remote setup failed: {error}; retry resumes only this same deployment')
+                except Exception:
+                    self.setup.last_error = 'setup_failed'
+                    self.state.update_recovery(last_error='setup_failed')
+                    self.journal.write('error', traceback.format_exc())
+                else:
+                    self.journal.write('event', 'Remote setup complete; authenticated relay and local gateway ready. No model request was submitted.')
+                finally:
+                    self.state.finish_operation()
+                    self.operation.release()
+
+        threading.Thread(target=work, daemon=True).start()
+
     def update_settings(self, value):
         if not isinstance(value, dict) or set(value) != {'auto_reconnect', 'auto_wake'} or any(type(v) is not bool for v in value.values()):
             raise ControlError('invalid_settings')
@@ -139,6 +187,8 @@ class Supervisor:
     def start_component(self, name):
         if self.stop.is_set():
             raise ControlError('operation_cancelled')
+        if name == 'gateway' and self.provider is None:
+            raise ControlError('setup_required')
         spec = self.config['components'].get(name)
         if not spec:
             raise ControlError('component_unmanaged')
@@ -440,6 +490,9 @@ class Supervisor:
             if self.state.dashboard_is_enabled() and 'dashboard' in self.config['components'] and \
                     self.state.component_value('dashboard') == 'stopped':
                 self.start_component('dashboard')
+            if self.provider is None:
+                self.state.update_recovery(phase='setup_required', last_error='setup_required')
+                return
             # Plugin failures must not prevent independent relay health checks or
             # local controls. Bound plugin retries separately from network retries.
             if self.policy.provider_due():

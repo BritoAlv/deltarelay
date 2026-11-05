@@ -1,0 +1,22 @@
+<article id="remote-setup" class="panel control-panel" aria-labelledby="remote-setup-title" hidden>
+  <div class="control-heading"><h3 id="remote-setup-title">Set up remote host</h3><span id="setup-state" class="status-pill warning">Setup required</span></div>
+  <p>Install DeltaRelay on an existing Linux SSH host or Codespace. This dashboard builds the relay, transfers private credentials, starts it, verifies its identity, and saves your connection configuration.</p>
+  <form id="remote-setup-form" class="remote-setup-form">
+    <label>Host type<select id="setup-provider" name="provider"><option value="ssh">SSH host</option><option value="codespaces">GitHub Codespace</option></select></label>
+    <label><span id="setup-target-label">SSH alias or user@host</span><input id="setup-target" name="target" type="text" maxlength="255" autocomplete="off" required /></label>
+    <label>New remote directory<input id="setup-directory" name="remote_directory" type="text" value="~/.local/share/deltarelay" maxlength="512" autocomplete="off" required /></label>
+    <label id="setup-ssh-port-label">SSH port<input id="setup-ssh-port" name="ssh_port" type="number" value="22" min="1" max="65535" required /></label>
+    <label>Remote relay port<input id="setup-remote-port" name="remote_port" type="number" value="8787" min="1024" max="65535" required /></label>
+    <div><button id="setup-submit" class="button" type="submit" disabled>Set up remote host…</button></div>
+  </form>
+  <p class="control-detail">SSH requires an existing key/agent and trusted host key. Codespaces requires an authenticated GitHub CLI and may resume compute billing. Remote Python 3 and local Go are required. No sudo, public listener, machine creation, or model request.</p>
+  <p class="control-detail">Existing deployments are never overwritten. An interrupted setup can only resume the same selected destination; credentials and identity are retained.</p>
+  <p id="setup-detail" class="control-detail" role="status">Waiting for fresh setup status…</p>
+</article>
+
+<style>
+  .remote-setup-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1.25rem 0; }
+  .remote-setup-form label { display: flex; flex-direction: column; gap: .4rem; font-size: .875rem; }
+  .remote-setup-form input, .remote-setup-form select { width: 100%; padding: .6rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--surface); color: inherit; font: inherit; }
+  .remote-setup-form > div { align-self: end; }
+</style>

@@ -120,6 +120,16 @@ class ActivityTest(unittest.TestCase):
         capture.feed(b'\n\nsecond\n', final=True)
         self.assertEqual(lines, ['first', '', 'second'])
 
+    def test_new_setup_credentials_are_masked_without_mutating_reader_snapshots(self):
+        journal = self.journal()
+        snapshot = journal.redact.secrets
+        journal.redact.add('newly-generated-setup-credential')
+        self.assertNotIn('newly-generated-setup-credential', snapshot)
+        journal.write('stdout', 'diagnostic newly-generated-setup-credential')
+        journal.flush()
+        self.assertNotIn('newly-generated-setup-credential', journal.path.read_text())
+        self.assertEqual(journal.read()['entries'][-1]['text'], 'diagnostic [REDACTED]')
+
     def test_rotation_restart_cursors_and_private_permissions(self):
         journal = self.journal(max_bytes=2048)
         for i in range(40):

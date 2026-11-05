@@ -42,8 +42,13 @@ def validate(config):
             raise ControlError('absolute_pid_file_required')
         if 'port' in spec and (type(spec['port']) is not int or not 0 < spec['port'] < 65536):
             raise ControlError('invalid_port')
-    if 'remote' not in config:
+    setup = config.get('setup')
+    if setup is not None and (not isinstance(setup, dict) or set(setup) != {'project', 'config_file'} or
+                              any(not isinstance(v, str) or '\0' in v or not Path(v).is_absolute() for v in setup.values())):
+        raise ControlError('invalid_configuration')
+    if 'remote' not in config and setup is None:
         raise ControlError('remote_provider_required')
-    validate_spec(config['remote'])
+    if 'remote' in config:
+        validate_spec(config['remote'])
     if 'codespace' in config or any(name in config['components'] for name in ('tunnel', 'relay')):
         raise ControlError('ambiguous_remote_configuration')

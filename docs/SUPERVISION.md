@@ -9,6 +9,9 @@ Remote hosting is extensible through the versioned, language-independent
 [remote-host provider contract](REMOTE_PROVIDERS.md). The bundled SSH, direct
 HTTPS, and Codespaces providers manage existing deployments only. The dashboard
 uses provider capabilities, not a hardcoded hosting vendor, for power controls.
+For first-time installation on a selected SSH host/Codespace, the separate,
+explicit [dashboard setup flow](REMOTE_SETUP.md) builds and installs the relay;
+normal provider recovery still never initializes a store.
 
 ## Configure an existing remote host
 
@@ -22,7 +25,9 @@ Copy the current supervisor example and choose an executable `remote` provider
 as described in [REMOTE_PROVIDERS.md](REMOTE_PROVIDERS.md). An explicit provider
 is required. Without `--config`, startup reads
 `${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json`. It never discovers
-private test profiles, generates configuration, or provisions a deployment.
+private test profiles. If the default configuration is missing, startup generates
+local onboarding configuration and exposes the confirmed remote-setup form, not
+automatic remote recovery. Existing configuration is never overwritten.
 Set the dashboard address in that file; the example uses port 8790.
 
 Codespaces use the bundled `deploy/providers/codespaces.py` plugin, just like

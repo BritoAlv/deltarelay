@@ -74,9 +74,10 @@ class Redactor:
 
     def add(self, value):
         if isinstance(value, str) and len(value) >= 4:
-            self.secrets.add(value)
             # Also catch credentials escaped inside JSON/quoted command output.
-            self.secrets.add(json.dumps(value)[1:-1])
+            # Publish a new set: setup can register credentials while journal
+            # writer/follower threads are iterating the previous snapshot.
+            self.secrets = self.secrets | {value, json.dumps(value)[1:-1]}
 
     def __call__(self, text):
         text = _ansi.sub('', text)

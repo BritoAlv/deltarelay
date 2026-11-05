@@ -65,6 +65,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/status':
             self.reply(200, self.server.supervisor.snapshot())
+        elif self.path == '/setup':
+            self.reply(200, self.server.supervisor.setup_status())
         elif self.path.split('?', 1)[0] == '/journal':
             try:
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True)
@@ -95,6 +97,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self.server.supervisor.update_settings(value)
             elif self.path == '/action':
                 self.server.supervisor.submit(value)
+            elif self.path == '/setup':
+                self.server.supervisor.submit_setup(value)
             else:
                 self.reply(404, {'error': 'not_found'})
                 return
@@ -116,6 +120,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     os.umask(0o077)
     supervisor = Supervisor(private_json(args.config))
+    if 'setup' in supervisor.config and Path(supervisor.config['setup']['config_file']) != args.config.resolve():
+        raise ControlError('invalid_configuration')
     lock = os.open(supervisor.directory / 'supervisor.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     path = supervisor.directory / 'supervisor.sock'
@@ -134,6 +140,8 @@ def main(argv=None):
         # The independent dashboard comes first, even with no remote network.
         for name in ('dashboard', 'gateway', 'opencode', 'desktop'):
             if name not in supervisor.config['components'] or name == 'dashboard' and args.no_dashboard or name in ('desktop', 'opencode') and args.no_desktop:
+                continue
+            if name == 'gateway' and supervisor.provider is None:
                 continue
             try:
                 supervisor.start_component(name)

@@ -11,6 +11,9 @@ connect to and optionally manage an existing deployment. It can be written in
 any language and live outside this repository. No registration, rebuild, GitHub
 account, plugin marketplace, or automatic download is required. Contract v1 does
 **not** create machines, install software, initialize stores, or delete resources.
+The separate [dashboard first-run setup](REMOTE_SETUP.md) can install the relay
+on a selected existing SSH host or Codespace after explicit confirmation, then
+save ordinary provider configuration for subsequent recovery.
 
 ## Configure an existing host
 
@@ -65,7 +68,8 @@ anything your account can do; the checker cannot prove that its code is read-onl
 
 Without `--config`, `startup.sh` reads
 `${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json`.
-It never discovers private test profiles or provisions a default remote host.
+It never discovers private test profiles or silently chooses/provisions a remote
+host. A missing default configuration starts the separate first-run setup UI.
 Local controls start before any plugin invocation, so a broken/offline provider
 does not prevent the dashboard from opening.
 

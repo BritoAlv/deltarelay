@@ -1,6 +1,7 @@
 ---
 import Icon from "./Icon.astro"
 import ActivityConsole from "./ActivityConsole.astro"
+import RemoteSetup from "./RemoteSetup.astro"
 ---
 <section id="controls" class="system-section" aria-labelledby="controls-title">
   <h2 id="controls-title" class="sr-only">Recovery and services</h2>
@@ -12,6 +13,7 @@ import ActivityConsole from "./ActivityConsole.astro"
     </div>
   </div>
   <p id="desktop-status" class="control-detail" role="status">Checking the local Desktop launcher…</p>
+  <RemoteSetup />
   <ActivityConsole />
   <div class="control-overview">
     <article class="panel control-panel">

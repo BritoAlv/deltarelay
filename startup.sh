@@ -16,9 +16,10 @@ while (($#)); do
 Usage: ./startup.sh [--no-desktop] [--no-dashboard] [--config /private/profile.local.json]
 
 Start/reuse the persistent local supervisor and dashboard before network recovery.
---config selects an existing remote-host deployment and its provider plugin.
+--config selects a private remote-host deployment and its provider plugin.
 By default use $XDG_CONFIG_HOME/deltarelay/supervisor.json (or ~/.config/...);
-No new deployment is provisioned.
+if missing, open first-run remote setup in the dashboard's System controls.
+Remote installation requires selecting a host and explicitly confirming setup.
 Builds use Go and the offline pnpm cache; nothing is downloaded.
 
 The supervisor survives closing the terminal or browser. Dashboard settings select
@@ -33,11 +34,6 @@ EOF
   esac
 done
 if ((!config)); then
-  if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json" ]]; then
-    args+=(--config "${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json")
-  else
-    echo 'startup.sh: configure an existing remote host with --config /private/supervisor.json; see docs/REMOTE_PROVIDERS.md' >&2
-    exit 1
-  fi
+  args+=(--config "${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json" --setup)
 fi
 exec python3 -B "$ROOT/deploy/start_supervisor.py" --project "$ROOT" "${args[@]}"

@@ -25,6 +25,11 @@ class LinkError(RecoveryError):
     pass
 
 
+def relay_binary(root):
+    binary = root / 'deltarelay'
+    return binary if binary.exists() else root / 'deltarelay-linux-amd64'
+
+
 def private_text(path):
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 4096:
@@ -113,7 +118,7 @@ def ensure_relay(root, expected, port=18787):
     info = relay_info(port, token, expected)
     if info is not None:
         return {'started': False, 'state_id': expected, 'data_directory': str(data)}
-    binary = root / 'deltarelay-linux-amd64'
+    binary = relay_binary(root)
     pid = owned_pid(root / 'server.pid', [str(binary), 'serve'])
     child = None
     if pid is None:
@@ -152,7 +157,7 @@ def restart_relay(root, expected, port=18787):
     info = relay_info(port, private_text(root / 'relay.token'), expected)
     if info is None:
         return ensure_relay(root, expected, port)
-    binary = root / 'deltarelay-linux-amd64'
+    binary = relay_binary(root)
     pid = owned_pid(root / 'server.pid', [str(binary), 'serve', '--data', str(data)])
     if pid is None:
         raise RecoveryError('Cannot verify the relay process owner; no process stopped')

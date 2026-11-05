@@ -11,6 +11,7 @@ import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import { mountActivity } from "../src/scripts/features/activity.js"
 import type { ActivityEntry, ActivityPage } from "../src/lib/activity.js"
+import type { SetupStatus } from "../src/lib/setup.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
 
@@ -57,6 +58,10 @@ function activityEntry(seq: number, overrides: Partial<ActivityEntry> = {}): Act
 
 function activityPage(entries: ActivityEntry[] = [], overrides: Partial<ActivityPage> = {}): ActivityPage {
   return { version: 1, entries, oldest: entries[0]?.seq ?? 0, newest: entries.at(-1)?.seq ?? 0, reset: false, storage_error: false, ...overrides }
+}
+
+function setupStatus(overrides: Partial<SetupStatus> = {}): SetupStatus {
+  return { version: 1, available: false, required: false, busy: false, last_error: "", target: null, ...overrides }
 }
 
 test("every page marks exactly its own sidebar entry as current", async () => {
@@ -709,6 +714,7 @@ test("controls page polls only the supervisor and keeps controls available", asy
   const status = systemStatus()
   page.setFetch((url) => {
     if (url === "/api/system/journal") return json(activityPage())
+    if (url === "/api/system/setup") return json(setupStatus())
     assert.equal(url, "/api/system")
     return json(status)
   })
@@ -720,7 +726,7 @@ test("controls page polls only the supervisor and keeps controls available", asy
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/journal"])
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup", "/api/system/journal"])
   system.destroy()
   await page.close()
 })
@@ -752,7 +758,7 @@ test("pausing supervisor polling leaves manual refresh available", async () => {
   assert.equal(doc.querySelector("#refresh-note")?.textContent, "Automatic refresh paused")
   const calls = page.fetchCalls.length
   doc.querySelector<HTMLButtonElement>("#refresh-button")!.click()
-  assert.equal(page.fetchCalls.length, calls + 2)
+  assert.equal(page.fetchCalls.length, calls + 3)
   doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
   assert.equal(system.paused, false)
   system.destroy()
@@ -815,6 +821,80 @@ test("stale or unmanaged supervisor status keeps every service control disabled"
   assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
   assert.equal(doc.querySelector<HTMLButtonElement>("#open-desktop")?.disabled, true)
   assert.match(doc.querySelector("#connection-label")?.textContent ?? "", /Disconnected/)
+  system.destroy()
+  await page.close()
+})
+
+test("first-run setup requires confirmation, sends a single protected install, and follows server progress", async () => {
+  const page = openPage("controls")
+  let status = setupStatus({ available: true, required: true })
+  let systemState = systemStatus({ relay_state: "unknown" })
+  const installs: RequestInit[] = []
+  let release: (response: Response) => void = () => undefined
+  const held = new Promise<Response>((resolve) => { release = resolve })
+  page.setFetch((url, init) => {
+    if (url === "/api/system") return json(systemState)
+    if (url.startsWith("/api/system/journal")) return json(activityPage())
+    if (url === "/api/system/setup" && init.method === "POST") { installs.push(init); return held }
+    if (url === "/api/system/setup") return json(status)
+    throw new Error(`Unexpected URL ${url}`)
+  })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const root = page.document.querySelector<HTMLElement>("#remote-setup")!
+  const form = page.document.querySelector<HTMLFormElement>("#remote-setup-form")!
+  const button = page.document.querySelector<HTMLButtonElement>("#setup-submit")!
+  page.document.querySelector<HTMLInputElement>("#setup-target")!.value = "user@my-host"
+  assert.equal(root.hidden, false)
+  assert.equal(button.disabled, false)
+  assert.equal(installs.length, 0, "loading first run must never install automatically")
+  page.setConfirm(() => false)
+  page.fire(form, "submit")
+  assert.equal(installs.length, 0)
+  page.setConfirm((message) => { assert.match(message ?? "", /compute charges/); return true })
+  page.fire(form, "submit")
+  page.fire(form, "submit")
+  assert.equal(installs.length, 1)
+  assert.equal(button.disabled, true)
+  assert.deepEqual(JSON.parse(String(installs[0]!.body)), { provider: "ssh", target: "user@my-host", remote_directory: "~/.local/share/deltarelay", ssh_port: 22, remote_port: 8787, confirmed: true })
+  assert.deepEqual(installs[0]!.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": systemState.csrf_token })
+  status = { ...status, busy: true }
+  systemState = { ...systemState, recovery: { ...systemState.recovery, busy: true, phase: "setting_up_remote_host" } }
+  release(json({ accepted: true }, 202))
+  await waitForText(page.document.querySelector("#setup-detail"), /running independently/, "setup progress")
+  assert.equal(button.disabled, true)
+  status = setupStatus()
+  systemState = systemStatus()
+  await system.refresh()
+  assert.equal(root.hidden, true)
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Connected")
+  system.destroy()
+  await page.close()
+})
+
+test("interrupted remote setup restores the locked destination and stale setup disables only installation", async () => {
+  const page = openPage("controls")
+  const status = setupStatus({ available: true, required: true, last_error: "command_timeout", target: { provider: "codespaces", target: "existing-codespace", remote_directory: "~/private-relay", ssh_port: 22, remote_port: 18787 } })
+  let setupFails = false
+  page.setFetch((url) => {
+    if (url === "/api/system") return json(systemStatus())
+    if (url.startsWith("/api/system/journal")) return json(activityPage())
+    if (setupFails) throw new Error("setup status unavailable")
+    return json(status)
+  })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector<HTMLInputElement>("#setup-target")?.value, "existing-codespace")
+  assert.equal(doc.querySelector<HTMLInputElement>("#setup-target")?.disabled, true)
+  assert.equal(doc.querySelector<HTMLElement>("#setup-ssh-port-label")?.hidden, true)
+  assert.match(doc.querySelector("#setup-submit")?.textContent ?? "", /Resume/)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#setup-submit")?.disabled, false)
+  setupFails = true
+  await system.refresh()
+  assert.equal(doc.querySelector<HTMLButtonElement>("#setup-submit")?.disabled, true)
+  assert.match(doc.querySelector("#setup-detail")?.textContent ?? "", /stale/)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
   system.destroy()
   await page.close()
 })
@@ -910,6 +990,7 @@ test("activity outages retain output, report gaps and storage problems, and neve
   let step = 0
   page.setFetch((url) => {
     if (url === "/api/system") return json(systemStatus())
+    if (url === "/api/system/setup") return json(setupStatus())
     step++
     if (step === 1) return json(activityPage([activityEntry(1, { text: "retained diagnostic" })]))
     if (step === 2) return json({ error: "supervisor_unavailable" }, 503)

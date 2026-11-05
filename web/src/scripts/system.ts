@@ -5,6 +5,8 @@ import { systemObservations, type SystemObservation } from "../lib/state.js"
 import { mountControls } from "./features/controls.js"
 import { mountActivity } from "./features/activity.js"
 import { mountHeader } from "./features/header.js"
+import { fetchSetup, type SetupStatus } from "../lib/setup.js"
+import { mountSetup } from "./features/setup.js"
 
 export interface SystemOptions {
   autoStart?: boolean
@@ -41,6 +43,8 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   let paused = false
   let receivedAt = 0
   let destroyed = false
+  let setupStatus: SetupStatus | null = null
+  let setupStale = true
 
   const header = manageHeader ? mountHeader({
     doc,
@@ -51,6 +55,8 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   const activityRoot = doc.getElementById("activity-console")
   const activity = activityRoot ? mountActivity(activityRoot, autoStart) : null
   const controls = controlsRoot ? mountControls({ root: controlsRoot, onRefresh: () => void refresh(), onAction: () => activity?.reveal() }) : null
+  const setupRoot = doc.getElementById("remote-setup")
+  const setup = setupRoot ? mountSetup(setupRoot, () => void refresh(), () => activity?.reveal()) : null
   const poller = createPoller({ intervalMs: 5_000, run: refreshStatus, document: doc, onPaused: render })
   const countdownTimer: ReturnType<typeof setInterval> | null = controls && autoStart
     ? view.setInterval(() => { if (doc.visibilityState !== "hidden") controls.renderAuth() }, 1_000)
@@ -70,6 +76,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   function render() {
     if (destroyed) return
     controls?.update(system, stale, receivedAt)
+    setup?.update(setupStatus, system, stale || setupStale)
     systemObservations.publish(observation())
     if (!header) return
     const notice = stale
@@ -101,7 +108,16 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     busy = true
     render()
     try {
-      const next = await fetchSystem(AbortSignal.timeout(6000))
+      const [systemResult, setupResult] = await Promise.allSettled([
+        fetchSystem(AbortSignal.timeout(6000)),
+        setup ? fetchSetup(AbortSignal.timeout(6000)) : Promise.resolve(null),
+      ])
+      if (setupResult.status === "fulfilled") {
+        setupStatus = setupResult.value
+        setupStale = false
+      } else setupStale = true
+      if (systemResult.status === "rejected") throw systemResult.reason
+      const next = systemResult.value
       if (destroyed) return
       system = next
       stale = false

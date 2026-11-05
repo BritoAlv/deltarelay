@@ -133,7 +133,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-origin requests are not accepted", http.StatusForbidden)
 		return
 	}
-	if r.URL.Path == "/api/system/action" || r.URL.Path == "/api/system/settings" {
+	if r.URL.Path == "/api/system/action" || r.URL.Path == "/api/system/settings" || r.URL.Path == "/api/system/setup" && r.Method == http.MethodPost {
 		h.writeControl(w, r)
 		return
 	}
@@ -156,6 +156,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/api/system" {
 		h.system(w, r)
+		return
+	}
+	if r.URL.Path == "/api/system/setup" {
+		h.setupStatus(w, r)
 		return
 	}
 	if r.URL.Path == "/api/system/journal" {

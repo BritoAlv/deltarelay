@@ -50,5 +50,7 @@ def start(project, config_file, no_dashboard=False, no_desktop=False):
     dashboard = config['components'].get('dashboard', {})
     if dashboard.get('port'):
         print(f'Dashboard: http://127.0.0.1:{dashboard["port"]}')
+        if 'remote' not in config:
+            print(f'Set up your remote host: http://127.0.0.1:{dashboard["port"]}/controls')
     print('Remote-host controls depend on provider capabilities. Automatic wake is off by default.')
     return config

@@ -7,6 +7,10 @@ database, CDN, remote font, or paid health probe.
 
 ## What you can see
 
+For a new deployment, run `./startup.sh --no-desktop` and use **System controls →
+Set up remote host**. The dashboard can install/configure the relay on an existing
+SSH host or Codespace after confirmation; see [remote setup](REMOTE_SETUP.md).
+
 For VPN/network recovery, service Start/Restart controls, selectable Codespace
 auto-wake, manual wake/stop, and the ChatGPT access-token expiry countdown, see
 **[Supervision and controls](SUPERVISION.md)**. Those APIs are independent of
