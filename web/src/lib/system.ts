@@ -62,7 +62,16 @@ export function connectionState(system: SystemStatus): ConnectionState {
 
 export function recoveryStatus(system: SystemStatus): string {
   if (system.error) return controlError(system.error)
-  if (system.recovery.busy) return `In progress: ${system.recovery.phase.replaceAll("_", " ")}`
+  if (system.recovery.busy) {
+    const details: Record<string, string> = {
+      waking_remote_host: "Waiting for the host to run; connecting and verifying the relay comes next.",
+      waiting_for_remote_host: "The host is still starting. Relay connectivity is not confirmed yet.",
+      connecting_tunnel: "Waiting for the tunnel and authenticated relay. A running host alone is not a working connection.",
+      verifying_connection: "Checking authenticated relay health, even if remote SSH recovery timed out.",
+    }
+    const detail = details[system.recovery.phase]
+    return `In progress: ${system.recovery.phase.replaceAll("_", " ")}${detail ? `. ${detail}` : ""}`
+  }
   const connection = connectionState(system)
   if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake remote host to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
   const paused = !system.settings.auto_reconnect ? " Automatic reconnect is off. Use Recover All for a one-time repair, or enable Automatic reconnect for background recovery." : ""

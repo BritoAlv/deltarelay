@@ -171,6 +171,176 @@ class SupervisorTest(unittest.TestCase):
         remote.assert_not_called()
         self.assertEqual(subject.state.relay_value(), 'connected')
 
+    def test_cold_tunnel_is_not_abandoned_after_five_fast_connection_refusals(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', side_effect=['unreachable'] * 8 + ['connected']), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component') as restart, \
+                patch.object(subject, 'remote', side_effect=control.ControlError('relay_recovery_failed')) as remote, \
+                patch.object(subject.stop, 'wait', return_value=False):
+            subject.recover()
+        restart.assert_called_once_with('tunnel')
+        remote.assert_not_called()
+        self.assertEqual(subject.state.relay_value(), 'connected')
+
+    def test_dashboard_wake_connects_the_tunnel_before_attempting_ssh_recovery(self):
+        self.component('tunnel')
+        self.component('gateway')
+        subject = self.supervisor()
+        subject.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        saved_settings = (subject.directory / 'settings.json').read_bytes()
+        saved_pin = Path(self.config['relay_state_file']).read_bytes()
+        host = ['stopped']
+
+        def provider(method, params=None):
+            self.assertTrue(subject.state.recovery_value('busy'))
+            if method == 'host.wake':
+                host[0] = 'running'
+            else:
+                self.assertEqual(method, 'status')
+            return {'host_state': host[0]}
+
+        with patch.object(subject, 'provider_call', side_effect=provider) as provider_call, \
+                patch.object(subject, 'probe', side_effect=['unreachable', 'connected']), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component') as restart, \
+                patch.object(subject, 'start_component') as start, \
+                patch.object(subject, 'remote', side_effect=control.ControlError('relay_recovery_failed')) as remote, \
+                patch.object(subject.stop, 'wait', return_value=False):
+            subject.submit({'component': 'remote', 'action': 'wake', 'confirmed': True})
+            self.wait_job(subject)
+        status = subject.snapshot()
+        self.assertEqual(status['recovery']['last_error'], '')
+        self.assertEqual(status['relay_state'], 'connected')
+        self.assertEqual(status['remote']['host_state'], 'running')
+        self.assertFalse(status['recovery']['busy'])
+        self.assertIsNotNone(status['recovery']['last_connected_at'])
+        self.assertEqual([call.args[0] for call in provider_call.call_args_list], ['status', 'host.wake'])
+        restart.assert_called_once_with('tunnel')
+        start.assert_called_once_with('gateway')
+        remote.assert_not_called()
+        self.assertEqual((subject.directory / 'settings.json').read_bytes(), saved_settings)
+        self.assertEqual(Path(self.config['relay_state_file']).read_bytes(), saved_pin)
+
+    def test_transient_ssh_failure_still_verifies_the_tunnel_before_failing_wake(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        for error in ('relay_recovery_failed', 'relay_ssh_timeout', 'provider_timeout'):
+            with self.subTest(error=error), \
+                    patch.object(subject, 'probe', side_effect=['unreachable'] * 17 + ['connected']), \
+                    patch.object(subject, 'internet_probe', return_value='connected'), \
+                    patch.object(subject, 'restart_component') as restart, \
+                    patch.object(subject, 'remote', side_effect=control.ControlError(error)) as remote, \
+                    patch.object(subject.stop, 'wait', return_value=False):
+                subject.recover()
+                self.assertEqual([call.args[0] for call in restart.call_args_list], ['tunnel', 'tunnel'])
+                remote.assert_called_once_with(wake=False)
+                self.assertEqual(subject.state.relay_value(), 'connected')
+
+    def test_dashboard_wake_starts_a_missing_relay_only_after_waking_and_trying_the_tunnel(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        steps = []
+
+        def provider(method, params=None):
+            steps.append(method)
+            if method == 'relay.ensure':
+                self.assertEqual(params, {'expected_state_id': 'a' * 64})
+                return {'state_id': 'a' * 64}
+            return {'host_state': 'stopped' if method == 'status' else 'running'}
+
+        with patch.object(subject, 'provider_call', side_effect=provider), \
+                patch.object(subject, 'probe', side_effect=['unreachable'] * 18 + ['connected']), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component', side_effect=lambda name: steps.append('restart_' + name)), \
+                patch.object(subject.stop, 'wait', return_value=False):
+            subject.submit({'component': 'remote', 'action': 'wake', 'confirmed': True})
+            self.wait_job(subject)
+        self.assertEqual(steps, ['status', 'host.wake', 'restart_tunnel', 'relay.ensure', 'restart_tunnel'])
+        self.assertEqual(subject.state.relay_value(), 'connected')
+        self.assertEqual(subject.state.recovery_value('last_error'), '')
+        self.assertEqual(subject.state.settings_copy(), {'auto_reconnect': False, 'auto_wake': False})
+
+    def test_dashboard_wake_cannot_report_success_from_provider_availability_alone(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component'), \
+                patch.object(subject.stop, 'wait', return_value=False):
+            subject.submit({'component': 'remote', 'action': 'wake', 'confirmed': True})
+            self.wait_job(subject)
+        self.assertEqual(subject.state.host_value(), 'running')
+        self.assertEqual(subject.state.relay_value(), 'unreachable')
+        self.assertEqual(subject.state.recovery_value('last_error'), 'unreachable')
+        self.assertIsNone(subject.state.recovery_value('last_connected_at'))
+        self.assertFalse(subject.state.recovery_value('busy'))
+
+    def test_dashboard_wake_requires_the_saved_identity_before_waking_or_starting_services(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        Path(self.config['relay_state_file']).unlink()
+        with patch.object(subject, 'provider_call', return_value={'host_state': 'stopped'}) as provider, \
+                patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component') as restart:
+            subject.submit({'component': 'remote', 'action': 'wake', 'confirmed': True})
+            self.wait_job(subject)
+        provider.assert_called_once_with('status')
+        restart.assert_not_called()
+        self.assertEqual(subject.state.recovery_value('last_error'), 'identity_unavailable')
+        self.assertEqual(subject.policy.provider_blocked_value(), 'identity_unavailable')
+
+    def test_failed_post_ssh_verification_preserves_the_real_recovery_error(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        with patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'restart_component') as restart, \
+                patch.object(subject, 'remote', side_effect=control.ControlError('relay_ssh_timeout')) as remote, \
+                patch.object(subject.stop, 'wait', return_value=False):
+            with self.assertRaisesRegex(control.ControlError, '^relay_ssh_timeout$'):
+                subject.recover()
+        self.assertEqual([call.args[0] for call in restart.call_args_list], ['tunnel', 'tunnel'])
+        remote.assert_called_once_with(wake=False)
+        self.assertIsNone(subject.state.recovery_value('last_connected_at'))
+
+    def test_permanent_remote_failure_does_not_rebuild_or_retry_the_tunnel(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        for error in ('identity_mismatch', 'authentication_failed', 'protocol_mismatch', 'tls_verification_failed'):
+            with self.subTest(error=error), patch.object(subject, 'probe', return_value='unreachable'), \
+                    patch.object(subject, 'internet_probe', return_value='connected'), \
+                    patch.object(subject, 'restart_component') as restart, \
+                    patch.object(subject, 'remote', side_effect=control.ControlError(error)) as remote, \
+                    patch.object(subject.stop, 'wait', return_value=False):
+                with self.assertRaisesRegex(control.ControlError, '^' + error + '$'):
+                    subject.recover()
+                restart.assert_called_once_with('tunnel')
+                remote.assert_called_once_with(wake=False)
+
+    def test_relay_readiness_is_bounded_and_cancellable(self):
+        subject = self.supervisor()
+        now = [0.0]
+
+        def wait(seconds):
+            now[0] += seconds
+            return False
+
+        with patch.object(subject, 'clock', side_effect=lambda: now[0]), \
+                patch.object(subject, 'probe', return_value='unreachable') as probe, \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject.stop, 'wait', side_effect=wait):
+            self.assertFalse(subject.wait_for_relay())
+            self.assertEqual(now[0], 30)
+            self.assertEqual(probe.call_count, 16)
+        with patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject.stop, 'wait', return_value=True):
+            with self.assertRaisesRegex(control.ControlError, '^operation_cancelled$'):
+                subject.wait_for_relay()
+
     def test_remote_recovery_reopens_tunnel_that_died_while_relay_was_down(self):
         self.component('tunnel')
         subject = self.supervisor()

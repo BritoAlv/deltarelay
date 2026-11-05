@@ -63,6 +63,20 @@ test("intentional remote shutdown is shown as stopped, not a VPS fault", () => {
   assert.match(recoveryStatus({ ...status, remote: { ...status.remote, host_state: "stopping" }, recovery: { ...status.recovery, last_error: "host_stop_timeout" } }), /shutdown was not confirmed.*reconnect and wake remain off/)
 })
 
+test("wake progress distinguishes a running host from a verified relay connection", () => {
+  for (const [phase, detail] of [
+    ["waking_remote_host", /connecting and verifying the relay comes next/],
+    ["waiting_for_remote_host", /Relay connectivity is not confirmed/],
+    ["connecting_tunnel", /running host alone is not a working connection/],
+    ["verifying_connection", /even if remote SSH recovery timed out/],
+  ] as const) {
+    const progress = recoveryStatus({ ...status, recovery: { ...status.recovery, busy: true, phase } })
+    assert.match(progress, /^In progress:/)
+    assert.match(progress, detail)
+    assert.doesNotMatch(progress, /Automatic reconnect is off/)
+  }
+})
+
 test("paused recovery is explicit even after the host resumes or a provider check fails", () => {
   const paused = { ...status, settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "running" as const } }
   assert.equal(connectionState(paused), "vps_unreachable")

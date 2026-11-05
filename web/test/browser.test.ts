@@ -746,6 +746,60 @@ test("controls explain a stopped tunnel when internet works but automatic reconn
   await page.close()
 })
 
+test("Wake follows the entire connection operation with recovery settings off and never treats host availability as connected", async () => {
+  const page = openPage("controls")
+  let status = systemStatus({
+    relay_state: "unreachable",
+    settings: { auto_reconnect: false, auto_wake: false },
+    remote: { id: "codespaces", label: "GitHub Codespaces", host_state: "stopped", capabilities: ["host.wake", "host.stop"] },
+  })
+  const actions: RequestInit[] = []
+  let release: (response: Response) => void = () => undefined
+  const held = new Promise<Response>((resolve) => { release = resolve })
+  page.setFetch((url, init) => {
+    if (url === "/api/system") return json(status)
+    if (url === "/api/system/setup") return json(setupStatus())
+    if (url.startsWith("/api/system/journal")) return json(activityPage())
+    assert.equal(url, "/api/system/action")
+    actions.push(init)
+    status = { ...status, recovery: { ...status.recovery, busy: true, phase: "waking_remote_host" } }
+    return held
+  })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const button = page.document.querySelector<HTMLButtonElement>("#wake-remote")!
+  assert.equal(button.disabled, false)
+  page.setConfirm(() => false)
+  button.click()
+  assert.equal(actions.length, 0)
+  page.setConfirm((message) => { assert.match(message ?? "", /billing/); return true })
+  button.click()
+  button.click()
+  assert.equal(actions.length, 1)
+  assert.deepEqual(JSON.parse(String(actions[0]!.body)), { component: "remote", action: "wake", confirmed: true })
+  assert.deepEqual(actions[0]!.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
+  release(json({ accepted: true }, 202))
+  await waitForText(page.document.querySelector("#recovery-status"), /connecting and verifying the relay comes next/, "wake progress")
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Recovering")
+  assert.equal(button.disabled, true)
+
+  status = { ...status, remote: { ...status.remote, host_state: "running" }, recovery: { ...status.recovery, phase: "connecting_tunnel" } }
+  await system.refresh()
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Recovering")
+  assert.match(page.document.querySelector("#remote-state")?.textContent ?? "", /GitHub Codespaces: running/)
+  assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /running host alone is not a working connection/)
+  assert.equal(page.document.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
+
+  status = { ...status, relay_state: "connected", recovery: { ...status.recovery, busy: false, phase: "monitoring", last_connected_at: new Date(now).toISOString() } }
+  await system.refresh()
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Connected")
+  assert.equal(page.document.querySelector<HTMLInputElement>("#auto-reconnect")?.checked, false)
+  assert.equal(page.document.querySelector<HTMLInputElement>("#auto-wake")?.checked, false)
+  assert.equal(actions.length, 1, "polling progress must not submit recovery again or change settings")
+  system.destroy()
+  await page.close()
+})
+
 test("pausing supervisor polling leaves manual refresh available", async () => {
   const page = openPage("controls")
   page.setFetch(() => json(systemStatus()))

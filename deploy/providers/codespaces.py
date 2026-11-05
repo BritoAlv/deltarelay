@@ -69,7 +69,7 @@ class CodespacesProvider:
             if url.scheme != 'http' or url.hostname != '127.0.0.1' or url.port is None:
                 raise ProviderError('invalid_configuration')
             return {'relay_url': self.config['relay_url'], 'tunnel': {
-                'command': [self.cli, 'codespace', 'ports', 'forward', f'{url.port}:{self.remote_port}', '-c', self.config['name']],
+                'command': [self.cli, 'codespace', 'ports', 'forward', f'{self.remote_port}:{url.port}', '-c', self.config['name']],
                 'port': url.port}}
         if method == 'status':
             return {'host_state': self.status()}

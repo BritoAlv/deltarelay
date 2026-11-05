@@ -18,7 +18,7 @@ import traceback
 import urllib.request
 
 from recover_relay import NoRedirect
-from remote_provider import (PERMANENT, ExecutableProvider, ProviderError as ControlError,
+from remote_provider import (PERMANENT, RETRYABLE, ExecutableProvider, ProviderError as ControlError,
                              private_json, run_command)
 from activity import ActivityJournal, operation_id
 
@@ -28,6 +28,10 @@ from .probes import RelayProbe
 from .recovery import RecoveryPolicy
 from .state import SupervisorState, save_json, stamp
 from .onboarding import RemoteSetup
+
+
+RELAY_READINESS_TIMEOUT = 30
+RELAY_READINESS_ATTEMPTS = 16
 
 
 def component_step(method):
@@ -318,17 +322,21 @@ class Supervisor:
         return state
 
     def wait_for_relay(self):
-        # Port-forward setup can take longer than one probe. Keep the wait
-        # bounded, and never treat a permanent failure as permission to repair.
-        for attempt in range(5):
-            self.journal.write('event', f'Relay readiness check {attempt + 1}/5', component='network')
-            if self.stop.wait(1 if attempt else 0):
+        # A cold Codespace forward can refuse connections immediately for several
+        # seconds before it is usable. Give it a real readiness window, not just
+        # five fast failures. Bound both elapsed time and the number of probes.
+        deadline = self.clock() + RELAY_READINESS_TIMEOUT
+        for attempt in range(RELAY_READINESS_ATTEMPTS):
+            self.journal.write('event', f'Relay readiness check {attempt + 1}/{RELAY_READINESS_ATTEMPTS}', component='network')
+            if self.stop.wait(min(2, max(0, deadline - self.clock())) if attempt else 0):
                 raise ControlError('operation_cancelled')
             state = self.observe_relay()
             if state == 'connected':
                 return True
             if state != 'unreachable':
                 raise ControlError(state)
+            if self.clock() >= deadline:
+                break
         return False
 
     def recover(self, wake=False):
@@ -348,24 +356,41 @@ class Supervisor:
             # compute before the supervisor has applied the wake policy.
             host_state = self.provider_call('status')['host_state']
             self.state.set_host_state(host_state)
-            if host_state in ('stopped', 'stopping'):
-                if not wake:
-                    raise ControlError('host_stopped')
-                self.remote(wake=True)
+            if host_state in ('stopped', 'stopping') and not wake:
+                raise ControlError('host_stopped')
+            if wake and self.supports('host.wake'):
+                self.expected_identity()
+                self.state.update_recovery(phase='waking_remote_host')
+                self.wait_for_host('running', self.provider_call('host.wake'))
+            elif host_state == 'starting':
+                self.state.update_recovery(phase='waiting_for_remote_host')
+                self.wait_for_host('running', {'host_state': host_state})
             # Rebuild the local link first. A VPN failure is not evidence that
-            # the remote daemon needs a restart.
+            # the remote daemon needs a restart. Host wake must not run SSH relay
+            # recovery before this: the existing relay may already be healthy.
             connected = False
             if 'tunnel' in self.config['components']:
+                self.state.update_recovery(phase='connecting_tunnel')
                 self.restart_component('tunnel')
                 connected = self.wait_for_relay()
             if not connected:
-                self.remote(wake=wake)
-                # Some forwarders exit on a refused remote connection. The
-                # remote daemon is ready now; rebuild the link and verify it.
+                recovery_error = None
+                try:
+                    self.remote(wake=False)
+                except ControlError as error:
+                    if str(error) not in RETRYABLE:
+                        raise
+                    # SSH can time out after starting the relay, or its readiness
+                    # check can finish just before the relay does. Verify the
+                    # actual link before declaring the dashboard action failed.
+                    recovery_error = error
+                    self.journal.write('event', f'Remote recovery returned {error}; checking authenticated relay readiness before failing')
                 if 'tunnel' in self.config['components']:
+                    self.state.update_recovery(phase='connecting_tunnel')
                     self.restart_component('tunnel')
+                self.state.update_recovery(phase='verifying_connection')
                 if not self.wait_for_relay():
-                    raise ControlError('unreachable')
+                    raise recovery_error or ControlError('unreachable')
         if 'gateway' in self.config['components']:
             self.start_component('gateway')
         self.state.update_recovery(phase='monitoring')
@@ -407,8 +432,9 @@ class Supervisor:
                 if action == 'stop':
                     self.stop_host()
                 elif action == 'wake':
-                    self.remote(wake=True)
-                    self.recover()
+                    # A confirmed wake is one complete, bounded connection
+                    # operation even when background reconnect is disabled.
+                    self.recover(wake=True)
                 elif action == 'recover' or name == 'all' and action == 'start':
                     local_error = None
                     for component in ('dashboard', 'gateway', 'opencode', 'desktop'):

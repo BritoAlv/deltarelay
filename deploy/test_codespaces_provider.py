@@ -32,6 +32,14 @@ class CodespacesProviderTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ProviderError, '^invalid_configuration$'):
                 CodespacesProvider({**self.config, 'github_cli': value})
 
+    def test_tunnel_maps_the_remote_relay_port_to_the_local_dashboard_port(self):
+        provider = CodespacesProvider({**self.config, 'remote_port': 27887}, self.run, self.stop)
+        tunnel = provider.call('connection')['tunnel']
+        self.assertEqual(tunnel['port'], 18787)
+        self.assertEqual(tunnel['command'], ['/private/tools/gh', 'codespace', 'ports', 'forward',
+                                             '27887:18787', '-c', 'existing-host'])
+        self.run.assert_not_called()
+
     def test_stopped_host_cannot_be_implicitly_woken_by_relay_recovery(self):
         self.run.return_value = b'{"state":"Shutdown"}'
         for method in ('relay.ensure', 'relay.restart'):

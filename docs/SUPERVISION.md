@@ -131,18 +131,29 @@ reports an unrecognized occupied port rather than replacing its owner.
 - **Automatic reconnect** is on initially. Probes run every five seconds with a
   two-second network timeout. Three consecutive transient failures initiate
   recovery. A running-but-dead forward is rebuilt, not just an exited process.
-  Recovery allows up to five readiness probes per rebuilt link. If remote relay
-  startup was needed, it rebuilds the tunnel again (some forwarders exit on a
-  refused remote connection) and verifies authenticated relay health before
-  reporting success. Authentication, TLS, protocol, and identity errors at any
-  readiness check stop recovery without further service changes.
+  Recovery gives each rebuilt link a 30-second readiness window (at most 16
+  probes), so a cold forward is not abandoned after a few immediate connection
+  refusals. If remote relay startup was needed, it rebuilds the tunnel again
+  (some forwarders exit on a refused remote connection) and verifies authenticated
+  relay health before reporting success. A transient SSH/startup failure also gets
+  this final verification: the relay may have started despite the SSH timeout.
+  If verification still fails, the actual recovery error remains visible.
+  Authentication, TLS, protocol, and identity errors at any readiness check stop
+  recovery without further service changes.
   Failed attempts back off from 2 to 30 seconds, observed on the probe schedule.
 - **Automatic remote-host wake** is off initially and appears only when the
   provider supports wake. Both settings persist privately per profile. Enabling
   auto-wake asks for billing confirmation; it can resume compute with the browser closed.
 - **Wake remote host** appears only for a wake-capable provider and works regardless
-  of auto-wake. It is disabled for stale status or an operation already in progress.
-  Manual wake requires explicit billing confirmation in the UI and control API.
+   of auto-wake. It is disabled for stale status or an operation already in progress.
+   Manual wake requires explicit billing confirmation in the UI and control API.
+   It performs the complete connection operation even with automatic reconnect
+   disabled: wait for the host to run, rebuild its local tunnel, ensure the existing
+   relay only if necessary, and verify authenticated health. A provider's
+   **Available/running** response is not connection success. Progress remains
+   active while the tunnel/relay starts; a failed SSH readiness check cannot skip
+   the tunnel step and leave the dashboard stranded. Neither automatic setting
+   is changed by a manual wake.
 - **Stop remote host…** appears only for a stop-capable provider and asks for
   confirmation before stopping the existing machine. Active requests may be interrupted and provider work
   may already be billed. Automatic reconnect and wake are both saved as **off**

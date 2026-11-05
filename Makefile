@@ -52,7 +52,7 @@ verify:
 	$(MAKE) race
 	$(MAKE) vet
 	$(MAKE) plugin-test
-	$(MAKE) recovery-test
+	DELTARELAY_RECOVERY_TEST_BINARY="$(CURDIR)/bin/deltarelay" $(MAKE) recovery-test
 	$(MAKE) dashboard-install
 	$(MAKE) dashboard-build
 	$(MAKE) dashboard-test

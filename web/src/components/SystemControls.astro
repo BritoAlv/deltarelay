@@ -32,7 +32,7 @@ import RemoteSetup from "./RemoteSetup.astro"
           <button id="stop-remote" class="button button-danger" type="button" disabled hidden>Stop Remote Host…</button>
         </div>
       </div>
-      <p id="remote-power-notice" class="control-detail" hidden>Wake may resume compute billing. Availability depends on the provider.</p>
+      <p id="remote-power-notice" class="control-detail" hidden>Wake starts the host, connects the tunnel, and verifies the relay. It may resume compute billing, but does not enable automatic reconnect or wake. Availability depends on the provider.</p>
       <p class="control-detail">Stopping interrupts active requests and disables automatic reconnect and wake. Saved files and relay state are preserved.</p>
     </article>
     <article class="panel control-panel">

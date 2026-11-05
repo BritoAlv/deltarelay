@@ -250,11 +250,15 @@ execution diagnostics without treating them as error codes or policy inputs.
 Fix permanent failures explicitly and restart the supervisor;
 recovery never weakens verification or resets the store to clear them.
 
-Core recovery first repairs the local tunnel, then optionally wakes the machine
-only with saved opt-in or confirmed manual consent, then ensures the existing
-relay is running. Success is established only by core authenticated `/info`
-with the existing identity pin. Plugin return values never establish readiness.
-No management operation submits a model request or replays a generation.
+Core recovery checks the host's power state before starting a tunnel that might
+implicitly wake it. A stopped host is woken only with saved opt-in or confirmed
+manual consent. Once the host is running, recovery first repairs the local tunnel
+and gives it a bounded readiness window, then ensures the existing relay only if
+necessary. Even if that remote command returns a transient failure, the core
+rebuilds and verifies the tunnel before declaring failure: SSH may time out after
+successfully starting the relay. Success is established only by core authenticated
+`/info` with the existing identity pin. Plugin return values never establish
+readiness. No management operation submits a model request or replays a generation.
 
 Automatic wake starts disabled. Manual wake, stop, and restart require explicit
 confirmation through the protected local control API. Before stop, the supervisor
@@ -274,6 +278,10 @@ plugins, a fake GitHub CLI, and local faults—not real cloud accounts or paid w
 
 ```sh
 make recovery-test
+# Include the real dashboard/gateway/relay lifecycle against an isolated fake
+# GitHub CLI (no cloud account or external internet probe):
+make build
+DELTARELAY_RECOVERY_TEST_BINARY="$PWD/bin/deltarelay" make recovery-test
 go test -race ./...
 pnpm check
 pnpm test
