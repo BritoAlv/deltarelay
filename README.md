@@ -126,7 +126,7 @@ dependencies are cached as described in the [dashboard guide](docs/DASHBOARD.md)
 then run:
 
 ```sh
-uv run deltarelay.py start --no-desktop
+uv run ./deltarelay start --no-desktop
 ```
 
 When the default configuration is missing, open
@@ -152,7 +152,7 @@ For an already configured deployment, start its dashboard, persistent recovery,
 and optional isolated Desktop with:
 
 ```sh
-uv run deltarelay.py start --config /private/supervisor.json
+uv run ./deltarelay start --config /private/supervisor.json
 ```
 
 Default startup reads your XDG configuration. Private credentials and Desktop
@@ -160,7 +160,7 @@ profiles are not included in a clone. See [supervision and controls](docs/SUPERV
 The uv launcher uses only Python's standard library: no Python packages, build
 backends, or interpreters are downloaded. Install uv and Python 3.14 beforehand;
 the repository prefers an existing system Python and enforces offline mode.
-Use `uv run deltarelay.py start --help` for options. Terminal output is styled;
+Use `uv run ./deltarelay start --help` for options. Terminal output is styled;
 `NO_COLOR=1` or `--color never` disables styling, as does redirecting output.
 `./startup.sh` remains available as a compatibility launcher without uv.
 For a model-account-free check of the chunk transfer itself, use the

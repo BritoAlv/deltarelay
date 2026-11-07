@@ -1,6 +1,6 @@
 # Network recovery and dashboard controls
 
-`uv run deltarelay.py start` starts an independent Python 3 supervisor and the local Go dashboard
+`uv run ./deltarelay start` starts an independent Python 3 supervisor and the local Go dashboard
 **before** attempting remote recovery. Closing the browser or terminal does not
 stop supervision. Nothing is installed at login, no VPN settings are changed,
 and no inference or automatic direct-provider fallback is introduced.
@@ -16,9 +16,9 @@ normal provider recovery still never initializes a store.
 ## Configure an existing remote host
 
 ```sh
-uv run deltarelay.py start --config /private/supervisor.json
+uv run ./deltarelay start --config /private/supervisor.json
 # Leave OpenCode/Desktop alone while starting local controls and network recovery:
-uv run deltarelay.py start --config /private/supervisor.json --no-desktop
+uv run ./deltarelay start --config /private/supervisor.json --no-desktop
 ```
 
 Run from the checkout with uv and Python 3.14 already installed. The launcher has

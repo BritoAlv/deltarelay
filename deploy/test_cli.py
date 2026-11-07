@@ -76,9 +76,16 @@ class CLITest(unittest.TestCase):
             self.assertFalse(cli.Console(stream, 'never').color)
 
     def test_entry_point_help_from_outside_checkout(self):
-        script = Path(__file__).resolve().parents[1] / 'deltarelay.py'
+        script = Path(__file__).resolve().parents[1] / 'deltarelay'
         for args in (['--help'], ['start', '--help']):
             result = subprocess.run([sys.executable, '-B', str(script), *args], cwd=script.parent.parent,
                                     text=True, capture_output=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('start' if len(args) == 1 else '--config', result.stdout)
+
+    def test_extensionless_launcher_is_executable(self):
+        script = Path(__file__).resolve().parents[1] / 'deltarelay'
+        result = subprocess.run([str(script), 'start', '--help'], cwd=script.parent.parent,
+                                text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--config', result.stdout)
