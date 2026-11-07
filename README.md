@@ -1,24 +1,77 @@
 # DeltaRelay
 
-A Go client/server tool for **lossless incremental uploads of model API requests**.
-The PC sends only content-defined chunks the VPS does not already hold. The VPS
-reconstructs the exact body and verifies its length and SHA-256 before publishing
-it. Neither side interprets or summarizes the conversation.
+## The problem: uploading the same context again and again
 
-Includes an authenticated local gateway, allowlisted VPS forwarding, live response
-streaming, cancellation, persistent replay protection, resource limits, and an
-OpenCode V2 plugin. Files, tools and sign-ins stay local. There is no automatic
-direct-provider fallback.
+Coding assistants send conversation history, source code, and tool output to a
+model API repeatedly as a session grows. Much of each request is unchanged from
+the previous one, but a normal full-body upload sends those bytes again. On a
+slow or constrained upload connection, large contexts mean repeatedly transferring
+data you have already sent.
 
-**Start here: [dashboard remote setup](docs/REMOTE_SETUP.md)** or the manual
-**[OpenCode Desktop and VPS setup](docs/SETUP.md)**. Deployment and
-plugin activation are explicit; building the tool does not change your existing
-OpenCode configuration or session routing. The setup guide explains verification
-and remaining live-provider/deployment requirements.
+**DeltaRelay reduces uploads from your PC to a trusted remote host without
+changing the model request.** This Go client/server tool sends only content-defined
+chunks the remote relay does not already hold. The relay reconstructs the exact
+body, verifies its length and SHA-256, and forwards it to the provider. Neither
+side summarizes or interprets the conversation.
 
-The `sync`/`fetch` commands below remain useful standalone diagnostic tools.
+The OpenCode V2 integration keeps your Desktop UI, project files, tool execution,
+sessions, and sign-ins on your PC. Content included in model requests and the
+credentials needed to forward them pass through the trusted relay. Provider
+responses stream back live; there is no automatic direct-provider fallback.
 
-## Clone on a new computer
+## Measured results
+
+A snapshot of the author's local dashboard statistics contained the following
+**973 completed requests**, started between November 4 and November 7, 2026 (UTC):
+
+| Metric | Measured result |
+| --- | ---: |
+| Original request bodies | 1,455,929,840 bytes (1.456 GB) |
+| Encoded uploads from PC to relay | 27,471,915 bytes (27.47 MB) |
+| Upload bytes avoided versus original bodies | 1,428,457,925 bytes (1.428 GB) |
+| **Upload reduction** | **98.11%** |
+
+The calculation is `1 - encoded_upload_bytes / original_body_bytes`. Encoded
+uploads include manifests, chunk framing, compression, and counted HTTP request
+attempts—not just the new text added to a conversation.
+
+This is an observed sample from the retained request history, **not a benchmark
+of every workload or the complete deployment history**. Failed, cancelled,
+interrupted, and still-running requests are excluded from this sample. Figures
+are a fixed snapshot of private local statistics; no prompts, credentials, or
+session identifiers are published here. GB and MB use decimal units.
+
+These counters exclude HTTP headers, TLS/TCP/IP overhead, responses, and network
+retransmissions. They measure request-body uploads, not packet-level traffic or
+speed improvements. Savings combine chunk reuse and compression; the comparison
+is against original request bodies, not a separately compressed direct-provider
+baseline. **The provider still receives the complete request: this is not a
+promise of lower token usage or provider billing.**
+
+For a repeatable synthetic example, a test with 3 MiB of deterministic
+incompressible data and a small append produced 3,165,696 encoded upload bytes
+cold versus 24,895 after the append (about 99.2% less), with exact reconstruction.
+Your results depend on request sizes, edits, cache availability, and compression.
+
+## Requirements
+
+| Use case | Requirements |
+| --- | --- |
+| Standalone relay and diagnostic CLI | Linux/POSIX environment; Go 1.24+ to build. No external Go modules, database, container runtime, or model API key is needed for the default tests. |
+| Dashboard and automatic remote setup | Local Python 3, Node.js 22.12+, pnpm 11+, and the dashboard dependency cache for offline installation. The committed lockfile was verified with pnpm 12.5.1; see [dashboard build requirements](docs/DASHBOARD.md#build-entirely-offline). |
+| Remote relay | An existing trusted Linux amd64/arm64 host with Python 3 for automatic setup. Go is not required remotely; the binary is cross-compiled locally. |
+| SSH setup | SSH with working noninteractive key/agent authentication and an already-trusted host key. For Codespaces, an authenticated current `gh` CLI and an existing Codespace are also required. |
+| OpenCode integration | OpenCode **V2**, an existing working provider connection, and Node.js 22+ for configuration generation and plugin tests. The plugin has no npm dependencies. |
+| Optional development tools | A C compiler and supported architecture for `go test -race`; Make for convenience targets; systemd only for optional service examples. |
+
+The remote host must be trusted with request content and forwarded provider
+credentials. This is a single-tenant deployment, not a shared public relay.
+Automatic setup does not create machines, install system packages, sign in to
+providers, or provision public TLS. Resuming a Codespace can incur compute charges.
+
+## Installation and setup
+
+### Clone on a new computer
 
 The checkout can live anywhere. Authenticate to GitHub before cloning this private
 repository (for example, use `gh auth login` followed by `gh auth setup-git`, or
@@ -29,16 +82,8 @@ git clone https://github.com/BritoAlv/deltarelay.git
 cd deltarelay
 ```
 
-Run the commands below from the repository root. No original development machine,
-Codespace, private runtime directory, or prebuilt binary is required. Build locally,
-then follow [the setup guide](docs/SETUP.md) to generate fresh credentials, configure
-your own VPS, and generate the OpenCode plugin entry for this checkout.
-
-- [OpenCode Desktop and VPS setup](docs/SETUP.md)
-- [Architecture and ownership](docs/ARCHITECTURE.md)
-- [Relay protocol and recovery contract](docs/PROTOCOL.md)
-- [Remote-host plugins: contract, SSH/HTTPS/Codespaces providers, and examples](docs/REMOTE_PROVIDERS.md)
-- [Automatic recovery acceptance testing](docs/RECOVERY_TESTING.md)
+Run the following commands from the repository root. No original development
+machine, private runtime directory, or prebuilt binary is required.
 
 Private configuration, tokens, logs, conversation exports, and relay state are
 **not distributed through Git**. Keep them outside the checkout or in the ignored
@@ -47,31 +92,7 @@ Private configuration, tokens, logs, conversation exports, and relay state are
 ignored files. On another computer, regenerate credentials for a new deployment
 or transfer the existing relay token securely if intentionally using the same VPS.
 
-`./startup.sh --no-desktop` opens first-run **System controls → Set up remote host**
-when the default configuration is missing. Select an existing SSH host or Codespace
-and confirm; the dashboard builds/transfers/starts the relay and saves private
-credentials, its identity pin, and connection configuration. See
-[dashboard remote setup](docs/REMOTE_SETUP.md). It never overwrites an existing
-deployment or creates paid machines.
-
-`./startup.sh --config /private/supervisor.json` starts persistent recovery for an
-**already configured** remote host, its local dashboard, and optional isolated
-Desktop. [Remote-host providers](docs/REMOTE_PROVIDERS.md) support SSH computers,
-HTTPS VPS deployments, Codespaces, or your own executable plugin in any language.
-Controls come up before remote recovery; wake/stop appear only when supported,
-and automatic wake starts off. Default startup reads your XDG configuration.
-An explicit `remote` provider is required outside first-run onboarding. Private
-credentials and Desktop profiles are not included in a clone. See
-[supervision and controls](docs/SUPERVISION.md).
-
-## Build and test
-
-Requires a Linux/POSIX environment and Go 1.24 or newer. Node.js 22+ is used for
-plugin tests and the configuration generator; Make is optional. The race detector
-also requires a C compiler and a Go-supported race-detector architecture. The
-Go binary uses only the standard library: no external modules, database, container
-runtime, or model API key is needed to build and run the default tests. Deployment
-examples target Linux; systemd is optional and SSH is needed for tunnel deployments.
+### Build and test
 
 ```sh
 go build -trimpath -o bin/deltarelay ./cmd/deltarelay
@@ -82,24 +103,9 @@ node --test integration/opencode/*.test.mjs
 
 `-trimpath` keeps build-machine filesystem paths out of the binary. The OpenCode
 plugin has no npm dependencies, so no `npm install` is needed. The optional
-installed-OpenCode test additionally requires OpenCode V2 on `PATH`. Python 3
-is only needed for optional supervision/recovery helpers and their offline tests
-(`make recovery-test`).
-
-Run the complete offline matrix, including shared contract fixtures, Python
-supervision tests, dashboard type/library tests, the static build, and browser
-smoke tests, with one command:
-
-```sh
-make verify
-```
-
-It performs the offline pnpm install from the documented package store as its
-first dashboard step. The matrix uses temporary local services and mocked
-providers only; it never requires a real model account, a private runtime
-profile, or a live deployment. The installed-OpenCode integration
-(`make opencode-test`) and performance comparisons (`make baseline-benchmark`)
-remain explicit opt-ins.
+installed-OpenCode test additionally requires OpenCode V2 on `PATH`. These
+standalone Go/plugin checks do not require Python; automatic setup,
+supervision/recovery helpers, and their offline tests (`make recovery-test`) do.
 
 For a different Linux VPS architecture, cross-compile, for example:
 
@@ -107,7 +113,102 @@ For a different Linux VPS architecture, cross-compile, for example:
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/deltarelay-linux-amd64 ./cmd/deltarelay
 ```
 
-## Web dashboard
+### Set up the remote host
+
+For the recommended dashboard-assisted setup, first make sure the dashboard
+dependencies are cached as described in the [dashboard guide](docs/DASHBOARD.md),
+then run:
+
+```sh
+./startup.sh --no-desktop
+```
+
+When the default configuration is missing, open
+**http://127.0.0.1:8790/controls → Set up remote host**. Select an existing SSH host
+or Codespace and a new private remote directory, then confirm. The dashboard
+builds, transfers, and starts the relay and saves fresh private credentials, its
+identity pin, and connection configuration. It does not overwrite an existing
+deployment or create a machine. Follow [dashboard remote setup](docs/REMOTE_SETUP.md)
+for prerequisites and interrupted-setup recovery.
+
+For an existing relay or direct HTTPS, use the manual
+[OpenCode Desktop and VPS setup](docs/SETUP.md) instead.
+
+### Activate OpenCode and verify the connection
+
+Follow the [OpenCode setup guide](docs/SETUP.md) to generate the plugin entry for
+this checkout, explicitly enable it, and perform the connection and routing
+checks. **Building DeltaRelay or setting up a host does not activate the plugin
+or change your existing OpenCode configuration.** A working provider account and
+its region/IP access restrictions remain your responsibility.
+
+For an already configured deployment, start its dashboard, persistent recovery,
+and optional isolated Desktop with:
+
+```sh
+./startup.sh --config /private/supervisor.json
+```
+
+Default startup reads your XDG configuration. Private credentials and Desktop
+profiles are not included in a clone. See [supervision and controls](docs/SUPERVISION.md).
+For a model-account-free check of the chunk transfer itself, use the
+[quick local trial](#quick-local-trial) below.
+
+## How it works
+
+```text
+OpenCode on PC → local gateway → missing chunks over SSH/HTTPS → remote relay → provider
+              ← live response stream ←─────────────────────────────────────────────┘
+```
+
+1. The PC reads the request body into a private temporary spool while computing
+   its hash and content-defined chunk boundaries. Memory use is bounded, not
+   proportional to the entire body. The spool is removed on ordinary completion
+   or error.
+2. `POST /missing` sends a manifest with the complete hash, byte length, and
+   ordered chunk hashes/lengths. The relay verifies cache contents before
+   reporting which unique chunks are missing.
+3. The PC uploads only those chunks using `POST /chunks`. Binary framing avoids
+   base64 expansion. Default 256 KiB batches and four concurrent workers avoid a
+   network round trip per chunk and reuse HTTP connections.
+4. Manifests and batches use gzip at its fastest level **only when it makes the
+   payload smaller**. `--no-compression` disables this. Hashes identify the
+   original bytes, never their compressed representation.
+5. The relay verifies each chunk before atomic persistence, reconstructs the
+   body in manifest order, and verifies every chunk, total length, and complete
+   SHA-256 before accepting it. The client checks the acknowledgment against the
+   original hash and size. A missing/corrupt chunk or incorrect hash cannot
+   publish a new body.
+6. In the OpenCode integration, the authenticated gateway submits the verified
+   body for allowlisted provider forwarding and streams the response back. The
+   diagnostic `sync` command uses `POST /assemble` to publish a retained body
+   instead; `fetch` can download it to verify exact reconstruction.
+
+Default chunk sizes are 4 KiB minimum, 16 KiB target, and 64 KiB maximum. A
+deterministic gear fingerprint chooses boundaries; SHA-256 identifies content.
+Insertions near the beginning can resynchronize rather than invalidating every
+following chunk as fixed offsets would. Edits, deletions, repeated content,
+reordering, binary data, forks, and compaction need no conversation-specific
+logic. Small changes can still require uploading a whole affected chunk.
+
+The first request must send all content not already cached. Losing the remote
+cache requires sending missing content again, and manifest overhead grows with
+the chunk count. The relay reduces the **PC-to-remote-host upload**, not the
+complete remote-host-to-provider request.
+
+## Additional features and reference
+
+- [Dashboard and measurement details](docs/DASHBOARD.md)
+- [Automatic recovery and service controls](docs/SUPERVISION.md)
+- [Architecture and ownership](docs/ARCHITECTURE.md)
+- [Relay protocol and recovery contract](docs/PROTOCOL.md)
+- [Remote-host providers: SSH, HTTPS, Codespaces, and custom plugins](docs/REMOTE_PROVIDERS.md)
+- [Automatic recovery acceptance testing](docs/RECOVERY_TESTING.md)
+
+The sections below cover dashboard operation, standalone diagnostics, transport
+options, limits, security, and development tests.
+
+### Web dashboard
 
 The optional **Astro + TypeScript** dashboard shows per-session bandwidth savings,
 active and recent requests, cache reuse, multi-day upload traffic, VPS/storage/
@@ -165,7 +266,7 @@ Savings mean reduced uploads, **not** a promised provider-billing discount.
 cover VPN switching and private configuration for both deployment types. Without
 a configured supervisor socket, service controls remain disabled.
 
-## Quick local trial
+### Quick local trial
 
 Choose a long random token and set the **same value in both terminals**. Do not
 commit it or put it in command-line arguments. One way to generate a value is
@@ -206,9 +307,9 @@ Use `--input -` (the default) to read from stdin. Run a subcommand with `-h` for
 its flags. The whole-operation timeout defaults to four hours and is adjustable
 with, for example, `--timeout 1h`.
 
-## PC to VPS
+### PC to VPS
 
-### Recommended first deployment: SSH tunnel
+#### Recommended first deployment: SSH tunnel
 
 On the VPS, securely set `DELTARELAY_TOKEN` and run:
 
@@ -225,7 +326,7 @@ ssh -N -L 8787:127.0.0.1:8787 your-user@your-vps
 Then run `sync --server http://127.0.0.1:8787` on your PC. SSH encrypts the network
 hop; the service is not exposed publicly. No token is placed in the URL.
 
-### Direct HTTPS
+#### Direct HTTPS
 
 The server can terminate TLS using a certificate trusted by your PC:
 
@@ -242,7 +343,7 @@ explicitly passed. That flag exposes conversation content and the bearer token
 to the network: do not use it over the public internet. The server's default
 listen address is loopback; do not expose a plaintext listener publicly.
 
-## Controlling resynchronization
+### Controlling resynchronization
 
 An initial synchronization necessarily uploads all unique content. If the VPS
 loses its cache, those missing chunks necessarily need transferring again.
@@ -265,34 +366,6 @@ only missing data is sent. Permanent errors (authentication, changed relay
 identity, integrity failures) are never retried. Provider generation is never
 retried by the transport layer; see [PROTOCOL.md](docs/PROTOCOL.md).
 
-## How it works
-
-1. The PC reads the body into a private temporary spool while computing its hash
-   and content-defined boundaries. Memory use is bounded, not proportional to
-   the entire body. The spool is removed on ordinary completion or error.
-2. `POST /missing` sends a manifest with the complete hash, byte
-   length, and ordered chunk hashes/lengths. The VPS verifies cache contents
-   before reporting which unique chunks are missing.
-3. The PC uploads only those chunks using `POST /chunks`. Binary framing
-   avoids base64 expansion. Default 256 KiB batches and four concurrent workers
-   avoid a network round trip per chunk and reuse HTTP connections.
-4. Both manifests and batches use gzip at its fastest level **only when it makes
-   the payload smaller**. `--no-compression` disables this. Hashes identify the
-   original bytes, never their compressed representation.
-5. The VPS verifies each chunk before atomic persistence. `POST /assemble`
-   reconstructs chunks in the manifest's order into a temporary file, verifies
-   every chunk, total length, and complete SHA-256, then atomically publishes it.
-6. An incorrect body hash, unavailable chunk, or corrupt chunk cannot publish a
-   new body. The client also checks that the server acknowledgment matches the
-   original hash and size.
-
-Default chunk sizes are 4 KiB minimum, 16 KiB target, and 64 KiB maximum. The
-deterministic gear fingerprint chooses boundaries; SHA-256 identifies content.
-Insertions near the beginning can resynchronize rather than invalidating every
-following chunk as fixed offsets would. Edits, deletions, repeated content,
-reordering, binary data, forks, and compaction need no conversation-specific
-logic. Small changes can still require uploading a whole affected chunk.
-
 ### Statistics
 
 | JSON field | Meaning |
@@ -313,13 +386,7 @@ transfer, transport buffering can also mean it differs from bytes actually
 received by the VPS. Partial progress statistics are still printed on failure;
 unacknowledged persisted chunks are not counted as acknowledged uploads.
 
-A repeatable test with 3 MiB of deterministic incompressible data and a small
-append produced 3,165,696 encoded upload bytes cold versus 24,895 after the append
-(about 99.2% less), with exact reconstruction. This is a synthetic measurement,
-not a promised reduction for every workload or provider. Manifest overhead is
-still proportional to the chunk count.
-
-## Protocol and storage
+### Protocol and storage
 
 All relay routes require `Authorization: Bearer <token>`. There is one API, with
 unversioned URLs and no compatibility aliases. See **[docs/PROTOCOL.md](docs/PROTOCOL.md)** for the complete, provider-independent
@@ -365,7 +432,7 @@ entries are synced before success is acknowledged. Acknowledged chunks survive
 ordinary restarts. Unexpected leftover `.pending-*` files from a hard crash are
 ignored. Corrupt cached chunks are treated as missing and can be repaired.
 
-## Security and current boundaries
+### Security and current boundaries
 
 - Single trusted client/tenant per token and data directory. This is not a
   multi-tenant service; anyone holding the token can access that store.
@@ -390,7 +457,16 @@ ignored. Corrupt cached chunks are treated as missing and can be repaired.
 - No automatic public TLS provisioning, privileged installation, multi-tenant
   isolation, cache garbage collector, or packet-level traffic accounting.
 
-## Tests
+### Tests
+
+Run the complete offline matrix, including shared contract fixtures, Python
+supervision tests, dashboard type/library tests, the static build, and browser
+smoke tests, with `make verify`. It performs the offline pnpm install from the
+documented package store as its first dashboard step. The matrix uses temporary
+local services and mocked providers only; it never requires a real model
+account, private runtime profile, or live deployment. The installed-OpenCode
+integration (`make opencode-test`) and performance comparisons
+(`make baseline-benchmark`) remain explicit opt-ins.
 
 ```sh
 make verify
