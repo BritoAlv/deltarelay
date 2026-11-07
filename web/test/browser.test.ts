@@ -93,6 +93,26 @@ test("initial overview state loads without presenting fabricated diagnostics", a
   await page.close()
 })
 
+test("controls keep primary actions separate from header sizing and secondary map diagnostics collapsed", async () => {
+  const page = openPage("controls")
+  const doc = page.document
+  const toolbar = doc.querySelector(".system-toolbar .heading-actions")!
+  assert.deepEqual([...toolbar.querySelectorAll("button")].map((button) => button.id), ["start-system", "stop-remote", "stop-system"])
+  const diagnostics = doc.querySelector<HTMLDetailsElement>(".topology-diagnostics")!
+  assert.equal(diagnostics.open, false)
+  for (const id of ["network-detail", "recovery-detail"]) assert.ok(diagnostics.querySelector(`#${id}`))
+  assert.ok(diagnostics.querySelector(".topology-note"))
+  assert.match(doc.querySelector(".topology-scroll-hint")?.textContent ?? "", /Scroll.*horizontally.*Solid borders.*Dashed borders/)
+  assert.equal(doc.querySelector(".topology-viewport")?.getAttribute("tabindex"), "0")
+  const status = startSystemStatus(doc, { autoStart: false })
+  page.setFetch(() => json(systemStatus()))
+  await status.refresh()
+  assert.match(diagnostics.querySelector("#network-detail")?.textContent ?? "", /network changes observed/)
+  assert.equal(diagnostics.open, false, "polling must not expand diagnostics")
+  status.destroy()
+  await page.close()
+})
+
 test("measurement page renders definitions, browses stored sessions, and traces a selected session", async () => {
   const page = openPage("measurement")
   const snapshot = makeSnapshot(now)
