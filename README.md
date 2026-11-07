@@ -6,19 +6,29 @@
 
 ## 1 - What problem does this tool solve?
 
-In conversations that use stateless LLM APIs, your client sends earlier context
-again with each new request. Much of that upload can be unchanged: previous
-messages, instructions, and tool definitions. On an upload-limited connection,
-these repeated bytes can become a bottleneck.
+DeltaRelay is designed for people using OpenCode over **slow, upload-limited, or
+unstable internet connections**, who can run a trusted remote relay while keeping
+OpenCode V2 and their workspace local. It addresses two problems:
 
-DeltaRelay targets that **repeated upload from your PC**. It sends only missing
-chunks to a trusted remote host, which rebuilds and verifies the exact request
-before forwarding it to the model provider. It does not summarize or modify
-requests, reduce model token usage, or reduce provider billing.
+- **Repeated uploads on limited bandwidth:** conversations using stateless LLM
+  APIs resend earlier context with each request, including unchanged messages,
+  instructions, and tool definitions. DeltaRelay uploads only the chunks the
+  remote relay is missing, plus control metadata, rather than sending all that
+  unchanged content again. The relay rebuilds and verifies the exact request
+  before forwarding it to the provider.
+- **Interrupted response delivery:** once the relay accepts your request, it
+  communicates with the model provider independently of your PC's connection and
+  durably stores received response bytes. If your connection drops, generation
+  can continue remotely, and your client can reconnect and resume downloading
+  from the last verified byte without submitting the same request to the
+  provider again.
 
-It is intended for users who can run a trusted remote relay while keeping
-OpenCode V2 and their workspace local. It helps when request bodies repeat
-substantial content; it is not a guarantee of faster responses for every workload.
+This separates the provider connection from your unreliable local connection.
+It does not make your internet faster; it reduces repeated uploads and makes
+interrupted transfers recoverable. It does not summarize or modify requests,
+reduce model token usage, or reduce provider billing. Benefits depend on repeated
+content and the relay's connectivity, storage, and retention limits—not a
+guarantee of faster responses or permanent response storage.
 
 ## 2 - Results of the proposed solution
 
@@ -114,6 +124,31 @@ with no automatic direct-provider fallback.
    compare its SHA-256 and length with the original manifest.
 4. **Only after verification:** forward the reconstructed body to the provider.
    An integrity mismatch stops the request.
+
+### Response storage and recovery on unstable connections
+
+```text
+Local client <-- resumable transfers --> Remote relay <--> Model provider
+                                        stores response bytes
+```
+
+The remote relay owns the provider connection, so a dropped PC-to-relay connection
+does not cancel generation. It writes received provider bytes to checksummed,
+durable storage before making them available to your client. The client fetches
+and verifies response segments as they arrive; after a connection loss, downloads
+resume from the last verified byte offset. Upload retries likewise send only
+chunks still missing at the relay. Retrying the same logical request does not
+dispatch it to the provider again.
+
+This protects delivery from interruptions on your local connection, not from
+every possible failure. Automatic transport retries have a configured window
+(default one hour). Unacknowledged responses expire after the configured retention
+period (default 24 hours after completion, failure, or cancellation); acknowledged
+response payloads are removed. Relay failures, provider failures, runtime limits,
+and storage limits can still interrupt requests. Generation may continue and
+incur provider charges while your PC is offline; an offline cancellation cannot
+reach the relay until reconnection. See the [protocol guarantees](docs/PROTOCOL.md#1-guarantees)
+and [retention and limits](docs/PROTOCOL.md#6-retention-and-limits).
 
 ### Local workspace, remote relay, and controls
 
