@@ -25,10 +25,11 @@ cases carry a `method` and, where applicable, an expected fixed `error` code.
 
 Active contract distinctions:
 
-- Dashboard/history stay v1; relay health uses v2 or zero/empty values when no
-  discovery result is available. Running requests legitimately have zero transfer
-  counters and an empty hash. Client cancellations are a separate `cancelled`
-  counter in global/session totals and traffic buckets; rebuild the gateway and
+- Dashboard/history stay v1; relay health reports the current relay protocol
+  version or zero/empty values when no discovery result is available. Running
+  requests legitimately have zero transfer counters and an empty hash. Client
+  cancellations are a separate `cancelled` counter in global/session totals and
+  traffic buckets; rebuild the gateway and
   dashboard together when upgrading because the browser validator requires it.
 - `history.traffic` is required. Hourly and daily bucket arrays must be strictly
   ordered and within their declared retention. Missing aggregates are rejected;

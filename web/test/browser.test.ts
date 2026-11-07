@@ -77,6 +77,7 @@ test("every page marks exactly its own sidebar entry as current", async () => {
     assert.equal(selected.length, 1, `${page} selected links`)
     assert.equal(selected[0]?.getAttribute("href"), href)
     assert.equal(selected[0]?.getAttribute("aria-current"), "page")
+    assert.equal(browser.document.querySelector(".sidebar-version")?.textContent?.trim(), "DELTARELAY")
     await browser.close()
   }
 })

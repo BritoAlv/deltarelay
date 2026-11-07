@@ -28,7 +28,7 @@ EDGES = (
     ('desktop', 'opencode', 'traffic', 'Local API'),
     ('opencode', 'plugin', 'contains', 'Provider hooks'),
     ('plugin', 'gateway', 'traffic', 'Authenticated local HTTP'),
-    ('gateway', 'tunnel', 'traffic', 'Relay protocol v2'),
+    ('gateway', 'tunnel', 'traffic', 'Relay protocol'),
     ('tunnel', 'relay', 'traffic', 'Authenticated relay'),
     ('network', 'tunnel', 'requires', 'Usable route'),
     ('remote', 'relay', 'contains', 'Host must be running'),

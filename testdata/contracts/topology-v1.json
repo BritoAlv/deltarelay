@@ -24,7 +24,7 @@
     {"id":"desktop_opencode","source":"desktop","target":"opencode","relation":"traffic","protocol":"Local API","state":"unknown"},
     {"id":"opencode_plugin","source":"opencode","target":"plugin","relation":"contains","protocol":"Provider hooks","state":"unknown"},
     {"id":"plugin_gateway","source":"plugin","target":"gateway","relation":"traffic","protocol":"Authenticated local HTTP","state":"unknown"},
-    {"id":"gateway_tunnel","source":"gateway","target":"tunnel","relation":"traffic","protocol":"Relay protocol v2","state":"unknown"},
+    {"id":"gateway_tunnel","source":"gateway","target":"tunnel","relation":"traffic","protocol":"Relay protocol","state":"unknown"},
     {"id":"tunnel_relay","source":"tunnel","target":"relay","relation":"traffic","protocol":"Authenticated relay","state":"ready"},
     {"id":"network_tunnel","source":"network","target":"tunnel","relation":"requires","protocol":"Usable route","state":"ready"},
     {"id":"remote_relay","source":"remote","target":"relay","relation":"contains","protocol":"Host must be running","state":"ready"},

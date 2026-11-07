@@ -316,7 +316,7 @@
         "source": "gateway",
         "target": "tunnel",
         "relation": "traffic",
-        "protocol": "Relay protocol v2",
+        "protocol": "Relay protocol",
         "state": "unknown"
       },
       {

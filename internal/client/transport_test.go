@@ -58,6 +58,29 @@ func newTransportTestClient(t *testing.T, roundTrip roundTripFunc, workers int) 
 	return c
 }
 
+func TestRelayRequestsUseUnversionedUserAgent(t *testing.T) {
+	for _, kind := range []string{"rpc", "upload"} {
+		t.Run(kind, func(t *testing.T) {
+			c := newTransportTestClient(t, func(request *http.Request) (*http.Response, error) {
+				if got := request.Header.Get("User-Agent"); got != "deltarelay" {
+					t.Errorf("User-Agent = %q, want deltarelay", got)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}")), Request: request}, nil
+			}, 1)
+			var err error
+			if kind == "rpc" {
+				_, err = c.rpc(context.Background(), http.MethodGet, "/info", nil, nil, 64, nil, nil)
+			} else {
+				var result struct{}
+				err = c.postOnce(context.Background(), "/missing", "application/json", []byte("{}"), &result, nil, nil)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestAttemptSuccessReleasesSlotAndClosesBody(t *testing.T) {
 	body := &trackedBody{reader: strings.NewReader("ok")}
 	c := newTransportTestClient(t, func(request *http.Request) (*http.Response, error) {

@@ -134,8 +134,8 @@ backoff and never automatically retries `relay.restart` or `host.stop`.
 The machine-readable envelope/result schemas are in
 [`remote-provider-v1.schema.json`](remote-provider-v1.schema.json). Runtime
 validation additionally checks private files, origins/ports, capability gating,
-and the configured stable URL. Contract v1 is independent of relay protocol v2
-and supervisor/dashboard status v2.
+and the configured stable URL. Contract v1 is independent of the relay protocol
+and the supervisor/dashboard status schema.
 
 One invocation receives exactly one UTF-8 JSON object on **stdin**, followed by
 EOF. Write exactly one JSON object to **stdout**, optionally followed by whitespace,

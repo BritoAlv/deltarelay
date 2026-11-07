@@ -15,5 +15,5 @@ const { current = "overview" } = Astro.props
     <a class:list={["nav-link", { selected: current === "controls" }]} href="/controls" aria-current={current === "controls" ? "page" : undefined} title="System controls"><Icon name="system" size={18} /><span>System controls</span></a>
     <a class:list={["nav-link", { selected: current === "system" }]} href="/system" aria-current={current === "system" ? "page" : undefined} title="System health"><Icon name="activity" size={18} /><span>System health</span></a>
   </nav>
-  <div class="sidebar-bottom"><div class="sidebar-version"><span>DELTARELAY</span><span>PROTOCOL V2</span></div></div>
+  <div class="sidebar-bottom"><div class="sidebar-version"><span>DELTARELAY</span></div></div>
 </aside>

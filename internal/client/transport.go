@@ -209,7 +209,7 @@ func (c *Client) rpc(ctx context.Context, method, path string, data []byte, head
 		path:               path,
 		data:               data,
 		headers:            headers,
-		userAgent:          "deltarelay/2",
+		userAgent:          "deltarelay",
 		acceptedStatus:     accepted2xx,
 		responseLimit:      limit,
 		responseLimitError: errors.New("relay response exceeds contract limit"),
