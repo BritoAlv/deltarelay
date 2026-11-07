@@ -25,6 +25,9 @@ func decodeSupervisorStatus(data []byte) (SystemStatus, bool) {
 	if root["internet_checked_at"] == nil {
 		return SystemStatus{}, false
 	}
+	if raw := root["topology"]; raw != nil && !validTopology(state.Topology, raw) {
+		return SystemStatus{}, false
+	}
 	if statusFields(root["settings"], "auto_reconnect", "auto_wake") == nil {
 		return SystemStatus{}, false
 	}

@@ -11,15 +11,19 @@ For a new deployment, run `./startup.sh --no-desktop` and use **System controls 
 Set up remote host**. The dashboard can install/configure the relay on an existing
 SSH host or Codespace after confirmation; see [remote setup](REMOTE_SETUP.md).
 
-For VPN/network recovery, service Start/Restart controls, selectable Codespace
-auto-wake, manual wake/stop, and the ChatGPT access-token expiry countdown, see
-**[Supervision and controls](SUPERVISION.md)**. Those APIs are independent of
-gateway statistics and remain available when the gateway is down. Controls are
-disabled unless the dashboard is explicitly connected to a private supervisor.
+For the live component map, automatic network recovery, per-component
+Start/Recover/Restart actions, VPS wake/stop, system shutdown, and the ChatGPT
+access-token expiry countdown, see **[Supervision and controls](SUPERVISION.md)**.
+Those APIs are independent of gateway statistics and remain available when the
+gateway is down. Controls are disabled unless the dashboard is explicitly
+connected to a private supervisor. The map reflects the whole system; it does not
+infer a working connection merely because two processes are running.
 
-- **Open OpenCode Desktop** beside Refresh launches the configured isolated
-  Desktop instance without restarting other services. The button explains when
-  its launcher is unavailable or Desktop is already running.
+- **System controls** shows the request path (Desktop, OpenCode server, plugin,
+  gateway, transport, Internet/interface path, remote host, relay, storage,
+  provider) and the separate dashboard/supervisor control plane. Select a node
+  to inspect its evidence, dependencies, and configured lifecycle actions. The
+  current automatic recovery step is highlighted in place.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed and cancelled attempts and negative savings.
   Failed and cancelled requests are counted separately; a client that closes
@@ -199,11 +203,12 @@ response bodies are not included. The dashboard makes no model requests and has
 no cancellation, ACK, or replay controls. Its separate `/api/system` metadata and
 optional predefined POST service controls are documented in
 [SUPERVISION.md](SUPERVISION.md); they never proxy arbitrary routes or expose
-provider credentials. System controls also reads the supervisor's bounded
-activity journal through `GET /api/system/journal`. That endpoint accepts only
-numeric `after`/`before`/`limit` cursors, never paths or commands, and returns
-text records for the local terminal view. Existing gateway authentication and
-browser-origin rejection remain intact.
+provider credentials. The supervisor still records a bounded private journal at
+`<profile>/control/activity.jsonl` for offline support, and the read-only
+`GET /api/system/journal` endpoint remains cursor-only. The browser does not
+render that journal; System controls uses structured topology and recovery-run
+data instead. Existing gateway authentication and browser-origin rejection remain
+intact.
 
 With `--opencode-service-file` configured, the measurement page also requests
 `GET /api/opencode/sessions`. The Go dashboard reads only session metadata from

@@ -1,0 +1,41 @@
+---
+import Icon from "./Icon.astro"
+import { mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
+---
+<article class="panel topology-panel" aria-labelledby="topology-title">
+  <div class="control-heading"><div><h3 id="topology-title">System connection map</h3><p class="control-detail">Automatic recovery runs in the background—even with this page closed.</p></div><span id="control-connection" class="status-pill neutral">Checking…</span></div>
+  <p id="recovery-status" role="status" aria-live="polite">Waiting for the independent local supervisor…</p>
+  <p id="network-detail" class="control-detail">Interface, route and DNS changes are monitored automatically.</p>
+  <p id="recovery-detail" class="control-detail"></p>
+  <div class="topology-legend"><span><i class="good"></i>Verified</span><span><i class="working"></i>Working</span><span><i class="warning"></i>Not ready</span><span><i class="neutral"></i>Unknown / stopped</span><label><input id="map-management" type="checkbox" /> Management connections</label></div>
+  <div class="topology-workspace">
+    <div class="topology-viewport" tabindex="0" aria-label="System diagram. Select a component to inspect it. Scroll horizontally on small screens.">
+      <div class="topology-canvas" style={`aspect-ratio:${mapWidth}/${mapHeight}`}>
+        <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Observed connections between system components">
+          <defs><marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
+          <rect class="map-region" x="15" y="25" width="925" height="180" rx="12" /><text class="map-region-label" x="35" y="50">YOUR COMPUTER · MODEL REQUEST PATH</text>
+          <rect class="map-region" x="475" y="235" width="465" height="180" rx="12" /><text class="map-region-label" x="495" y="260">NETWORK · ETHERNET / WI-FI / VPN</text>
+          <rect class="map-region" x="945" y="25" width="230" height="605" rx="12" /><text class="map-region-label" x="965" y="50">REMOTE HOST</text>
+          <rect class="map-region" x="15" y="495" width="685" height="365" rx="12" /><text class="map-region-label" x="35" y="520">LOCAL CONTROL PLANE · ALWAYS AVAILABLE</text>
+          <g id="map-edges"></g>
+        </svg>
+        {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
+          <span class="map-node-top"><Icon name={node.icon} size={22} /><span class="map-node-spinner" aria-hidden="true"></span></span>
+          <strong data-node-label>{node.label}</strong><span data-node-status>Not verified</span>
+        </button>)}
+      </div>
+    </div>
+    <aside id="node-inspector" class="node-inspector" aria-labelledby="node-inspector-title">
+      <p class="eyebrow">COMPONENT DETAILS</p><h3 id="node-inspector-title">Select a component</h3>
+      <p id="node-inspector-status" class="control-detail">Each process and each connection has its own observed state.</p>
+      <p id="node-inspector-detail">Use the map to inspect readiness and supported lifecycle actions.</p>
+      <dl id="node-inspector-meta"></dl><div id="node-actions" class="node-actions"></div>
+      <div id="node-connections" class="node-connections"></div>
+    </aside>
+  </div>
+  <details id="recovery-progress" class="recovery-progress"><summary>Recovery steps</summary><ol id="recovery-steps"><li>No recovery operation has been observed yet.</li></ol></details>
+  <details class="recovery-options"><summary>Automatic recovery settings</summary><div class="control-settings">
+    <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic recovery</label>
+    <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" disabled /> Allow automatic remote-host wake (may incur compute charges)</label>
+  </div><p class="control-detail">Network changes trigger checks, not unconditional restarts. Intentionally stopped components stay stopped.</p></details>
+</article>

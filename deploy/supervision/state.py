@@ -6,6 +6,7 @@ result with one short update. ``snapshot`` returns copies so callers cannot
 mutate live state by retaining a response.
 """
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -61,6 +62,10 @@ class SupervisorState:
         self.internet_checked_at = None
         self.internet_next = 0.0
         self.dashboard_enabled = True
+        self.intent = {'system': 'running', 'remote': 'running', 'components': {}}
+        self.observations = {}
+        self.network = {'generation': 0, 'changed_at': None}
+        self.run = None
         self._managed = {}
         self._can_start = {}
         self._can_restart = {}
@@ -124,7 +129,46 @@ class SupervisorState:
                 'internet_checked_at': self.internet_checked_at,
                 'remote': {**self.metadata, 'host_state': self.host_state},
                 'components': components,
+                'topology': self.topology_snapshot(),
             }
+
+    def topology_snapshot(self):
+        # Called with the re-entrant state lock; no probes or I/O under it.
+        from .topology import snapshot
+        return snapshot(self)
+
+    def observe(self, name, observation):
+        with self.lock:
+            self.observations[name] = {'lifecycle': observation.lifecycle,
+                                       'readiness': observation.readiness,
+                                       'detail': observation.detail, 'checked_at': stamp()}
+
+    def intent_copy(self):
+        with self.lock:
+            return copy.deepcopy(self.intent)
+
+    def set_intent(self, value):
+        with self.lock:
+            self.intent = copy.deepcopy(value)
+
+    def wanted(self, name):
+        with self.lock:
+            if name in ('dashboard', 'supervisor'):
+                return True
+            return self.intent['system'] == 'running' and self.intent['components'].get(name, True)
+
+    def network_changed(self):
+        with self.lock:
+            self.network = {'generation': self.network['generation'] + 1, 'changed_at': stamp()}
+            self.internet_next = 0.0
+
+    def set_run(self, run):
+        with self.lock:
+            self.run = copy.deepcopy(run)
+
+    def run_copy(self):
+        with self.lock:
+            return copy.deepcopy(self.run)
 
     def settings_copy(self):
         with self.lock:

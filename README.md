@@ -38,6 +38,7 @@ your own VPS, and generate the OpenCode plugin entry for this checkout.
 - [Architecture and ownership](docs/ARCHITECTURE.md)
 - [Relay protocol and recovery contract](docs/PROTOCOL.md)
 - [Remote-host plugins: contract, SSH/HTTPS/Codespaces providers, and examples](docs/REMOTE_PROVIDERS.md)
+- [Automatic recovery acceptance testing](docs/RECOVERY_TESTING.md)
 
 Private configuration, tokens, logs, conversation exports, and relay state are
 **not distributed through Git**. Keep them outside the checkout or in the ignored
@@ -122,13 +123,18 @@ gateway measurements remain traceable. With gateway request capture enabled (the
 selecting a request exposes the actual decoded body, ordered chunk availability,
 prepared upload batches, counted HTTP attempts, and the exact savings calculation.
 Each page polls only the API it needs and has its own refresh/pause state.
-Optional supervisor integration adds service Start/Restart controls, automatic
-network recovery, capability-based remote host wake/stop controls, and a ChatGPT
-access-token expiry countdown.
-System controls also includes a log-first activity console with actual command
-stdout/stderr, exit status, background probes and automatic recovery decisions.
-Its private rotating journal records activity with the browser closed and
-supports recent history, filtering, copy and download.
+Optional supervisor integration adds a live system connection map, per-component
+Start/Recover/Restart actions, automatic network recovery, capability-based remote
+host wake/stop controls, system shutdown, and a ChatGPT access-token expiry
+countdown. The map shows Desktop, the OpenCode server and plugin, gateway,
+transport, Ethernet/Wi-Fi/VPN path, remote host, relay, storage, provider, and the
+local dashboard/supervisor control plane separately. A process being alive is not
+reported as a working connection.
+Automatic recovery is the normal mode: interface, address, route, and DNS changes
+trigger connection checks; only the broken part is repaired and then verified.
+The dashboard and supervisor stay running after system shutdown, so recovery can
+be resumed without a terminal. A private bounded journal remains on disk for
+support, but the browser no longer renders a log console.
 It distinguishes **no internet** from an **unreachable VPS**. It is local; gateway
 tokens stay in Go, not in browser storage. No UI/chart library, CDN, remote font,
 or database is required. Dependencies are pinned for an offline pnpm build.

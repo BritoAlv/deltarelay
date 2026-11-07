@@ -25,7 +25,8 @@
     },
     "opencode": {
       "start_command": ["opencode", "service", "start"],
-      "restart_command": ["opencode", "service", "restart"]
+      "restart_command": ["opencode", "service", "restart"],
+      "stop_command": ["opencode", "service", "stop"]
     }
   }
 }

@@ -2,7 +2,7 @@ import { type SetupStatus } from "../../lib/setup.js"
 import { controlError, sendControl, type SystemStatus } from "../../lib/system.js"
 import { requiredById } from "../dom.js"
 
-export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: () => void) {
+export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: () => void = () => undefined) {
   const form = requiredById<HTMLFormElement>(root, "remote-setup-form")
   const provider = requiredById<HTMLSelectElement>(root, "setup-provider")
   const target = requiredById<HTMLInputElement>(root, "setup-target")
@@ -28,7 +28,7 @@ export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: (
     badge.textContent = status?.busy ? "Installing…" : status?.last_error ? "Setup failed" : "Setup required"
     requiredById(root, "setup-target-label").textContent = provider.value === "codespaces" ? "Existing Codespace name" : "SSH alias or user@host"
     requiredById<HTMLElement>(root, "setup-ssh-port-label").hidden = provider.value === "codespaces"
-    detail.textContent = stale ? "Setup status is stale. Refresh before installing anything." : status?.busy ? "Setup is running independently of this page. Follow actual commands and errors in System activity." : message || (status?.last_error ? controlError(status.last_error) : status?.target ? "A previous setup was interrupted. Resume uses the same credentials, identity, and remote destination." : "Select a host, then confirm installation. Nothing remote is changed before confirmation.")
+    detail.textContent = stale ? "Setup status is stale. Refresh before installing anything." : status?.busy ? "Setup is running independently of this page. Component recovery appears on the map after installation." : message || (status?.last_error ? controlError(status.last_error) : status?.target ? "A previous setup was interrupted. Resume uses the same credentials, identity, and remote destination." : "Select a host, then confirm installation. Nothing remote is changed before confirmation.")
   }
 
   provider.addEventListener("change", render)
@@ -45,7 +45,7 @@ export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: (
     render()
     try {
       await sendControl("setup", { provider: provider.value, target: target.value.trim(), remote_directory: directory.value.trim(), ssh_port: Number(sshPort.value), remote_port: Number(remotePort.value), confirmed: true }, system.csrf_token)
-      message = "Setup accepted. Follow System activity; it continues even if this page closes."
+      message = "Setup accepted. It continues independently even if this page closes."
       onAction()
     } catch (error) {
       message = error instanceof Error ? error.message : "Setup could not be confirmed. Refresh before retrying."

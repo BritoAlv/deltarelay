@@ -9,9 +9,9 @@ import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue } from "../src/lib/traffic.js"
 import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
-import { mountActivity } from "../src/scripts/features/activity.js"
-import type { ActivityEntry, ActivityPage } from "../src/lib/activity.js"
 import type { SetupStatus } from "../src/lib/setup.js"
+import { isTopology, type RecoveryRun } from "../src/lib/topology.js"
+import { readContract } from "./contracts.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
 
@@ -32,6 +32,18 @@ function selectRequest(doc: Document, request: { id: string }): void {
 }
 
 function systemStatus(overrides: Partial<SystemStatus> = {}): SystemStatus {
+  const topology = readContract("topology-v1.json")
+  assert.ok(isTopology(topology))
+  if (overrides.relay_state && overrides.relay_state !== "connected") {
+    for (const node of topology.nodes.filter((node) => ["relay", "tunnel"].includes(node.id))) node.readiness = "unknown"
+    topology.edges.find((edge) => edge.id === "tunnel_relay")!.state = "unknown"
+  }
+  if (overrides.remote) {
+    const remote = topology.nodes.find((node) => node.id === "remote")!
+    remote.label = overrides.remote.label
+    remote.lifecycle = overrides.remote.host_state
+    remote.actions = overrides.remote.capabilities.flatMap((capability) => capability === "host.wake" ? ["wake" as const] : capability === "host.stop" ? ["stop" as const] : [])
+  }
   return {
     version: 2, managed: true, collected_at: new Date(now).toISOString(), csrf_token: "a".repeat(64),
     settings: { auto_reconnect: true, auto_wake: false }, relay_state: "connected", internet_state: "connected", internet_checked_at: null,
@@ -42,6 +54,7 @@ function systemStatus(overrides: Partial<SystemStatus> = {}): SystemStatus {
       { id: "desktop", label: "Isolated Desktop", state: "stopped", can_start: true, can_restart: true },
     ],
     auth: { state: "valid", stale: false, expires_at: new Date(now + 3_600_000).toISOString(), checked_at: new Date(now).toISOString() },
+    topology,
     ...overrides,
   }
 }
@@ -50,14 +63,6 @@ function abortError(): Error {
   const error = new Error("aborted")
   error.name = "AbortError"
   return error
-}
-
-function activityEntry(seq: number, overrides: Partial<ActivityEntry> = {}): ActivityEntry {
-  return { seq, time: new Date(now + seq * 1000).toISOString(), component: "provider", trigger: "manual", operation: "a".repeat(16), execution: "b".repeat(8), stream: "stdout", text: `actual output ${seq}`, ...overrides }
-}
-
-function activityPage(entries: ActivityEntry[] = [], overrides: Partial<ActivityPage> = {}): ActivityPage {
-  return { version: 1, entries, oldest: entries[0]?.seq ?? 0, newest: entries.at(-1)?.seq ?? 0, reset: false, storage_error: false, ...overrides }
 }
 
 function setupStatus(overrides: Partial<SetupStatus> = {}): SetupStatus {
@@ -709,11 +714,10 @@ test("pausing the health page freezes both the dashboard and supervisor schedule
   await page.close()
 })
 
-test("controls page polls only the supervisor and keeps controls available", async () => {
+test("controls show the full map, not service lists or logs, and poll only the supervisor", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   page.setFetch((url) => {
-    if (url === "/api/system/journal") return json(activityPage())
     if (url === "/api/system/setup") return json(setupStatus())
     assert.equal(url, "/api/system")
     return json(status)
@@ -721,12 +725,65 @@ test("controls page polls only the supervisor and keeps controls available", asy
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   const doc = page.document
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, false)
   assert.equal(doc.querySelector<HTMLButtonElement>("#auto-reconnect")?.disabled, false)
-  assert.equal(doc.querySelector("#control-connection")?.textContent, "Connected")
+  assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup", "/api/system/journal"])
+  assert.equal(doc.querySelectorAll("[data-node-id]").length, 14)
+  assert.equal(doc.querySelector("#service-controls"), null)
+  assert.equal(doc.querySelector("#activity-console"), null)
+  assert.ok(doc.querySelector("#auth-countdown"))
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup"])
+  system.destroy()
+  await page.close()
+})
+
+test("map shows the active recovery step and system shutdown keeps control services explicit", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  const run: RecoveryRun = {
+    version: 1, id: "a".repeat(16), request_id: "", target: "connection", action: "recover",
+    trigger: "automatic", status: "running", current_component: "tunnel", current_action: "recover",
+    started_at: new Date(now).toISOString(), finished_at: null, error: "",
+    steps: [{ component: "tunnel", action: "recover", status: "running", started_at: new Date(now).toISOString(), finished_at: null, error: "" }],
+  }
+  status.topology!.run = run
+  status.topology!.nodes.find((node) => node.id === "tunnel")!.activity = "recover"
+  let action: Record<string, unknown> | undefined
+  page.setFetch((url, init) => {
+    if (url === "/api/system") return json(status)
+    if (url === "/api/system/setup") return json(setupStatus())
+    assert.equal(url, "/api/system/action")
+    action = JSON.parse(String(init.body))
+    return json({ accepted: true, operation_id: run.id }, 202)
+  })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  const tunnel = doc.querySelector<HTMLButtonElement>('[data-node-id="tunnel"]')!
+  assert.equal(tunnel.classList.contains("is-working"), true)
+  assert.match(tunnel.textContent ?? "", /recover…/)
+  assert.match(doc.querySelector("#recovery-status")?.textContent ?? "", /Encrypted tunnel: recover/)
+  assert.match(doc.querySelector("#recovery-steps")?.textContent ?? "", /tunnel: recover · running/)
+  const shutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
+  assert.equal(shutdown.disabled, true, "conflicting lifecycle actions stay disabled during a run")
+  run.status = "completed"
+  run.steps[0]!.status = "completed"
+  status.topology!.nodes.find((node) => node.id === "tunnel")!.activity = "idle"
+  await system.refresh()
+  const readyShutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
+  assert.equal(readyShutdown.disabled, false)
+  page.setConfirm((message) => {
+    assert.match(message ?? "", /dashboard and supervisor stay running.*PC stays on/i)
+    return true
+  })
+  shutdown.click()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.match(String(action?.request_id), /^[a-f0-9]{32}$/)
+  assert.deepEqual({ ...action, request_id: undefined }, { component: "all", action: "stop", confirmed: true, request_id: undefined })
+  assert.equal(doc.querySelector("#service-controls"), null)
+  assert.equal(doc.querySelector("#activity-console"), null)
   system.destroy()
   await page.close()
 })
@@ -734,13 +791,13 @@ test("controls page polls only the supervisor and keeps controls available", asy
 test("controls explain a stopped tunnel when internet works but automatic reconnect is off", async () => {
   const page = openPage("controls")
   const status = systemStatus({ relay_state: "unreachable", settings: { auto_reconnect: false, auto_wake: false } })
-  page.setFetch((url) => url.startsWith("/api/system/journal") ? json(activityPage()) : json(status))
+  page.setFetch(() => json(status))
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
-  assert.equal(page.document.querySelector("#control-connection")?.textContent, "VPS unreachable")
-  assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /Automatic reconnect is off.*Recover All/)
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Connection unavailable")
+  assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /Automatic recovery is off.*Start system/)
   assert.equal(page.document.querySelector<HTMLInputElement>("#auto-reconnect")?.checked, false)
-  assert.equal(page.document.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
+  assert.equal(page.document.querySelector<HTMLButtonElement>("#start-system")?.disabled, false)
   assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "displaying a paused link must not change recovery settings")
   system.destroy()
   await page.close()
@@ -759,7 +816,6 @@ test("Wake follows the entire connection operation with recovery settings off an
   page.setFetch((url, init) => {
     if (url === "/api/system") return json(status)
     if (url === "/api/system/setup") return json(setupStatus())
-    if (url.startsWith("/api/system/journal")) return json(activityPage())
     assert.equal(url, "/api/system/action")
     actions.push(init)
     status = { ...status, recovery: { ...status.recovery, busy: true, phase: "waking_remote_host" } }
@@ -767,7 +823,8 @@ test("Wake follows the entire connection operation with recovery settings off an
   })
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
-  const button = page.document.querySelector<HTMLButtonElement>("#wake-remote")!
+  page.document.querySelector<HTMLButtonElement>('[data-node-id="remote"]')!.click()
+  const button = page.document.querySelector<HTMLButtonElement>('[data-component-action="wake"]')!
   assert.equal(button.disabled, false)
   page.setConfirm(() => false)
   button.click()
@@ -776,23 +833,25 @@ test("Wake follows the entire connection operation with recovery settings off an
   button.click()
   button.click()
   assert.equal(actions.length, 1)
-  assert.deepEqual(JSON.parse(String(actions[0]!.body)), { component: "remote", action: "wake", confirmed: true })
+  const action = JSON.parse(String(actions[0]!.body))
+  assert.match(action.request_id, /^[a-f0-9]{32}$/)
+  delete action.request_id
+  assert.deepEqual(action, { component: "remote", action: "wake", confirmed: true })
   assert.deepEqual(actions[0]!.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
   release(json({ accepted: true }, 202))
   await waitForText(page.document.querySelector("#recovery-status"), /connecting and verifying the relay comes next/, "wake progress")
   assert.equal(page.document.querySelector("#control-connection")?.textContent, "Recovering")
-  assert.equal(button.disabled, true)
+  assert.equal(page.document.querySelector<HTMLButtonElement>('[data-component-action="wake"]')!.disabled, true)
 
   status = { ...status, remote: { ...status.remote, host_state: "running" }, recovery: { ...status.recovery, phase: "connecting_tunnel" } }
   await system.refresh()
   assert.equal(page.document.querySelector("#control-connection")?.textContent, "Recovering")
-  assert.match(page.document.querySelector("#remote-state")?.textContent ?? "", /GitHub Codespaces: running/)
   assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /running host alone is not a working connection/)
-  assert.equal(page.document.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
+  assert.equal(page.document.querySelector<HTMLButtonElement>("#start-system")?.disabled, true)
 
   status = { ...status, relay_state: "connected", recovery: { ...status.recovery, busy: false, phase: "monitoring", last_connected_at: new Date(now).toISOString() } }
   await system.refresh()
-  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Connected")
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Relay connected")
   assert.equal(page.document.querySelector<HTMLInputElement>("#auto-reconnect")?.checked, false)
   assert.equal(page.document.querySelector<HTMLInputElement>("#auto-wake")?.checked, false)
   assert.equal(actions.length, 1, "polling progress must not submit recovery again or change settings")
@@ -812,7 +871,7 @@ test("pausing supervisor polling leaves manual refresh available", async () => {
   assert.equal(doc.querySelector("#refresh-note")?.textContent, "Automatic refresh paused")
   const calls = page.fetchCalls.length
   doc.querySelector<HTMLButtonElement>("#refresh-button")!.click()
-  assert.equal(page.fetchCalls.length, calls + 3)
+  assert.equal(page.fetchCalls.length, calls + 2)
   doc.querySelector<HTMLButtonElement>("#pause-button")!.click()
   assert.equal(system.paused, false)
   system.destroy()
@@ -828,7 +887,6 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   const held = new Promise<Response>((resolve) => { release = resolve })
   page.setFetch((url, init) => {
     if (url === "/api/system") return json(status)
-    if (url.startsWith("/api/system/journal")) return json(activityPage())
     if (url === "/api/system/action") {
       actions.push(JSON.parse(String(init.body)))
       actionHeaders.push(init.headers ?? {})
@@ -838,20 +896,22 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   })
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
-  let revealed = 0
-  page.document.getElementById("activity-console")!.scrollIntoView = () => { revealed++ }
   page.setConfirm(() => true)
-  const button = page.document.querySelector<HTMLButtonElement>("#open-desktop")!
+  page.document.querySelector<HTMLButtonElement>('[data-node-id="desktop"]')!.click()
+  const button = page.document.querySelector<HTMLButtonElement>('[data-component-action="start"]')!
   assert.equal(button.disabled, false)
   button.click()
   button.click()
   assert.equal(actions.length, 1)
-  assert.deepEqual(actions[0], { component: "desktop", action: "start", confirmed: false })
+  const action = actions[0] as Record<string, unknown>
+  assert.match(String(action.request_id), /^[a-f0-9]{32}$/)
+  delete action.request_id
+  assert.deepEqual(action, { component: "desktop", action: "start", confirmed: false })
   assert.deepEqual(actionHeaders[0], { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
-  assert.equal(button.disabled, true)
+  assert.equal(page.document.querySelector<HTMLButtonElement>('[data-component-action="start"]')!.disabled, true)
   release(json({ accepted: true }, 202))
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.equal(revealed, 1)
+  assert.equal(page.document.querySelector("#activity-console"), null)
   system.destroy()
   await page.close()
 })
@@ -863,17 +923,16 @@ test("stale or unmanaged supervisor status keeps every service control disabled"
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   const doc = page.document
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
-  assert.equal(doc.querySelector<HTMLButtonElement>("#open-desktop")?.disabled, true)
-  assert.match(doc.querySelector("#desktop-status")?.textContent ?? "", /not configured/i)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, true)
+  assert.ok([...doc.querySelectorAll<HTMLButtonElement>("#node-actions button")].every((button) => button.disabled))
   status = systemStatus()
   page.setFetch(() => json(status))
   await system.refresh()
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, false)
   page.setFetch(() => { throw new Error("offline") })
   await system.refresh()
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, true)
-  assert.equal(doc.querySelector<HTMLButtonElement>("#open-desktop")?.disabled, true)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, true)
+  assert.ok([...doc.querySelectorAll<HTMLButtonElement>("#node-actions button")].every((button) => button.disabled))
   assert.match(doc.querySelector("#connection-label")?.textContent ?? "", /Disconnected/)
   system.destroy()
   await page.close()
@@ -888,7 +947,6 @@ test("first-run setup requires confirmation, sends a single protected install, a
   const held = new Promise<Response>((resolve) => { release = resolve })
   page.setFetch((url, init) => {
     if (url === "/api/system") return json(systemState)
-    if (url.startsWith("/api/system/journal")) return json(activityPage())
     if (url === "/api/system/setup" && init.method === "POST") { installs.push(init); return held }
     if (url === "/api/system/setup") return json(status)
     throw new Error(`Unexpected URL ${url}`)
@@ -921,7 +979,7 @@ test("first-run setup requires confirmation, sends a single protected install, a
   systemState = systemStatus()
   await system.refresh()
   assert.equal(root.hidden, true)
-  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Connected")
+  assert.equal(page.document.querySelector("#control-connection")?.textContent, "Relay connected")
   system.destroy()
   await page.close()
 })
@@ -932,7 +990,6 @@ test("interrupted remote setup restores the locked destination and stale setup d
   let setupFails = false
   page.setFetch((url) => {
     if (url === "/api/system") return json(systemStatus())
-    if (url.startsWith("/api/system/journal")) return json(activityPage())
     if (setupFails) throw new Error("setup status unavailable")
     return json(status)
   })
@@ -948,117 +1005,7 @@ test("interrupted remote setup restores the locked destination and stale setup d
   await system.refresh()
   assert.equal(doc.querySelector<HTMLButtonElement>("#setup-submit")?.disabled, true)
   assert.match(doc.querySelector("#setup-detail")?.textContent ?? "", /stale/)
-  assert.equal(doc.querySelector<HTMLButtonElement>("#recover-all")?.disabled, false)
-  system.destroy()
-  await page.close()
-})
-
-test("activity console renders actual output as text and follows incremental cursors without replacing existing rows", async () => {
-  const page = openPage("controls")
-  const payload = '<img src=x onerror="window.compromised=true">'
-  page.setFetch((url) => {
-    if (url === "/api/system/journal") return json(activityPage([
-      activityEntry(1, { stream: "command", text: "$ gh codespace ssh -c example" }),
-      activityEntry(2, { stream: "stderr", text: payload + "\nSSH: connection refused" }),
-    ]))
-    assert.equal(url, "/api/system/journal?after=2")
-    return json(activityPage([activityEntry(3, { component: "network", trigger: "automatic", text: "HTTP GET failed: DNS lookup timed out" })], { oldest: 1 }))
-  })
-  const console = mountActivity(page.document.getElementById("activity-console")!, false)
-  await console.refresh()
-  const output = page.document.getElementById("activity-output")!
-  const first = output.firstChild
-  assert.match(output.textContent ?? "", /gh codespace ssh/)
-  assert.match(output.textContent ?? "", /SSH: connection refused/)
-  assert.match(output.textContent ?? "", /<img src=x/)
-  assert.equal(output.querySelector("img"), null)
-  await console.refresh()
-  assert.equal(output.firstChild, first)
-  assert.equal(output.querySelectorAll(".activity-line").length, 3)
-  assert.match(output.textContent ?? "", /automatic:aaaaaaaaaaaaaaaa/)
-  assert.match(page.document.getElementById("activity-status")?.textContent ?? "", /Live/)
-  assert.ok(page.fetchCalls.every((call) => call.init.credentials === "same-origin" && call.init.cache === "no-store" && call.init.method !== "POST"))
-  console.destroy()
-  await page.close()
-})
-
-test("activity stream classes never reuse the console container class", async () => {
-  const page = openPage("controls")
-  page.setFetch(() => json(activityPage([activityEntry(1, { stream: "output", text: "dashboard auth metadata: HTTP status=200 (response body omitted)" })])))
-  const console = mountActivity(page.document.getElementById("activity-console")!, false)
-  await console.refresh()
-  const row = page.document.querySelector("#activity-output > .activity-line")
-  assert.ok(row)
-  assert.ok(row.classList.contains("activity-stream-output"))
-  assert.equal(row.classList.contains("activity-output"), false)
-  console.destroy()
-  await page.close()
-})
-
-test("activity history, filtering, pause, copy and export operate on real loaded records", async () => {
-  const page = openPage("controls")
-  page.setFetch((url) => {
-    if (url === "/api/system/journal") return json(activityPage([activityEntry(3), activityEntry(4, { component: "network", trigger: "monitor", text: "relay probe: connected" })], { oldest: 1 }))
-    assert.equal(url, "/api/system/journal?before=3")
-    return json(activityPage([activityEntry(1), activityEntry(2)], { newest: 4 }))
-  })
-  const console = mountActivity(page.document.getElementById("activity-console")!, false)
-  await console.refresh()
-  const doc = page.document
-  doc.querySelector<HTMLButtonElement>("#activity-earlier")!.click()
-  await waitForText(doc.getElementById("activity-count"), /4 records loaded/, "earlier activity not loaded")
-  assert.equal(doc.querySelector<HTMLInputElement>("#activity-follow")!.checked, false)
-  const search = doc.querySelector<HTMLInputElement>("#activity-search")!
-  search.value = "relay probe"
-  page.fire(search, "input")
-  assert.equal(doc.querySelectorAll(".activity-line").length, 1)
-  search.value = ""
-  page.fire(search, "input")
-  const filter = doc.querySelector<HTMLSelectElement>("#activity-component")!
-  filter.value = "provider"
-  page.fire(filter, "change")
-  assert.equal(doc.querySelectorAll(".activity-line").length, 3)
-  let copied = ""
-  Object.defineProperty(page.window.navigator.clipboard, "writeText", { value: async (text: string) => { copied = text }, configurable: true })
-  doc.querySelector<HTMLButtonElement>("#activity-copy")!.click()
-  await waitForText(doc.getElementById("activity-notice"), /copied/, "copy result not reported")
-  assert.match(copied, /actual output 1/)
-  assert.doesNotMatch(copied, /relay probe/)
-  doc.querySelector<HTMLButtonElement>("#activity-pause")!.click()
-  assert.match(doc.getElementById("activity-status")?.textContent ?? "", /Paused.*still recording/)
-  let blob: Blob | undefined
-  let filename = ""
-  Object.defineProperty(page.window.URL, "createObjectURL", { value: (value: Blob) => { blob = value; return "blob:test" }, configurable: true })
-  Object.defineProperty(page.window.URL, "revokeObjectURL", { value: () => undefined, configurable: true })
-  page.window.HTMLAnchorElement.prototype.click = function () { filename = this.download }
-  doc.querySelector<HTMLButtonElement>("#activity-download")!.click()
-  assert.ok(blob)
-  assert.match(await blob.text(), /relay probe: connected/)
-  assert.match(filename, /^deltarelay-system-.*\.log$/)
-  console.destroy()
-  await page.close()
-})
-
-test("activity outages retain output, report gaps and storage problems, and never disable unrelated controls", async () => {
-  const page = openPage("controls")
-  let step = 0
-  page.setFetch((url) => {
-    if (url === "/api/system") return json(systemStatus())
-    if (url === "/api/system/setup") return json(setupStatus())
-    step++
-    if (step === 1) return json(activityPage([activityEntry(1, { text: "retained diagnostic" })]))
-    if (step === 2) return json({ error: "supervisor_unavailable" }, 503)
-    return json(activityPage([activityEntry(10, { text: "new retained history" })], { reset: true, storage_error: true }))
-  })
-  const system = startSystemStatus(page.document, { autoStart: false })
-  await system.refresh()
-  await system.refresh()
-  assert.match(page.document.getElementById("activity-output")?.textContent ?? "", /retained diagnostic/)
-  assert.match(page.document.getElementById("activity-notice")?.textContent ?? "", /unavailable/)
-  assert.equal(page.document.querySelector<HTMLButtonElement>("#wake-remote")!.disabled, false)
-  await system.refresh()
-  assert.match(page.document.getElementById("activity-output")?.textContent ?? "", /new retained history/)
-  assert.match(page.document.getElementById("activity-notice")?.textContent ?? "", /persistence is degraded/)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, false)
   system.destroy()
   await page.close()
 })

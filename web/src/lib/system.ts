@@ -1,4 +1,5 @@
 import { counters, nullableTimestamp, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
+import { isTopology, type TopologyStatus } from "./topology.js"
 
 export interface AuthStatus {
   state: string
@@ -26,6 +27,7 @@ export interface SystemStatus {
   }
   components: { id: string; label: string; state: string; can_start: boolean; can_restart: boolean }[]
   auth: AuthStatus
+  topology?: TopologyStatus
 }
 
 const componentIDs = ["dashboard", "gateway", "tunnel", "relay", "opencode", "desktop"]
@@ -41,6 +43,7 @@ export function isSystemStatus(v: unknown): v is SystemStatus {
   if (typeof v.internet_state !== "string" || !nullableTimestamp(v.internet_checked_at)) return false
   if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || !optionalTimestamp(v.auth.expires_at) || !optionalTimestamp(v.auth.checked_at)) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
+  if (v.topology !== undefined && !isTopology(v.topology)) return false
   if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || !counters(v.recovery, ["attempts"]) || !nullableTimestamp(v.recovery.next_retry_at) || !nullableTimestamp(v.recovery.last_connected_at)) return false
   const remote = v.remote
   if (!object(remote) || typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(remote.id) || typeof remote.label !== "string" || !remote.label.length || [...remote.label].length > 80 || /[\x00-\x1f\x7f-\x9f]/.test(remote.label)) return false
@@ -73,14 +76,14 @@ export function recoveryStatus(system: SystemStatus): string {
     return `In progress: ${system.recovery.phase.replaceAll("_", " ")}${detail ? `. ${detail}` : ""}`
   }
   const connection = connectionState(system)
-  if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake remote host to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
-  const paused = !system.settings.auto_reconnect ? " Automatic reconnect is off. Use Recover All for a one-time repair, or enable Automatic reconnect for background recovery." : ""
+  if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake on the remote-host node to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
+  const paused = !system.settings.auto_reconnect ? " Automatic recovery is off. Use Start system for a one-time repair, or enable Automatic recovery for background recovery." : ""
   if (connection === "no_internet") return controlError("no_internet") + paused
   const error = system.recovery.last_error
   if (error && error !== "unreachable") return controlError(error) + paused
   if (connection === "vps_unreachable") return "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." + paused
   if (error) return controlError(error) + paused
-  if (connection === "connected") return system.settings.auto_reconnect ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Authenticated relay is reachable. Automatic reconnect is off; a dropped connection will not be repaired automatically."
+  if (connection === "connected") return system.settings.auto_reconnect ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Authenticated relay is reachable. Automatic recovery is off; a dropped connection will not be repaired automatically."
   return "Monitoring relay connectivity." + paused
 }
 
@@ -115,11 +118,11 @@ export function controlError(code: string): string {
     setup_not_available: "First-time setup is not available for this configured deployment. Existing credentials and relay data were not changed.",
     invalid_setup_request: "Check the host, remote directory, and port numbers. Use an SSH alias/user@host or an existing Codespace name.",
     setup_target_locked: "An interrupted setup already selected a destination. Resume that same destination; no credentials or identity will be replaced.",
-    setup_configuration_changed: "Private configuration changed during setup. Your changes were preserved. Review System activity and the configuration before resuming.",
+    setup_configuration_changed: "Private configuration changed during setup. Your changes were preserved. Review the system map and the configuration before resuming.",
     identity_already_configured: "A saved relay identity already exists. Use its existing deployment configuration; setup will not overwrite the pin.",
     unsupported_remote_platform: "Remote setup requires Linux amd64 or arm64 and Python 3.",
     setup_go_required: "Go is required locally to build the remote relay. Install Go, then resume setup.",
-    setup_failed: "Remote setup failed. Check the actual error in System activity, fix it, then resume the same setup.",
+    setup_failed: "Remote setup failed. Check the map and setup error, fix it, then resume the same setup.",
     supervisor_unavailable: "The local supervisor is unavailable. Run startup.sh to recover it; the gateway is not required for these controls.",
     host_stopped: "The remote host is stopped. Wake it manually, or enable automatic wake if supported. Compute billing may resume.",
     host_unavailable: "The remote host could not be confirmed ready. Check your hosting provider and network connection.",
@@ -135,6 +138,11 @@ export function controlError(code: string): string {
     command_timeout: "A configured service command timed out. Check the private supervisor/service logs.",
     operation_cancelled: "Recovery stopped because the supervisor is shutting down. Existing services and saved state were left intact.",
     operation_in_progress: "Another service operation is in progress. Wait for it to finish.",
+    shutdown_not_configured: "System shutdown needs an explicit stop command for every managed local service. Configure the missing lifecycle actions; no services were stopped.",
+    component_not_ready: "The component did not pass its local readiness check before the deadline. Automatic retries are bounded; inspect its node on the map.",
+    component_stop_unverified: "A stop command completed, but the service could not be independently confirmed stopped. Automatic recovery remains paused; inspect the component before retrying.",
+    system_stopped: "The system is intentionally stopped. Use Start system to resume local services and automatic recovery. A VPS shutdown remains available when supported.",
+    operation_interrupted: "The supervisor restarted during an operation. Its outcome is uncertain; current state will be checked before any further repair.",
     unrecognized_port_owner: "A required port has an unrecognized owner. No process was stopped or replaced.",
     identity_mismatch: "The remote relay identity changed. Automatic recovery is blocked; no state was reset.",
     identity_unavailable: "The saved relay identity is missing or invalid. Configure it before enabling recovery.",

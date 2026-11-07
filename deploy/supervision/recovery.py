@@ -26,6 +26,27 @@ class RecoveryPolicy:
         self.provider_next = 0.0
         self.provider_delay = 2
         self.host_status_next = 0.0
+        self.components = {}
+
+    def network_changed(self):
+        """Debounce route changes, without clearing permanent failures/consent."""
+        with self.lock:
+            self.failures = max(2, self.failures)
+            self.next_attempt = self._clock() + 1
+            self.provider_next = 0.0
+            self.host_status_next = 0.0
+
+    def component_due(self, name):
+        with self.lock:
+            return self._clock() >= self.components.get(name, (0.0, 2))[0]
+
+    def component_result(self, name, success):
+        with self.lock:
+            if success:
+                self.components.pop(name, None)
+                return
+            _, delay = self.components.get(name, (0.0, 2))
+            self.components[name] = (self._clock() + delay, min(30, delay * 2))
 
     def record_connected(self):
         with self.lock:

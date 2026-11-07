@@ -57,6 +57,25 @@ class ProcessManager:
         if self.journal:
             self.journal.write(stream, text, component=name)
 
+    def inspect(self, name):
+        """Read-only identity check, safe while the mutation lane is occupied."""
+        spec = self.config['components'].get(name, {})
+        if 'command' not in spec:
+            return None
+        try:
+            info = process(int(Path(spec['pid_file']).read_text().strip()))
+        except (OSError, ValueError):
+            info = None
+        expected = spec.get('match', spec['command'])
+        if info and matches(info, expected):
+            return info
+        if name == 'desktop' and spec.get('match'):
+            for directory in Path('/proc').glob('[0-9]*'):
+                candidate = process(directory.name)
+                if candidate and matches(candidate, expected) and not any(arg.startswith('--type=') for arg in candidate['args']):
+                    return candidate
+        return None
+
     def identity(self, name):
         spec = self.config['components'][name]
         child = self.children.get(name)

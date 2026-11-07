@@ -51,7 +51,11 @@ class SharedContractTest(unittest.TestCase):
             subject = Supervisor(config)
             self.addCleanup(subject.close)
             with patch.object(supervision_state, 'stamp', return_value='2026-11-01T12:00:00Z'):
-                self.assertEqual(subject.snapshot(), read('supervisor-v2.json'))
+                observed = subject.snapshot()
+                self.assertEqual(observed, read('supervisor-v2.json'))
+                self.assertEqual(observed['topology']['version'], 1)
+                self.assertEqual(len(observed['topology']['nodes']), 14)
+                self.assertFalse(any(node['actions'] for node in observed['topology']['nodes']))
             self.assertEqual(subject.processes.children, {})
 
     def test_provider_metadata_and_browser_remote_constraints_agree(self):

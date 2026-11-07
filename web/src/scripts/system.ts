@@ -3,7 +3,6 @@ import { createPoller } from "../lib/polling.js"
 import { connectionState, fetchSystem, type SystemStatus } from "../lib/system.js"
 import { systemObservations, type SystemObservation } from "../lib/state.js"
 import { mountControls } from "./features/controls.js"
-import { mountActivity } from "./features/activity.js"
 import { mountHeader } from "./features/header.js"
 import { fetchSetup, type SetupStatus } from "../lib/setup.js"
 import { mountSetup } from "./features/setup.js"
@@ -32,7 +31,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   const {
     autoStart = true,
     manageHeader = true,
-    refreshNote = "Auto-refresh every 5s",
+    refreshNote = "Live component checks",
     waitingLabel = "Waiting for local supervisor…",
   } = options
   const view = doc.defaultView ?? globalThis
@@ -52,12 +51,10 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     onRefresh: () => void refresh(),
     onPauseToggle: () => togglePause(),
   }) : null
-  const activityRoot = doc.getElementById("activity-console")
-  const activity = activityRoot ? mountActivity(activityRoot, autoStart) : null
-  const controls = controlsRoot ? mountControls({ root: controlsRoot, onRefresh: () => void refresh(), onAction: () => activity?.reveal() }) : null
+  const controls = controlsRoot ? mountControls({ root: controlsRoot, onRefresh: () => void refresh() }) : null
   const setupRoot = doc.getElementById("remote-setup")
-  const setup = setupRoot ? mountSetup(setupRoot, () => void refresh(), () => activity?.reveal()) : null
-  const poller = createPoller({ intervalMs: 5_000, run: refreshStatus, document: doc, onPaused: render })
+  const setup = setupRoot ? mountSetup(setupRoot, () => void refresh()) : null
+  const poller = createPoller({ intervalMs: controlsRoot ? 1_000 : 5_000, run: refreshStatus, document: doc, onPaused: render })
   const countdownTimer: ReturnType<typeof setInterval> | null = controls && autoStart
     ? view.setInterval(() => { if (doc.visibilityState !== "hidden") controls.renderAuth() }, 1_000)
     : null
@@ -94,13 +91,13 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
 
   function togglePause() {
     paused = !paused
-    if (paused) { poller.pause(); activity?.pause() }
-    else { poller.resume(); activity?.resume() }
+    if (paused) poller.pause()
+    else poller.resume()
     render()
   }
 
   async function refresh() {
-    await Promise.all([refreshStatus(), activity?.refresh()])
+    await refreshStatus()
   }
 
   async function refreshStatus() {
@@ -155,7 +152,6 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     destroy() {
       destroyed = true
       poller.stop()
-      activity?.destroy()
       if (countdownTimer !== null) view.clearInterval(countdownTimer)
     },
     get paused() { return paused },

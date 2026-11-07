@@ -103,6 +103,40 @@ class SupervisorTest(unittest.TestCase):
             with patch.object(subject.opener, 'open', side_effect=error):
                 self.assertEqual(subject.probe(), want)
 
+    def test_transient_transport_failures_are_not_permanent_configuration_errors(self):
+        subject = self.supervisor()
+        failures = (ConnectionResetError(104, 'Connection reset by peer'),
+                    ConnectionAbortedError(103, 'Software caused connection abort'),
+                    BrokenPipeError(32, 'Broken pipe'),
+                    http.client.IncompleteRead(b'{"version": 2'),
+                    ssl.SSLError(1, 'TLS read failed'))
+        for error in failures:
+            with self.subTest(error=type(error).__name__), patch.object(subject.opener, 'open', side_effect=error):
+                self.assertEqual(subject.probe(), 'unreachable')
+
+        class Truncated:
+            def __enter__(self): return self
+            def __exit__(self, *_): pass
+            def read(self, _): return b'{"version": 2'
+        with patch.object(subject.opener, 'open', return_value=Truncated()):
+            self.assertEqual(subject.probe(), 'unreachable')
+
+        missing = self.root / 'missing-token'
+        with patch.dict(subject.probes.config, {'relay_token_file': str(missing)}):
+            self.assertEqual(subject.probe(), 'configuration_error')
+
+    def test_connection_reset_does_not_block_automatic_recovery(self):
+        subject = self.supervisor()
+        subject.state.internet_state = 'connected'
+        subject.state.internet_next = time.monotonic() + 60
+        with patch.object(subject.opener, 'open', side_effect=ConnectionResetError(104, 'Connection reset by peer')), \
+                patch.object(subject, 'recover') as recover:
+            for _ in range(4):
+                subject.tick()
+        recover.assert_called_once_with(wake=False)
+        self.assertEqual(subject.policy.provider_blocked_value(), '')
+        self.assertEqual(subject.state.recovery_copy()['last_error'], 'unreachable')
+
     def test_internet_check_distinguishes_offline_computer_from_down_vps(self):
         subject = self.supervisor()
 
@@ -480,7 +514,7 @@ class SupervisorTest(unittest.TestCase):
 
     def test_action_schema_confirmation_and_serialization(self):
         subject = self.supervisor()
-        for value in ({'component': 'all', 'action': 'restart'}, {'component': 'tunnel', 'action': 'recover'},
+        for value in ({'component': 'all', 'action': 'restart'}, {'component': 'tunnel', 'action': 'recover', 'request_id': 'bad'},
                       {'component': 'all', 'action': 'wake'}, {'component': 'codespace', 'action': 'start'},
                       {'component': 'codespace', 'action': 'stop', 'confirmed': True},
                       {'component': 'codespace', 'action': 'wake', 'confirmed': True},
@@ -497,7 +531,7 @@ class SupervisorTest(unittest.TestCase):
         for name in ('dashboard', 'gateway', 'opencode', 'desktop'): self.component(name)
         subject = self.supervisor()
         with patch.object(subject, 'start_component') as start, \
-                patch.object(subject, 'recover', side_effect=control.ControlError('host_stopped')):
+                patch.object(subject.coordinator, 'connection', side_effect=control.ControlError('host_stopped')):
             subject.submit({'component': 'all', 'action': 'recover'})
             self.wait_job(subject)
         self.assertEqual([call.args[0] for call in start.call_args_list], ['dashboard', 'gateway', 'opencode', 'desktop'])
@@ -661,7 +695,7 @@ class StateOwnershipTest(unittest.TestCase):
                     recovery = snapshot['recovery']
                     self.assertEqual(set(snapshot), {'version', 'managed', 'collected_at', 'settings', 'recovery',
                                                      'relay_state', 'internet_state', 'internet_checked_at',
-                                                     'remote', 'components'})
+                                                     'remote', 'components', 'topology'})
                     if not recovery['busy']:
                         self.assertIn(recovery['phase'], ('starting', 'monitoring'))
                     self.assertGreaterEqual(recovery['attempts'], attempts)

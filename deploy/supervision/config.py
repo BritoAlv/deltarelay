@@ -26,6 +26,9 @@ def validate(config):
     for key in ('profile', 'relay_token_file', 'relay_state_file', 'local_token_file'):
         if not isinstance(config.get(key), str) or not Path(config[key]).is_absolute():
             raise ControlError('absolute_private_paths_required')
+    if 'opencode_directory' in config and (not isinstance(config['opencode_directory'], str) or
+                                           not Path(config['opencode_directory']).is_absolute()):
+        raise ControlError('absolute_private_paths_required')
     if not loopback_origin(config.get('relay_url', ''), https=True) or not loopback_origin(config.get('gateway_url', '')):
         raise ControlError('unsafe_endpoint')
     if not isinstance(config.get('internet_check_url', DEFAULT_INTERNET_CHECK_URL), str) or \
@@ -34,7 +37,7 @@ def validate(config):
     for name, spec in config['components'].items():
         if name not in COMPONENTS or not isinstance(spec, dict) or 'adopt_match' in spec:
             raise ControlError('invalid_component')
-        for key in ('command', 'start_command', 'restart_command', 'status_command', 'match'):
+        for key in ('command', 'start_command', 'restart_command', 'stop_command', 'status_command', 'match'):
             if key in spec and (not isinstance(spec[key], list) or not spec[key] or
                                 any(not isinstance(arg, str) or not arg or '\0' in arg for arg in spec[key])):
                 raise ControlError('invalid_command')

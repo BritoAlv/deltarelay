@@ -1,13 +1,10 @@
 import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { Window } from "happy-dom"
 
-const pageHtml = {
-  index: readFileSync(new URL("../../dist/index.html", import.meta.url), "utf8"),
-  sessions: readFileSync(new URL("../../dist/sessions/index.html", import.meta.url), "utf8"),
-  controls: readFileSync(new URL("../../dist/controls/index.html", import.meta.url), "utf8"),
-  system: readFileSync(new URL("../../dist/system/index.html", import.meta.url), "utf8"),
-  measurement: readFileSync(new URL("../../dist/measurement/index.html", import.meta.url), "utf8"),
-}
+const assets = process.env.DELTARELAY_DASHBOARD_ASSETS ? pathToFileURL(resolve(process.env.DELTARELAY_DASHBOARD_ASSETS) + "/") : new URL("../../dist/", import.meta.url)
+const pageHtml = Object.fromEntries(["index", "sessions", "controls", "system", "measurement"].map((name) => [name, readFileSync(new URL(name === "index" ? "index.html" : `${name}/index.html`, assets), "utf8")])) as Record<"index" | "sessions" | "controls" | "system" | "measurement", string>
 
 export type PageName = keyof typeof pageHtml
 

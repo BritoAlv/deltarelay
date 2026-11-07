@@ -60,15 +60,17 @@ restart, preserving cache, saved responses, and replay protection.
 
 ## Progress and interrupted setup
 
-**System activity** shows actual commands, errors, and output. The operation runs
-in the independent supervisor, so closing the page does not cancel it. Refresh
-shows the current state; it does not submit another installation.
+The map and setup status show actual progress, errors, and the responsible
+component. The operation runs in the independent supervisor, so closing the page
+does not cancel it. Refresh shows the current state; it does not submit another
+installation.
 
 After a transfer may have begun, **Resume remote setup…** uses the same destination,
 token, and identity. It will not switch to another host after an uncertain result.
 Fix the reported network/dependency problem, then resume. If the remote files have
 changed, setup fails rather than resetting them. After configuration is saved,
-connectivity failures are handled through ordinary **Recover All** controls.
+automatic recovery handles ordinary connectivity failures; the map offers a
+per-component **Recover** only for manual troubleshooting.
 
 Generated local files use the XDG configuration/state directories:
 

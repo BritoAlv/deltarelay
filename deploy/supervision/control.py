@@ -19,6 +19,7 @@ from activity import operation_id
 
 from remote_provider import ProviderError as ControlError, private_json
 
+from .contracts import Observation
 from .supervisor import Supervisor
 
 
@@ -64,7 +65,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/status':
-            self.reply(200, self.server.supervisor.snapshot())
+            supervisor = self.server.supervisor
+            # Serving this response is direct evidence for this specific edge.
+            supervisor.state.observe('dashboard_supervisor', Observation(
+                'running', 'ready', 'The dashboard reached the private supervisor socket.'))
+            self.reply(200, supervisor.snapshot())
         elif self.path == '/setup':
             self.reply(200, self.server.supervisor.setup_status())
         elif self.path.split('?', 1)[0] == '/journal':
@@ -119,7 +124,7 @@ def main(argv=None):
     parser.add_argument('--no-desktop', action='store_true')
     args = parser.parse_args(argv)
     os.umask(0o077)
-    supervisor = Supervisor(private_json(args.config))
+    supervisor = Supervisor(private_json(args.config), config_file=args.config)
     if 'setup' in supervisor.config and Path(supervisor.config['setup']['config_file']) != args.config.resolve():
         raise ControlError('invalid_configuration')
     lock = os.open(supervisor.directory / 'supervisor.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -141,6 +146,8 @@ def main(argv=None):
         for name in ('dashboard', 'gateway', 'opencode', 'desktop'):
             if name not in supervisor.config['components'] or name == 'dashboard' and args.no_dashboard or name in ('desktop', 'opencode') and args.no_desktop:
                 continue
+            if name != 'dashboard' and not supervisor.state.wanted(name):
+                continue
             if name == 'gateway' and supervisor.provider is None:
                 continue
             try:
@@ -148,6 +155,12 @@ def main(argv=None):
             except Exception as error:
                 supervisor.journal.write('error', f'Startup {name} failed: {type(error).__name__}: {error}')
                 supervisor.state.set_component(name, 'start_failed')
+        # --no-desktop means leave runtime components advisory, including during
+        # future automatic checks. It never stops an existing instance.
+        if args.no_desktop:
+            intent = supervisor.state.intent_copy()
+            intent['components'].update(opencode=False, desktop=False)
+            supervisor.persist_intent(intent)
         worker = threading.Thread(target=supervisor.monitor, daemon=True)
         worker.start()
         while not supervisor.stop.is_set():

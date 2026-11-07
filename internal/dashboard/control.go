@@ -53,6 +53,7 @@ type SystemStatus struct {
 	Remote            RemoteStatus      `json:"remote"`
 	Components        []ComponentStatus `json:"components"`
 	Auth              AuthStatus        `json:"auth"`
+	Topology          *TopologyStatus   `json:"topology,omitempty"`
 }
 
 var remoteID = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)

@@ -136,7 +136,7 @@ def main():
         else:
             print(json.dumps(install(args.root, args.expected_state_id, args.port, sys.stdin.buffer)))
     except Exception as error:
-        # Diagnostics stay in the private activity console. Never include stdin.
+        # Diagnostics stay in the private journal and map. Never include stdin.
         print(f'Remote setup failed: {type(error).__name__}: {error}', file=sys.stderr)
         return 1
     return 0

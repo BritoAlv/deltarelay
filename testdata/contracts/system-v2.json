@@ -1,16 +1,446 @@
 {
-  "version": 2, "managed": true, "collected_at": "2026-11-01T12:00:00Z", "csrf_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-  "settings": {"auto_reconnect": true, "auto_wake": false},
-  "recovery": {"busy": false, "phase": "starting", "attempts": 0, "last_error": "", "last_connected_at": null, "next_retry_at": null},
-  "relay_state": "unknown", "internet_state": "unknown", "internet_checked_at": null,
-  "remote": {"id": "custom", "label": "Remote host", "host_state": "unknown", "capabilities": []},
+  "version": 2,
+  "managed": true,
+  "collected_at": "2026-11-01T12:00:00Z",
+  "csrf_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "settings": {
+    "auto_reconnect": true,
+    "auto_wake": false
+  },
+  "recovery": {
+    "busy": false,
+    "phase": "starting",
+    "attempts": 0,
+    "last_error": "",
+    "last_connected_at": null,
+    "next_retry_at": null
+  },
+  "relay_state": "unknown",
+  "internet_state": "unknown",
+  "internet_checked_at": null,
+  "remote": {
+    "id": "custom",
+    "label": "Remote host",
+    "host_state": "unknown",
+    "capabilities": []
+  },
   "components": [
-    {"id": "dashboard", "label": "Dashboard", "state": "unmanaged", "can_start": false, "can_restart": false},
-    {"id": "gateway", "label": "Local gateway", "state": "unmanaged", "can_start": false, "can_restart": false},
-    {"id": "tunnel", "label": "VPS connection", "state": "unmanaged", "can_start": false, "can_restart": false},
-    {"id": "relay", "label": "Remote relay", "state": "unmanaged", "can_start": false, "can_restart": false},
-    {"id": "opencode", "label": "OpenCode service", "state": "unmanaged", "can_start": false, "can_restart": false},
-    {"id": "desktop", "label": "Isolated Desktop", "state": "unmanaged", "can_start": false, "can_restart": false}
+    {
+      "id": "dashboard",
+      "label": "Dashboard",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    },
+    {
+      "id": "gateway",
+      "label": "Local gateway",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    },
+    {
+      "id": "tunnel",
+      "label": "VPS connection",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    },
+    {
+      "id": "relay",
+      "label": "Remote relay",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode service",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    },
+    {
+      "id": "desktop",
+      "label": "Isolated Desktop",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    }
   ],
-  "auth": {"state": "not_configured", "stale": false}
+  "auth": {
+    "state": "not_configured",
+    "stale": false
+  },
+  "topology": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "desktop",
+        "label": "OpenCode Desktop",
+        "kind": "desktop",
+        "group": "local",
+        "owner": "opencode",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "opencode",
+        "label": "OpenCode server",
+        "kind": "server",
+        "group": "local",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "plugin",
+        "label": "DeltaRelay plugin",
+        "kind": "plugin",
+        "group": "local",
+        "owner": "opencode",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Requires an explicit OpenCode location for read-only runtime verification. Configuration alone is not proof.",
+        "actions": []
+      },
+      {
+        "id": "gateway",
+        "label": "Local gateway",
+        "kind": "gateway",
+        "group": "local",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "tunnel",
+        "label": "Direct HTTPS / transport",
+        "kind": "link",
+        "group": "network",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "network",
+        "label": "Internet / interfaces",
+        "kind": "network",
+        "group": "network",
+        "owner": "external",
+        "managed": false,
+        "desired": "external",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Ethernet, Wi-Fi, VPN, IPv4/IPv6 routes and DNS changes trigger checks. Networking is never modified.",
+        "actions": []
+      },
+      {
+        "id": "remote",
+        "label": "Remote host",
+        "kind": "host",
+        "group": "remote",
+        "owner": "remote_provider",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Power state is not proof of SSH, tunnel, or relay readiness.",
+        "actions": []
+      },
+      {
+        "id": "relay",
+        "label": "DeltaRelay relay",
+        "kind": "relay",
+        "group": "remote",
+        "owner": "remote_provider",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Authenticated relay health reports unknown; this does not prove the relay process is down. Recovery will not bypass authentication, TLS, protocol, identity, or forwarding errors.",
+        "actions": []
+      },
+      {
+        "id": "storage",
+        "label": "Cache / saved responses",
+        "kind": "storage",
+        "group": "remote",
+        "owner": "relay",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Relay-owned cache and durable response mailbox; no independent storage probe or reset action.",
+        "actions": []
+      },
+      {
+        "id": "provider",
+        "label": "Model provider",
+        "kind": "provider",
+        "group": "external",
+        "owner": "external",
+        "managed": false,
+        "desired": "external",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "External service. Recovery never makes a test model request or changes sign-in.",
+        "actions": []
+      },
+      {
+        "id": "dashboard_ui",
+        "label": "Dashboard browser",
+        "kind": "browser",
+        "group": "control",
+        "owner": "user",
+        "managed": false,
+        "desired": "external",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Browser connection is checked by this page, not inferred by the supervisor.",
+        "actions": []
+      },
+      {
+        "id": "dashboard",
+        "label": "Dashboard service",
+        "kind": "dashboard",
+        "group": "control",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "supervisor",
+        "label": "Recovery supervisor",
+        "kind": "supervisor",
+        "group": "control",
+        "owner": "launcher",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "running",
+        "readiness": "ready",
+        "activity": "idle",
+        "checked_at": "2026-11-01T12:00:00Z",
+        "detail": "Background controller. Stays running with the dashboard after system shutdown.",
+        "actions": []
+      },
+      {
+        "id": "remote_provider",
+        "label": "Remote-host adapter",
+        "kind": "adapter",
+        "group": "control",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Management availability is independent of relay connectivity.",
+        "actions": []
+      }
+    ],
+    "edges": [
+      {
+        "id": "desktop_opencode",
+        "source": "desktop",
+        "target": "opencode",
+        "relation": "traffic",
+        "protocol": "Local API",
+        "state": "unknown"
+      },
+      {
+        "id": "opencode_plugin",
+        "source": "opencode",
+        "target": "plugin",
+        "relation": "contains",
+        "protocol": "Provider hooks",
+        "state": "unknown"
+      },
+      {
+        "id": "plugin_gateway",
+        "source": "plugin",
+        "target": "gateway",
+        "relation": "traffic",
+        "protocol": "Authenticated local HTTP",
+        "state": "unknown"
+      },
+      {
+        "id": "gateway_tunnel",
+        "source": "gateway",
+        "target": "tunnel",
+        "relation": "traffic",
+        "protocol": "Relay protocol v2",
+        "state": "unknown"
+      },
+      {
+        "id": "tunnel_relay",
+        "source": "tunnel",
+        "target": "relay",
+        "relation": "traffic",
+        "protocol": "Authenticated relay",
+        "state": "unknown"
+      },
+      {
+        "id": "network_tunnel",
+        "source": "network",
+        "target": "tunnel",
+        "relation": "requires",
+        "protocol": "Usable route",
+        "state": "unknown"
+      },
+      {
+        "id": "remote_relay",
+        "source": "remote",
+        "target": "relay",
+        "relation": "contains",
+        "protocol": "Host must be running",
+        "state": "unknown"
+      },
+      {
+        "id": "relay_storage",
+        "source": "relay",
+        "target": "storage",
+        "relation": "contains",
+        "protocol": "Durable relay data",
+        "state": "unknown"
+      },
+      {
+        "id": "relay_provider",
+        "source": "relay",
+        "target": "provider",
+        "relation": "traffic",
+        "protocol": "Allowlisted HTTPS",
+        "state": "unknown"
+      },
+      {
+        "id": "dashboard_ui_dashboard",
+        "source": "dashboard_ui",
+        "target": "dashboard",
+        "relation": "traffic",
+        "protocol": "Same-origin controls",
+        "state": "unknown"
+      },
+      {
+        "id": "dashboard_supervisor",
+        "source": "dashboard",
+        "target": "supervisor",
+        "relation": "manages",
+        "protocol": "Private control socket",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_desktop",
+        "source": "supervisor",
+        "target": "desktop",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_opencode",
+        "source": "supervisor",
+        "target": "opencode",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_gateway",
+        "source": "supervisor",
+        "target": "gateway",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_tunnel",
+        "source": "supervisor",
+        "target": "tunnel",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_remote_provider",
+        "source": "supervisor",
+        "target": "remote_provider",
+        "relation": "manages",
+        "protocol": "Provider contract v1",
+        "state": "unknown"
+      },
+      {
+        "id": "remote_provider_remote",
+        "source": "remote_provider",
+        "target": "remote",
+        "relation": "manages",
+        "protocol": "Advertised capabilities",
+        "state": "unknown"
+      },
+      {
+        "id": "remote_provider_relay",
+        "source": "remote_provider",
+        "target": "relay",
+        "relation": "manages",
+        "protocol": "Existing-store recovery",
+        "state": "unknown"
+      }
+    ],
+    "intent": {
+      "system": "running",
+      "remote": "running"
+    },
+    "network": {
+      "generation": 0,
+      "changed_at": null
+    },
+    "run": null,
+    "shutdown_blockers": []
+  }
 }

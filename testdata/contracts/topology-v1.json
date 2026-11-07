@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "intent": {"system": "running", "remote": "running"},
+  "network": {"generation": 0, "changed_at": null},
+  "shutdown_blockers": [],
+  "run": null,
+  "nodes": [
+    {"id":"desktop","label":"OpenCode Desktop","kind":"desktop","group":"local","owner":"opencode","managed":true,"desired":"running","lifecycle":"stopped","readiness":"not_ready","activity":"idle","checked_at":null,"detail":"Desktop process is stopped.","actions":["start","recover","restart"]},
+    {"id":"opencode","label":"OpenCode server","kind":"server","group":"local","owner":"supervisor","managed":true,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Configured local API verified.","actions":["start","recover","restart"]},
+    {"id":"plugin","label":"DeltaRelay plugin","kind":"plugin","group":"local","owner":"opencode","managed":false,"desired":"running","lifecycle":"unknown","readiness":"unknown","activity":"idle","checked_at":null,"detail":"No location-specific plugin evidence.","actions":[]},
+    {"id":"gateway","label":"Local gateway","kind":"gateway","group":"local","owner":"supervisor","managed":true,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Local authenticated readiness verified.","actions":["start","recover","restart"]},
+    {"id":"tunnel","label":"Encrypted tunnel","kind":"link","group":"network","owner":"supervisor","managed":true,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Authenticated relay confirms transport.","actions":["start","recover","restart"]},
+    {"id":"network","label":"Internet / interfaces","kind":"network","group":"network","owner":"external","managed":false,"desired":"external","lifecycle":"unknown","readiness":"ready","activity":"idle","checked_at":null,"detail":"Read-only network change detection.","actions":[]},
+    {"id":"remote","label":"Example host","kind":"host","group":"remote","owner":"remote_provider","managed":true,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Host power is not connection readiness.","actions":["wake","stop"]},
+    {"id":"relay","label":"DeltaRelay relay","kind":"relay","group":"remote","owner":"remote_provider","managed":true,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Authenticated identity, protocol and forwarding verified.","actions":["start","recover","restart"]},
+    {"id":"storage","label":"Cache / saved responses","kind":"storage","group":"remote","owner":"relay","managed":false,"desired":"running","lifecycle":"unknown","readiness":"unknown","activity":"idle","checked_at":null,"detail":"Relay-owned storage. No destructive actions.","actions":[]},
+    {"id":"provider","label":"Model provider","kind":"provider","group":"external","owner":"external","managed":false,"desired":"external","lifecycle":"unknown","readiness":"unknown","activity":"idle","checked_at":null,"detail":"No automatic model-generation health probe.","actions":[]},
+    {"id":"dashboard_ui","label":"Dashboard browser","kind":"browser","group":"control","owner":"user","managed":false,"desired":"external","lifecycle":"unknown","readiness":"unknown","activity":"idle","checked_at":null,"detail":"The browser observes its own connection.","actions":[]},
+    {"id":"dashboard","label":"Dashboard service","kind":"dashboard","group":"control","owner":"supervisor","managed":true,"desired":"running","lifecycle":"running","readiness":"unknown","activity":"idle","checked_at":null,"detail":"Independent local controls.","actions":["start","recover","restart"]},
+    {"id":"supervisor","label":"Recovery supervisor","kind":"supervisor","group":"control","owner":"launcher","managed":false,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Background controller stays running.","actions":[]},
+    {"id":"remote_provider","label":"Remote-host adapter","kind":"adapter","group":"control","owner":"supervisor","managed":false,"desired":"running","lifecycle":"running","readiness":"ready","activity":"idle","checked_at":null,"detail":"Management is independent of relay health.","actions":[]}
+  ],
+  "edges": [
+    {"id":"desktop_opencode","source":"desktop","target":"opencode","relation":"traffic","protocol":"Local API","state":"unknown"},
+    {"id":"opencode_plugin","source":"opencode","target":"plugin","relation":"contains","protocol":"Provider hooks","state":"unknown"},
+    {"id":"plugin_gateway","source":"plugin","target":"gateway","relation":"traffic","protocol":"Authenticated local HTTP","state":"unknown"},
+    {"id":"gateway_tunnel","source":"gateway","target":"tunnel","relation":"traffic","protocol":"Relay protocol v2","state":"unknown"},
+    {"id":"tunnel_relay","source":"tunnel","target":"relay","relation":"traffic","protocol":"Authenticated relay","state":"ready"},
+    {"id":"network_tunnel","source":"network","target":"tunnel","relation":"requires","protocol":"Usable route","state":"ready"},
+    {"id":"remote_relay","source":"remote","target":"relay","relation":"contains","protocol":"Host must be running","state":"ready"},
+    {"id":"relay_storage","source":"relay","target":"storage","relation":"contains","protocol":"Durable relay data","state":"unknown"},
+    {"id":"relay_provider","source":"relay","target":"provider","relation":"traffic","protocol":"Allowlisted HTTPS","state":"unknown"},
+    {"id":"dashboard_ui_dashboard","source":"dashboard_ui","target":"dashboard","relation":"traffic","protocol":"Same-origin controls","state":"unknown"},
+    {"id":"dashboard_supervisor","source":"dashboard","target":"supervisor","relation":"manages","protocol":"Private control socket","state":"unknown"},
+    {"id":"supervisor_desktop","source":"supervisor","target":"desktop","relation":"manages","protocol":"Configured lifecycle","state":"unknown"},
+    {"id":"supervisor_opencode","source":"supervisor","target":"opencode","relation":"manages","protocol":"Configured lifecycle","state":"unknown"},
+    {"id":"supervisor_gateway","source":"supervisor","target":"gateway","relation":"manages","protocol":"Configured lifecycle","state":"unknown"},
+    {"id":"supervisor_tunnel","source":"supervisor","target":"tunnel","relation":"manages","protocol":"Configured lifecycle","state":"unknown"},
+    {"id":"supervisor_remote_provider","source":"supervisor","target":"remote_provider","relation":"manages","protocol":"Provider contract v1","state":"ready"},
+    {"id":"remote_provider_remote","source":"remote_provider","target":"remote","relation":"manages","protocol":"Advertised capabilities","state":"unknown"},
+    {"id":"remote_provider_relay","source":"remote_provider","target":"relay","relation":"manages","protocol":"Existing-store recovery","state":"unknown"}
+  ]
+}

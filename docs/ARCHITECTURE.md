@@ -43,7 +43,7 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
-| `deploy/supervision` | Importable Python configuration, observable state, process ownership, probes, recovery policy, and control API. |
+| `deploy/supervision` | Importable Python configuration, component lifecycle contracts, sanitized topology, observable state, process ownership, probes, network-change hints, incremental recovery coordination, and control API. |
 | `deploy/*.py`, `deploy/providers` | Supervisor launchers, provider plugins, remote recovery helpers, and provider contract checking. |
 | `integration/opencode` | OpenCode V2 plugin that routes selected providers through the local gateway without automatic retries. |
 | `web` | Static Astro dashboard, feature controllers, pure library helpers, and DOM-level browser tests. |
@@ -125,6 +125,19 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   policy, provider plugins, and the control API in `deploy/supervision`.
   Startup requires an explicit executable-provider configuration, supplied by
   `--config` or the XDG configuration file. No profile adaptation is performed.
+- Component adapters own one resource and are never allowed to recursively repair
+  a peer. `coordinator` observes, executes one permitted step, re-observes, and
+  verifies. One service-changing action runs at a time; read-only probes and
+  network hints continue. A bounded `topology` contract (version 1) carries
+  sanitized node/edge/readiness evidence to the dashboard inside the existing
+  supervisor status version 2.
+- Linux `RTNETLINK` link/address/route/rule notifications plus interface, route,
+  address, and DNS fingerprints detect Ethernet, Wi-Fi, VPN, and resolver path
+  changes without modifying networking. Hints trigger health checks, not
+  unconditional restarts.
+- Intentional remote/system shutdown is persisted separately from observations.
+  It suppresses automatic recovery across route changes and supervisor restarts
+  while leaving the dashboard and supervisor available to resume.
 
 ## Lifecycle ownership
 
@@ -162,7 +175,8 @@ no worker and no lock.
 | Chunk format | Manifest version 1, `DRLY0001` framing, chunk sizes, hashes, and batch encoding. |
 | Relay API | Unversioned routes, discovery/submission version 2, capabilities, limits, fingerprint representation, states, and error codes. |
 | Remote-provider plugin | v1 JSON envelope and required/optional operations. |
-| Supervisor status | Only current version 2 status with `remote` metadata and remote-host actions is accepted. |
+| Supervisor status | Only current version 2 status with `remote` metadata and remote-host actions is accepted. Optional sanitized `topology` is contract version 1. |
+| Recovery run/topology | Bounded node/edge/action/readiness vocabulary, recovery checkpoints, network generation, and intent. Diagnostics only; never a command queue or relay contract. |
 | Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates. Optional `capture_id` links identify retained request evidence. |
 | Request inspection | Optional and enabled by default. A gateway with an empty `--capture-dir` omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
 | Persisted state | Mailbox identity/records/frames, exclusive journal markers, client relay pin, download checkpoints, and cancellation outbox use their existing formats. No storage migration is planned. |

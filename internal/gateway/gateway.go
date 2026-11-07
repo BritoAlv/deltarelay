@@ -119,6 +119,12 @@ func New(config Config) (*Gateway, error) {
 	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent), history: history, inspection: captures, startedAt: time.Now().UTC()}
 	g.mux.HandleFunc("POST /proxy", g.proxy)
 	g.mux.HandleFunc("GET /healthz", g.health)
+	g.mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
+		// Local readiness must not depend on a working VPS. This route is still
+		// protected by the same loopback gateway authentication as every route.
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"alive": true, "version": protocol.RelayVersion})
+	})
 	g.mux.HandleFunc("GET /metrics", g.metrics)
 	g.mux.HandleFunc("GET /dashboard", g.dashboard)
 	g.mux.Handle("GET /inspection/{rest...}", captures)

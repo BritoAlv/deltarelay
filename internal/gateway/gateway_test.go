@@ -349,6 +349,26 @@ func TestConnectionDropAfterForwardIsAmbiguous(t *testing.T) {
 	}
 }
 
+func TestGatewayLocalReadinessDoesNotDependOnVPS(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer provider.Close()
+	f := newFixture(t, provider, 0)
+	// Local liveness must remain observable during a total VPS outage.
+	f.vps.Close()
+	request, _ := http.NewRequest(http.MethodGet, f.gateway.URL+"/livez", nil)
+	request.Header.Set("X-DeltaRelay-Local-Token", localToken)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result map[string]any
+	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&result) != nil ||
+		result["alive"] != true || result["version"] != float64(protocol.RelayVersion) {
+		t.Fatalf("local readiness depends on the VPS: %d %v", response.StatusCode, result)
+	}
+}
+
 func TestGatewayRejectsUnauthorizedAndDisallowedTargets(t *testing.T) {
 	var calls atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
