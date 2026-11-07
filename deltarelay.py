@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Repository-local, dependency-free entry point: uv run deltarelay.py start."""
+
+from pathlib import Path
+import sys
+
+# The deployment helpers also run directly on remote hosts; preserve their imports.
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'deploy'))
+
+from cli import main
+
+
+if __name__ == '__main__':
+    sys.exit(main())

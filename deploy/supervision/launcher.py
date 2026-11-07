@@ -13,7 +13,8 @@ from .config import validate
 from .control import control_request, controller_status
 
 
-def start(project, config_file, no_dashboard=False, no_desktop=False):
+def start(project, config_file, no_dashboard=False, no_desktop=False, report=None):
+    emit = report or print
     config_file = config_file.resolve(strict=True)
     config = private_json(config_file)
     validate(config)
@@ -22,7 +23,7 @@ def start(project, config_file, no_dashboard=False, no_desktop=False):
     directory.mkdir(mode=0o700, exist_ok=True)
     status = controller_status(directory / 'supervisor.sock')
     if status:
-        print('Supervisor already running. Reusing its settings and live services.')
+        emit('Supervisor already running. Reusing its settings and live services.')
         if not no_dashboard:
             # Make a repeated startup useful after an earlier --no-dashboard or a
             # stopped dashboard, without stopping anything that is already live.
@@ -31,7 +32,11 @@ def start(project, config_file, no_dashboard=False, no_desktop=False):
                                 {'component': component, 'action': 'start'})
     else:
         # No network recovery precedes these offline builds or dashboard startup.
-        prepare_build(project)
+        if report is None:
+            prepare_build(project)
+        else:
+            prepare_build(project, report=report)
+        emit('Starting persistent local supervisor')
         command = [sys.executable, '-B', str(project / 'deploy/supervisor.py'), '--config', str(config_file)]
         if no_dashboard:
             command.append('--no-dashboard')
@@ -46,11 +51,11 @@ def start(project, config_file, no_dashboard=False, no_desktop=False):
             if child.poll() is not None or time.monotonic() >= deadline:
                 raise ControlError('supervisor_start_failed')
             time.sleep(0.1)
-        print('Supervisor started. Network recovery continues in the background.')
+        emit('Supervisor started. Network recovery continues in the background.')
     dashboard = config['components'].get('dashboard', {})
     if dashboard.get('port'):
-        print(f'Dashboard: http://127.0.0.1:{dashboard["port"]}')
+        emit(f'Dashboard: http://127.0.0.1:{dashboard["port"]}')
         if 'remote' not in config:
-            print(f'Set up your remote host: http://127.0.0.1:{dashboard["port"]}/controls')
-    print('Remote-host controls depend on provider capabilities. Automatic wake is off by default.')
+            emit(f'Set up your remote host: http://127.0.0.1:{dashboard["port"]}/controls')
+    emit('Remote-host controls depend on provider capabilities. Automatic wake is off by default.')
     return config

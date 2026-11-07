@@ -118,6 +118,19 @@ class LauncherTest(unittest.TestCase):
         self.assertIn('--no-desktop', args)
         self.assertTrue(popen.call_args.kwargs['start_new_session'])
 
+    @patch.object(launcher.subprocess, 'Popen')
+    @patch.object(launcher, 'prepare_build')
+    @patch.object(launcher, 'controller_status', side_effect=[None, {'version': 2}])
+    def test_cli_reporter_receives_startup_stages_and_dashboard_url(self, status, build, popen):
+        self.config['components']['dashboard'] = {'port': 8790}
+        self.save()
+        messages = []
+        launcher.start(self.root, self.path, no_desktop=True, report=messages.append)
+        build.assert_called_once_with(self.root, report=messages.append)
+        self.assertIn('Starting persistent local supervisor', messages)
+        self.assertIn('Dashboard: http://127.0.0.1:8790', messages)
+        self.assertTrue(any('Network recovery continues' in message for message in messages))
+
     def test_provider_is_required_and_old_configuration_is_rejected(self):
         from supervision.config import validate
         for change in ({'remote': None}, {'codespace': {}}, {'components': {'tunnel': {}}}, {'components': {'relay': {}}}):

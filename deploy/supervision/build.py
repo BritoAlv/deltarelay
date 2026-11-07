@@ -16,7 +16,13 @@ def needs_build(output, sources):
     return any(path.is_file() and path.stat().st_mtime_ns > built for path in sources)
 
 
-def prepare_build(project):
+def prepare_build(project, report=None):
+    def emit(message):
+        if report is None:
+            print(message, flush=True)
+        else:
+            report(message)
+
     binary = project / 'bin' / 'deltarelay'
     assets = project / 'web' / 'dist'
     go_sources = [project / 'go.mod']
@@ -27,7 +33,7 @@ def prepare_build(project):
     if needs_build(binary, go_sources) or not os.access(binary, os.X_OK):
         if shutil.which('go') is None:
             raise RecoveryError('Go is required to build bin/deltarelay; build it locally before startup')
-        print('Building the local dashboard binary (Go, offline)', flush=True)
+        emit('Building the local dashboard binary (Go, offline)')
         binary.parent.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(prefix='.dashboard-build-', dir=binary.parent)
         os.close(fd)
@@ -50,7 +56,7 @@ def prepare_build(project):
     if needs_build(assets / 'index.html', web_sources):
         if shutil.which('pnpm') is None:
             raise RecoveryError('pnpm is required to build web/dist; run the offline dashboard build first')
-        print('Building the Astro dashboard using the offline pnpm cache', flush=True)
+        emit('Building the Astro dashboard using the offline pnpm cache')
         subprocess.run(['pnpm', 'install', '--offline', '--frozen-lockfile', '--trust-lockfile'],
                        cwd=project, check=True, timeout=180)
         subprocess.run(['pnpm', 'build'], cwd=project, check=True, timeout=180)

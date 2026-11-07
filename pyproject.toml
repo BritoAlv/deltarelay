@@ -1,0 +1,9 @@
+[project]
+name = "deltarelay"
+version = "0.1.0"
+description = "Offline launcher for the DeltaRelay supervisor and dashboard"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+package = false
