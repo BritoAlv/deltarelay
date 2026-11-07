@@ -179,6 +179,37 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(subject.state.internet_state, 'connected')
         self.assertIn('internet_state', subject.snapshot())
 
+    def test_tunnel_start_uses_cached_host_state_when_provider_status_is_temporarily_unavailable(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.state.set_host_state('running')
+        with patch.object(subject, 'provider_call', side_effect=control.ControlError('command_failed')):
+            subject.start_component('tunnel')
+        self.addCleanup(self.cleanup_child, subject.processes.children['tunnel'])
+        self.assertEqual(subject.state.states_copy()['tunnel'], 'starting')
+        self.assertEqual(subject.state.host_value(), 'running')
+
+    def test_tunnel_start_still_honors_a_cached_stopped_host(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.state.set_host_state('stopped')
+        with patch.object(subject, 'provider_call', side_effect=control.ControlError('command_failed')):
+            with self.assertRaisesRegex(control.ControlError, '^host_stopped$'):
+                subject.start_component('tunnel')
+        self.assertFalse(subject.processes.children)
+
+    def test_transport_recovery_continues_when_provider_status_is_temporarily_unavailable(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.state.set_host_state('running')
+        with patch.object(subject, 'provider_call', side_effect=control.ControlError('command_failed')), \
+                patch.object(subject, 'probe', side_effect=['unreachable', 'connected']), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject.stop, 'wait', return_value=False):
+            subject.recover()
+        self.addCleanup(self.cleanup_child, subject.processes.children['tunnel'])
+        self.assertEqual(subject.state.relay_value(), 'connected')
+
     def test_hung_live_tunnel_is_rebuilt_without_restarting_gateway_or_relay(self):
         self.component('tunnel')
         self.component('gateway')
@@ -433,6 +464,16 @@ class SupervisorTest(unittest.TestCase):
                 for _ in range(4): subject.tick()
                 recover.assert_not_called()
                 self.assertEqual(subject.state.recovery_copy()['last_error'], error)
+
+    def test_transient_provider_failure_does_not_defer_local_transport_recovery(self):
+        subject = self.supervisor()
+        with patch.object(subject, 'provider_call', side_effect=control.ControlError('command_failed')), \
+                patch.object(subject, 'probe', return_value='unreachable'), \
+                patch.object(subject, 'internet_probe', return_value='connected'), \
+                patch.object(subject, 'recover') as recover:
+            for _ in range(3):
+                subject.tick()
+        recover.assert_called_once_with(wake=False)
 
     def test_automatic_recovery_debounces_and_respects_disabled_setting(self):
         subject = self.supervisor()

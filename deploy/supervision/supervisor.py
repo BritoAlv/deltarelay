@@ -258,8 +258,18 @@ class Supervisor:
         if not spec:
             raise ControlError('component_unmanaged')
         if name == 'tunnel' and self.supports('host.wake'):
-            host_state = self.provider_call('status')['host_state']
-            self.state.set_host_state(host_state)
+            try:
+                host_state = self.provider_call('status')['host_state']
+            except ControlError as error:
+                if str(error) not in RETRYABLE:
+                    raise
+                # A provider API outage is not a broken local transport. Keep the
+                # last verified power state and let this local repair proceed;
+                # starting a forward never wakes the remote host.
+                host_state = self.state.host_value()
+                self.journal.write('event', f'Tunnel start continuing without a fresh host status: {error}; last observed state={host_state}', component='tunnel')
+            else:
+                self.state.set_host_state(host_state)
             if host_state in ('stopped', 'stopping'):
                 raise ControlError('host_stopped')
         if 'command' not in spec:
@@ -640,10 +650,15 @@ class Supervisor:
             previous = self.state.relay_value()
             state = self.observe_relay()
             error, blocked, retry_at = self.policy.provider_status()
-            if error or blocked:
+            if blocked:
                 self.journal.write('event', f'Recovery deferred: provider_error={error} blocked={blocked} next_retry_at={retry_at}')
-                self.state.update_recovery(last_error=blocked or error, next_retry_at=retry_at)
+                self.state.update_recovery(last_error=blocked, next_retry_at=retry_at)
                 return
+            if error:
+                # Remote-host API failures must not prevent an independent local
+                # transport repair. The coordinator will still block permanent
+                # failures and will never wake a host without explicit consent.
+                self.journal.write('event', f'Transient provider observation failure: {error}; checking whether local transport recovery can proceed')
             if state == 'connected':
                 self.state.update_recovery(phase='monitoring')
                 return

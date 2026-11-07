@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from remote_provider import ProviderError as ControlError, private_json
+from remote_provider import RETRYABLE, ProviderError as ControlError, private_json
 
 from .contracts import Observation
 from .process import process
@@ -78,7 +78,16 @@ class RemoteHost:
 
     def observe(self):
         s = self.supervisor
-        host = s.provider_call('status')['host_state']
+        try:
+            host = s.provider_call('status')['host_state']
+        except ControlError as error:
+            if str(error) not in RETRYABLE:
+                raise
+            host = s.state.host_value()
+            s.journal.write('event', f'Remote host status temporarily unavailable: {error}; using last observed state={host}', component='remote')
+            s.state.observe('remote', Observation(host, 'unknown',
+                                                'Provider status is temporarily unavailable; power state is not proof of SSH or relay readiness.'))
+            return host
         s.state.set_host_state(host)
         s.state.observe('remote', Observation(host, 'ready' if host == 'running' else 'unknown',
                                             'Provider power observation; not connection readiness.'))
