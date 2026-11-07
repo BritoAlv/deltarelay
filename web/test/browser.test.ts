@@ -925,7 +925,7 @@ test("map shows the active recovery step and system shutdown keeps control servi
   const readyShutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
   assert.equal(readyShutdown.disabled, false)
   page.setConfirm((message) => {
-    assert.match(message ?? "", /dashboard and supervisor stay running.*PC stays on/i)
+    assert.match(message ?? "", /dashboard and supervisor stay running.*computer stays on/i)
     return true
   })
   shutdown.click()
@@ -1110,10 +1110,16 @@ test("first-run setup requires confirmation, sends a single protected install, a
   assert.equal(root.hidden, false)
   assert.equal(button.disabled, false)
   assert.equal(installs.length, 0, "loading first run must never install automatically")
+  assert.equal(page.document.querySelector<HTMLSelectElement>("#setup-provider")?.value, "ssh")
+  assert.match(page.document.querySelector("#setup-provider-requirements")?.textContent ?? "", /No GitHub account or CLI is required/)
   page.setConfirm(() => false)
   page.fire(form, "submit")
   assert.equal(installs.length, 0)
-  page.setConfirm((message) => { assert.match(message ?? "", /compute charges/); return true })
+  page.setConfirm((message) => {
+    assert.match(message ?? "", /user@my-host/)
+    assert.doesNotMatch(message ?? "", /Codespace|GitHub|compute charges/)
+    return true
+  })
   page.fire(form, "submit")
   page.fire(form, "submit")
   assert.equal(installs.length, 1)
@@ -1130,6 +1136,67 @@ test("first-run setup requires confirmation, sends a single protected install, a
   await system.refresh()
   assert.equal(root.hidden, true)
   assert.equal(page.document.querySelector("#control-connection")?.textContent, "Relay connected")
+  system.destroy()
+  await page.close()
+})
+
+test("setup requirements and billing warnings follow the selected provider", async () => {
+  const page = openPage("controls")
+  page.setFetch((url) => json(url === "/api/system" ? systemStatus() : setupStatus({ available: true, required: true })))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  const provider = doc.querySelector<HTMLSelectElement>("#setup-provider")!
+  const form = doc.querySelector<HTMLFormElement>("#remote-setup-form")!
+  doc.querySelector<HTMLInputElement>("#setup-target")!.value = "existing-codespace"
+  provider.value = "codespaces"
+  page.fire(provider, "change")
+  assert.equal(doc.querySelector("#setup-target-label")?.textContent, "Existing Codespace name")
+  assert.equal(doc.querySelector<HTMLElement>("#setup-ssh-port-label")?.hidden, true)
+  assert.match(doc.querySelector("#setup-provider-requirements")?.textContent ?? "", /authenticated GitHub CLI.*billing/)
+  let confirmations = 0
+  page.setConfirm((message) => {
+    confirmations++
+    assert.match(message ?? "", /stopped Codespace.*compute charges/)
+    return false
+  })
+  page.fire(form, "submit")
+  assert.equal(confirmations, 1)
+  provider.value = "ssh"
+  page.fire(provider, "change")
+  assert.equal(doc.querySelector("#setup-target-label")?.textContent, "SSH alias or user@host")
+  assert.equal(doc.querySelector<HTMLElement>("#setup-ssh-port-label")?.hidden, false)
+  assert.doesNotMatch(doc.querySelector("#setup-provider-requirements")?.textContent ?? "", /Codespaces|billing/)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  system.destroy()
+  await page.close()
+})
+
+test("SSH dashboard uses configured host capabilities without assuming cloud power management", async () => {
+  const page = openPage("controls")
+  const status = systemStatus({ remote: { id: "ssh", label: "SSH remote host", host_state: "unknown", capabilities: ["relay.ensure", "relay.restart"] } })
+  page.setFetch((url) => json(url === "/api/system" ? status : setupStatus()))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
+  assert.equal(doc.querySelector<HTMLButtonElement>("#stop-remote")?.disabled, true)
+  assert.equal(doc.querySelector<HTMLElement>("#auto-wake-setting")?.hidden, true)
+  doc.querySelector<HTMLButtonElement>('[data-node-id="remote"]')!.click()
+  assert.equal(doc.querySelector("#node-inspector-title")?.textContent, "SSH remote host")
+  assert.equal(doc.querySelector("[data-component-action=\"wake\"]"), null)
+  assert.equal(doc.querySelector("[data-component-action=\"stop\"]"), null)
+  assert.doesNotMatch(doc.querySelector("#shutdown-detail")?.textContent ?? "", /VPS|billing|Codespace/)
+  let confirmations = 0
+  page.setConfirm((message) => {
+    confirmations++
+    assert.doesNotMatch(message ?? "", /VPS|Codespace|billing|may be woken/)
+    assert.match(message ?? "", /does not support waking/)
+    return false
+  })
+  doc.querySelector<HTMLButtonElement>("#start-system")!.click()
+  assert.equal(confirmations, 1)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
   system.destroy()
   await page.close()
 })

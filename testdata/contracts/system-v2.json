@@ -41,7 +41,7 @@
     },
     {
       "id": "tunnel",
-      "label": "VPS connection",
+      "label": "Remote host connection",
       "state": "unmanaged",
       "can_start": false,
       "can_restart": false

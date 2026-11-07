@@ -21,6 +21,9 @@ binary, or initialize an identity pin.
 - For SSH: working noninteractive key/agent authentication and an already-trusted
   host key. Host-key verification is never disabled. Custom SSH configurations
   belong in your normal SSH alias; the form also accepts a numeric SSH port.
+  SSH is the default for a remote computer or VPS; no GitHub account, GitHub CLI,
+  or Codespace configuration is required. Wake and shutdown depend on provider
+  capabilities; the SSH provider does not manage the machine's power state.
 - For Codespaces: a current authenticated `gh` CLI and an existing Codespace.
   Confirmation authorizes resuming this selected machine, which can incur compute
   charges. If the CLI uses exported `GH_TOKEN`/`GITHUB_TOKEN`, those variable names

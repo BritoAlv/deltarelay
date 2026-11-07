@@ -81,7 +81,7 @@ export function recoveryStatus(system: SystemStatus): string {
   if (connection === "no_internet") return controlError("no_internet") + paused
   const error = system.recovery.last_error
   if (error && error !== "unreachable") return controlError(error) + paused
-  if (connection === "vps_unreachable") return "Internet works, but the VPS/relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." + paused
+  if (connection === "vps_unreachable") return "Internet works, but the remote relay did not respond. Check the tunnel, VPN split routes, relay process, or remote host." + paused
   if (error) return controlError(error) + paused
   if (connection === "connected") return system.settings.auto_reconnect ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Authenticated relay is reachable. Automatic recovery is off; a dropped connection will not be repaired automatically."
   return "Monitoring relay connectivity." + paused
@@ -116,7 +116,7 @@ export function controlError(code: string): string {
     controls_not_configured: "Controls are not configured. Start with startup.sh, or configure a private supervisor socket.",
     setup_required: "Set up your remote host using the setup form on System controls. Recovery never initializes a new relay store.",
     setup_not_available: "First-time setup is not available for this configured deployment. Existing credentials and relay data were not changed.",
-    invalid_setup_request: "Check the host, remote directory, and port numbers. Use an SSH alias/user@host or an existing Codespace name.",
+    invalid_setup_request: "Check the host, remote directory, and port numbers for the selected host type.",
     setup_target_locked: "An interrupted setup already selected a destination. Resume that same destination; no credentials or identity will be replaced.",
     setup_configuration_changed: "Private configuration changed during setup. Your changes were preserved. Review the system map and the configuration before resuming.",
     identity_already_configured: "A saved relay identity already exists. Use its existing deployment configuration; setup will not overwrite the pin.",
@@ -141,7 +141,7 @@ export function controlError(code: string): string {
     shutdown_not_configured: "System shutdown needs an explicit stop command for every managed local service. Configure the missing lifecycle actions; no services were stopped.",
     component_not_ready: "The component did not pass its local readiness check before the deadline. Automatic retries are bounded; inspect its node on the map.",
     component_stop_unverified: "A stop command completed, but the service could not be independently confirmed stopped. Automatic recovery remains paused; inspect the component before retrying.",
-    system_stopped: "The system is intentionally stopped. Use Start system to resume local services and automatic recovery. A VPS shutdown remains available when supported.",
+    system_stopped: "The system is intentionally stopped. Use Start system to resume local services and automatic recovery. Remote host shutdown remains available when supported.",
     operation_interrupted: "The supervisor restarted during an operation. Its outcome is uncertain; current state will be checked before any further repair.",
     unrecognized_port_owner: "A required port has an unrecognized owner. No process was stopped or replaced.",
     identity_mismatch: "The remote relay identity changed. Automatic recovery is blocked; no state was reset.",

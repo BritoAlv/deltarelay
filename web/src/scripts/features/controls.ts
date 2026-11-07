@@ -131,7 +131,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     if (system) {
       const connection = connectionState(system)
       const badge = requiredById(root, "control-connection")
-      badge.textContent = stale ? "Stale" : stopped ? "System stopped" : system.recovery.busy ? "Recovering" : connection === "connected" ? "Relay connected" : connection === "remote_stopped" ? "VPS stopped" : connection === "no_internet" ? "Waiting for network" : "Connection unavailable"
+      badge.textContent = stale ? "Stale" : stopped ? "System stopped" : system.recovery.busy ? "Recovering" : connection === "connected" ? "Relay connected" : connection === "remote_stopped" ? "Remote host stopped" : connection === "no_internet" ? "Waiting for network" : "Connection unavailable"
       badge.className = `status-pill ${!stale && !stopped && connection === "connected" ? "good" : "neutral"}`
       const run = topology?.run
       const current = topology?.nodes.find((node) => node.id === run?.current_component)
@@ -139,7 +139,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       setText("recovery-status", stopped ? "System intentionally stopped. The dashboard and supervisor remain available. Use Start system to resume automatic operation." : run?.status === "running" && current ? `${current.label}: ${run.current_action}…` : recoveryStatus(system))
       setText("network-detail", `Automatic recovery ${system.settings.auto_reconnect ? "enabled" : "paused"} · ${topology ? `${topology.network.generation} network changes observed` : "Waiting for topology-capable supervisor"}${topology?.network.changed_at ? ` · last change ${new Date(topology.network.changed_at).toLocaleTimeString()}` : ""}. Ethernet, Wi-Fi and VPN paths are monitored without changing them.`)
       setText("recovery-detail", `${system.recovery.attempts} automatic connection attempts${system.recovery.next_retry_at ? ` · next retry ${new Date(system.recovery.next_retry_at).toLocaleTimeString()}` : ""}${system.recovery.last_connected_at ? ` · last connected ${new Date(system.recovery.last_connected_at).toLocaleTimeString()}` : ""}`)
-      setText("shutdown-detail", topology?.shutdown_blockers.length ? `System shutdown needs an explicit stop_command for: ${topology.shutdown_blockers.join(", ")}. No broad process matching or machine shutdown is used.` : `System shutdown keeps the dashboard and supervisor running.${canStop ? " The VPS is also stopped." : " Remote power-off is unsupported by this provider; stop it through your hosting controls to avoid continued billing."} Your PC is never powered off.`)
+      setText("shutdown-detail", topology?.shutdown_blockers.length ? `System shutdown needs an explicit stop_command for: ${topology.shutdown_blockers.join(", ")}. No broad process matching or machine shutdown is used.` : `System shutdown keeps the dashboard and supervisor running.${canStop ? " The remote host is also stopped." : " Remote power-off is unsupported by this provider; manage the remote host separately if needed."} This computer is never powered off.`)
       const nextSteps = JSON.stringify(run)
       if (nextSteps !== stepSignature) {
         stepSignature = nextSteps
@@ -212,7 +212,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     const systemAction = component === "all"
     const needsConfirmation = ["restart", "stop", "wake"].includes(action) || systemAction && action === "start"
     if (needsConfirmation) {
-      const explanation = systemAction && action === "start" ? "Start the configured local applications and resume automatic recovery? The existing VPS may be woken and compute billing may resume. Automatic wake permission is not enabled." : systemAction && action === "stop" ? `Shut down the managed local applications${supportsRemote(system, "host.stop") ? " and VPS" : " (VPS power-off is unsupported and compute billing may continue)"}? The dashboard and supervisor stay running. Your PC stays on. Automatic recovery is paused before stopping anything.` : component === "remote" && action === "stop" ? "Shut down the VPS? Active requests will be interrupted. Automatic reconnect and wake will be disabled until explicitly resumed." : action === "wake" ? "Wake the existing VPS and recover its connection? Compute billing may resume. This does not enable automatic wake." : `Restart ${system.topology.nodes.find((node) => node.id === component)?.label ?? component}? Active requests may be interrupted and provider work may already be billed.`
+      const explanation = systemAction && action === "start" ? `Start the configured local applications and resume automatic recovery?${supportsRemote(system, "host.wake") ? " The existing remote host may be woken and compute billing may resume. Automatic wake permission is not enabled." : " The remote host must already be running; this provider does not support waking it."}` : systemAction && action === "stop" ? `Shut down the managed local applications${supportsRemote(system, "host.stop") ? " and remote host" : " (remote power-off is unsupported; the remote host stays running)"}? The dashboard and supervisor stay running. This computer stays on. Automatic recovery is paused before stopping anything.` : component === "remote" && action === "stop" ? "Shut down the remote host? Active requests will be interrupted. Automatic reconnect and wake will be disabled until explicitly resumed." : action === "wake" ? "Wake the existing remote host and recover its connection? Compute billing may resume. This does not enable automatic wake." : `Restart ${system.topology.nodes.find((node) => node.id === component)?.label ?? component}? Active requests may be interrupted and provider work may already be billed.`
       if (!window.confirm(`${explanation} Saved files, tokens, cache, sessions and responses are preserved.`)) return
     }
     pending = true
@@ -235,7 +235,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   async function settings() {
     if (!system || stale || pending || system.recovery.busy) return
     const wake = supportsRemote(system, "host.wake") && autoWake.checked
-    if (wake && !system.settings.auto_wake && !window.confirm("Allow automatic wake of the existing VPS, even with this page closed? Compute billing may resume.")) { render(); return }
+    if (wake && !system.settings.auto_wake && !window.confirm("Allow automatic wake of the existing remote host, even with this page closed? Compute billing may resume.")) { render(); return }
     pending = true
     render()
     try {

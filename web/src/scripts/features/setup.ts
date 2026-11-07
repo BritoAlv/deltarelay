@@ -28,6 +28,7 @@ export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: (
     badge.textContent = status?.busy ? "Installing…" : status?.last_error ? "Setup failed" : "Setup required"
     requiredById(root, "setup-target-label").textContent = provider.value === "codespaces" ? "Existing Codespace name" : "SSH alias or user@host"
     requiredById<HTMLElement>(root, "setup-ssh-port-label").hidden = provider.value === "codespaces"
+    requiredById(root, "setup-provider-requirements").textContent = provider.value === "codespaces" ? "Codespaces requires an authenticated GitHub CLI and may resume compute billing." : "SSH requires an existing key/agent and trusted host key. No GitHub account or CLI is required."
     detail.textContent = stale ? "Setup status is stale. Refresh before installing anything." : status?.busy ? "Setup is running independently of this page. Component recovery appears on the map after installation." : message || (status?.last_error ? controlError(status.last_error) : status?.target ? "A previous setup was interrupted. Resume uses the same credentials, identity, and remote destination." : "Select a host, then confirm installation. Nothing remote is changed before confirmation.")
   }
 
@@ -39,7 +40,8 @@ export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: (
 
   async function install() {
     if (submit.disabled || !system || !status?.available || stale) return
-    if (!window.confirm(`Install DeltaRelay on ${target.value} in ${directory.value}? Only a new private deployment (or this same interrupted setup) is allowed. A stopped Codespace may be resumed and incur compute charges. No existing deployment will be replaced.`)) return
+    const providerWarning = provider.value === "codespaces" ? " A stopped Codespace may be resumed and incur compute charges." : ""
+    if (!window.confirm(`Install DeltaRelay on ${target.value} in ${directory.value}? Only a new private deployment (or this same interrupted setup) is allowed.${providerWarning} No existing deployment will be replaced.`)) return
     pending = true
     message = "Submitting remote setup…"
     render()

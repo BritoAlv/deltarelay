@@ -31,7 +31,7 @@ class LocalComponent:
         detail = 'Verified process only; application readiness is not confirmed.'
         if name == 'gateway':
             readiness = s.probes.gateway()
-            detail = 'Local authenticated readiness; independent of the VPS.'
+            detail = 'Local authenticated readiness; independent of the remote host.'
         elif name == 'opencode':
             readiness = s.probes.opencode()
             detail = 'Read-only API check against the configured private service registration.'

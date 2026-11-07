@@ -134,6 +134,25 @@ class SetupTest(unittest.TestCase):
         self.assertIn('ssh.py', remote['command'][-1])
         self.assertNotIn(token, json.dumps(self.subject.setup_status()))
 
+    def test_ssh_setup_needs_no_github_cli_credentials_or_codespace_configuration(self):
+        self.subject = self.supervisor()
+        calls = []
+        def which(binary):
+            return {'ssh': '/usr/bin/ssh', 'go': '/usr/bin/go'}.get(binary)
+        with patch.dict(os.environ, {'PATH': '/usr/bin'}, clear=True), \
+                patch.object(onboarding.shutil, 'which', side_effect=which), \
+                patch.object(onboarding, 'CodespacesProvider', side_effect=AssertionError('SSH must not use Codespaces')), \
+                patch.object(onboarding, 'run_command', side_effect=self.fake_runner(calls)):
+            remote = self.subject.setup.install(onboarding.validate_request(REQUEST))
+        self.assertEqual([command[0] for command, _ in calls], ['/usr/bin/ssh', '/usr/bin/go', '/usr/bin/ssh'])
+        self.assertNotIn('pass_env', remote)
+        self.assertTrue(remote['command'][-1].endswith('/ssh.py'))
+        provider = private_json(Path(remote['config_file']))
+        self.assertEqual(provider['host'], REQUEST['target'])
+        self.assertNotIn('name', provider)
+        self.assertNotIn('github_cli', provider)
+        self.assertEqual(private_json(self.path)['remote'], remote)
+
     def test_preflight_failures_allow_correction_but_uncertain_transfer_locks_destination(self):
         self.subject = self.supervisor()
         request = onboarding.validate_request(REQUEST)

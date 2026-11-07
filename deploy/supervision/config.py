@@ -6,7 +6,7 @@ from remote_provider import ProviderError as ControlError, origin, validate_spec
 
 
 COMPONENTS = ('dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop')
-LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Local gateway', 'VPS connection', 'Remote relay',
+LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Local gateway', 'Remote host connection', 'Remote relay',
                                'OpenCode service', 'Isolated Desktop')))
 DEFAULT_INTERNET_CHECK_URL = 'https://example.com/'
 INTERNET_CHECK_INTERVAL = 15
