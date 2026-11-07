@@ -216,6 +216,11 @@ class SupervisorState:
         with self.lock:
             previous = self.host_state
             self.host_state = value
+            if value == 'stopped' and self.relay_state == 'connected':
+                # Power-off invalidates an earlier authenticated probe, even
+                # when monitoring is intentionally paused.
+                self.relay_state = 'unknown'
+                self.states['relay'] = 'stopped'
         self._changed('Host state', previous, value, 'provider')
 
     def host_value(self):

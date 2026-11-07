@@ -41,7 +41,7 @@ class CodespacesProvider:
 
     def status(self):
         try:
-            state = json.loads(self.run([self.cli, 'api', '--method', 'GET', self.endpoint, '--jq', '{state: .state}'])).get('state')
+            state = json.loads(self.run([self.cli, 'api', '--method', 'GET', self.endpoint, '--jq', '{state: .state}'], timeout=10)).get('state')
         except (ValueError, AttributeError):
             raise ProviderError('host_unavailable') from None
         if not isinstance(state, str) or state not in STATES:
@@ -55,7 +55,14 @@ class CodespacesProvider:
                 raise ProviderError('operation_cancelled')
             if time.monotonic() >= deadline:
                 raise ProviderError('host_stop_timeout' if wanted == 'stopped' else 'host_unavailable')
-            state = self.status()
+            try:
+                state = self.status()
+            except ProviderError as error:
+                if str(error) not in ('command_failed', 'command_timeout'):
+                    raise
+                # The provider API can be temporarily unavailable during a
+                # power transition. An unsuccessful read is not a host state.
+                continue
             if state == wanted:
                 return {'host_state': state}
 
@@ -81,8 +88,14 @@ class CodespacesProvider:
             if method == 'host.wake' and state == 'stopped':
                 self.run([self.cli, 'api', '--method', 'POST', self.endpoint + '/start', '--silent'])
             elif method == 'host.stop' and state != 'stopping':
-                self.run([self.cli, 'api', '--method', 'POST', self.endpoint + '/stop', '--silent'])
-            return self.wait(wanted)
+                try:
+                    self.run([self.cli, 'api', '--method', 'POST', self.endpoint + '/stop', '--silent'], timeout=15)
+                except ProviderError as error:
+                    if str(error) not in ('command_failed', 'command_timeout'):
+                        raise
+                    # POST may have been accepted before gh lost its response.
+                    # Never send it twice; confirm actual power state instead.
+            return self.wait(wanted, timeout=80 if method == 'host.stop' else 120)
         if method in ('relay.ensure', 'relay.restart'):
             state = self.status()
             if state == 'stopped':

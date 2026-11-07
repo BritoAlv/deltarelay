@@ -283,6 +283,10 @@ class Supervisor:
             self.state.set_component(name, 'started')
             return
         self.processes.stop(name)
+        if name == 'tunnel':
+            # The last relay probe was through the old transport. Neither the
+            # relay nor the tunnel can remain verified after it is stopped.
+            self.state.record_relay('unknown')
         self.start_component(name)
 
     @component_step
@@ -294,8 +298,12 @@ class Supervisor:
             self._run(spec['stop_command'], env=spec.get('env'))
             # Completion is not independent proof that the service stopped.
             self.state.set_component(name, 'unknown')
+            if name == 'tunnel':
+                self.state.record_relay('unknown')
             return
         self.processes.stop(name)
+        if name == 'tunnel':
+            self.state.record_relay('unknown')
 
     def probe(self):
         result = self.probes.relay()
@@ -585,6 +593,16 @@ class Supervisor:
             # and supervisor restarts. Read-only observations still continue.
             intent = self.state.intent_copy()
             if intent['system'] == 'stopped':
+                # Pausing recovery must not pause read-only power observations.
+                # Never use the old host state as proof that a stopped system
+                # actually stopped its VPS (or stayed running).
+                if self.provider is not None and self.policy.provider_due() and self.policy.host_status_due():
+                    try:
+                        self.state.set_host_state(self.provider_call('status')['host_state'])
+                        self.policy.provider_ok(self.clock() + 15)
+                    except ControlError as error:
+                        self.state.set_host_state('unknown')
+                        self.policy.provider_failed(str(error), str(error) in PERMANENT)
                 self.state.update_recovery(phase='system_stopped', next_retry_at=None)
                 return
             # Local service repair is independent of remote management failures.

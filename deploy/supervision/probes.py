@@ -182,10 +182,12 @@ class RelayProbe:
             self.log('error', f'HTTP HEAD internet: {type(error.reason).__name__}: {error.reason}')
             # A certificate/interception failure is not "no internet"; it is a
             # separate TLS problem. DNS, routing, and connection failures are.
+            if isinstance(error.reason, TimeoutError):
+                return 'unknown'  # A slow endpoint is not proof of no internet.
             return 'connected' if isinstance(error.reason, ssl.SSLCertVerificationError) else 'unreachable'
         except ssl.SSLError as error:
             self.log('error', f'HTTP HEAD internet: {type(error).__name__}: {error}; TLS response confirms network path')
             return 'connected'
         except (TimeoutError, OSError) as error:
             self.log('error', f'HTTP HEAD internet: {type(error).__name__}: {error}')
-            return 'unreachable'
+            return 'unknown' if isinstance(error, TimeoutError) else 'unreachable'

@@ -67,6 +67,25 @@ class CodespacesProviderTest(unittest.TestCase):
                     with self.assertRaisesRegex(ProviderError, '^' + error + '$'):
                         self.provider.call('host.stop')
 
+    def test_stop_confirms_state_after_lost_post_response_without_repeating_post(self):
+        for error in ('command_timeout', 'command_failed'):
+            with self.subTest(error=error):
+                self.run.reset_mock()
+                self.run.side_effect = [b'{"state":"Available"}', ProviderError(error),
+                                        b'{"state":"ShuttingDown"}', b'{"state":"Shutdown"}']
+                self.assertEqual(self.provider.call('host.stop'), {'host_state': 'stopped'})
+                posts = [call for call in self.run.call_args_list if 'POST' in call.args[0]]
+                self.assertEqual(len(posts), 1)
+                self.assertLess(posts[0].kwargs['timeout'], 30)
+
+    def test_stop_does_not_claim_success_if_host_stays_running(self):
+        self.run.side_effect = [b'{"state":"Available"}', ProviderError('command_failed'),
+                                b'{"state":"Available"}']
+        with patch('providers.codespaces.time.monotonic', side_effect=[0, 1, 81]):
+            with self.assertRaisesRegex(ProviderError, '^host_stop_timeout$'):
+                self.provider.call('host.stop')
+        self.assertEqual(sum('POST' in call.args[0] for call in self.run.call_args_list), 1)
+
     def test_ssh_failures_and_changed_identity_fail_closed(self):
         for error, wanted in (('command_failed', 'relay_recovery_failed'), ('command_timeout', 'relay_ssh_timeout')):
             self.run.side_effect = [b'{"state":"Available"}', ProviderError(error)]

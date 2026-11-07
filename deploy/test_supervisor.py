@@ -150,9 +150,11 @@ class SupervisorTest(unittest.TestCase):
                 return urllib.error.URLError(socket.gaierror(-3, 'Temporary failure in name resolution'))
             return None
 
-        for kind, want in [('online', 'connected'), ('offline', 'unreachable')]:
+        for kind, want in [('online', 'connected'), ('offline', 'unreachable'), ('slow', 'unknown')]:
             error = internet_error(kind)
             def open_(request, timeout=0, error=error):
+                if kind == 'slow':
+                    raise TimeoutError('probe endpoint slow')
                 if error:
                     raise error
                 return Response()
@@ -500,6 +502,51 @@ class SupervisorTest(unittest.TestCase):
         self.assertIsNone(subject.processes.children['gateway'].poll())
         self.assertNotEqual(subject.state.host_value(), 'stopped')
         self.assertEqual(self.supervisor().state.settings_copy(), {'auto_reconnect': False, 'auto_wake': False})
+
+    def test_tunnel_loses_ready_as_soon_as_authenticated_path_fails(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.state.observe('tunnel', control.Observation('running', 'ready', 'Previous authenticated path.'))
+        subject.state.record_relay('connected')
+        def tunnel():
+            return next(node for node in subject.snapshot()['topology']['nodes'] if node['id'] == 'tunnel')
+        self.assertEqual(tunnel()['readiness'], 'ready')
+        subject.state.record_relay('unreachable')
+        self.assertEqual((tunnel()['lifecycle'], tunnel()['readiness']), ('running', 'unknown'))
+        subject.state.observe('tunnel', control.Observation('stopped', 'ready', 'Stale observation.'))
+        self.assertEqual(tunnel()['readiness'], 'not_ready')
+
+    def test_stopping_tunnel_invalidates_relay_verification(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.start_component('tunnel')
+        self.addCleanup(self.cleanup_child, subject.processes.children['tunnel'])
+        subject.state.observe('tunnel', control.Observation('running', 'ready', 'Old path.'))
+        subject.state.record_relay('connected')
+        subject.stop_component('tunnel')
+        self.assertEqual(subject.state.relay_value(), 'unknown')
+        nodes = {node['id']: node for node in subject.snapshot()['topology']['nodes']}
+        self.assertNotEqual(nodes['relay']['readiness'], 'ready')
+        self.assertNotEqual(nodes['tunnel']['readiness'], 'ready')
+
+    def test_stopped_system_refreshes_host_state_without_recovery(self):
+        subject = self.supervisor()
+        intent = subject.state.intent_copy()
+        intent['system'] = 'stopped'
+        subject.persist_intent(intent)
+        subject.state.set_host_state('running')
+        subject.state.record_relay('connected')
+        with patch.object(subject, 'provider_call', return_value={'host_state': 'stopped'}) as provider, \
+                patch.object(subject, 'recover') as recover:
+            subject.tick()
+        provider.assert_called_once_with('status')
+        recover.assert_not_called()
+        self.assertEqual(subject.snapshot()['remote']['host_state'], 'stopped')
+        self.assertNotEqual(subject.snapshot()['relay_state'], 'connected')
+        with patch.object(subject, 'provider_call', side_effect=control.ControlError('provider_timeout')), \
+                patch.object(subject.policy, 'host_status_due', return_value=True):
+            subject.tick()
+        self.assertEqual(subject.snapshot()['remote']['host_state'], 'unknown')
 
     def test_remote_stop_wait_is_bounded_and_cancellable(self):
         for cancelled, wanted in ((False, 'host_stop_timeout'), (True, 'operation_cancelled')):

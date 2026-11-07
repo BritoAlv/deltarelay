@@ -110,11 +110,19 @@ def snapshot(state):
             else:
                 label = 'Encrypted tunnel'
             if state.relay_state == 'connected':
-                readiness = 'ready'
-                detail = 'Authenticated relay traffic confirms the transport path.'
-                checked = state.recovery['last_connected_at']
+                if lifecycle == 'running':
+                    readiness = 'ready'
+                    detail = 'Authenticated relay traffic confirms the transport path.'
+                    checked = state.recovery['last_connected_at']
+                else:
+                    readiness = 'not_ready' if lifecycle == 'stopped' else 'unknown'
             elif lifecycle == 'running':
+                # A previous successful observation is not evidence for the
+                # current path after an outage or an unverified tunnel rebuild.
+                readiness = 'unknown'
                 detail = 'Process exists; end-to-end connectivity is not confirmed.'
+            else:
+                readiness = 'not_ready' if lifecycle == 'stopped' else 'unknown'
         elif name == 'supervisor':
             lifecycle, readiness, checked = 'running', 'ready', supervisor_state.stamp()
             detail = 'Background controller. Stays running with the dashboard after system shutdown.'
