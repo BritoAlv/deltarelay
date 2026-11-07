@@ -1,6 +1,6 @@
 import { connectionState, controlError, countdown, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../../lib/system.js"
-import { nodePresentation, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
-import { edgePath } from "../../lib/topology-layout.js"
+import { edgeChannel, nodePresentation, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
+import { edgePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
 import { escapeHtml as escape } from "../../lib/html.js"
 import { requiredById } from "../dom.js"
 
@@ -28,6 +28,8 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   const nodeActions = requiredById(root, "node-actions")
   const edges = requiredById(root, "map-edges")
   const management = requiredById<HTMLInputElement>(root, "map-management")
+  const transportHeading = requiredById(root, "map-boundary-tunnel")
+  const transportOutline = root.querySelector<SVGRectElement>('[data-map-group="tunnel"]')!
   const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-node-id]")]
   const setText = (id: string, value: string) => {
     const element = requiredById(root, id)
@@ -59,10 +61,12 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
 
   function renderInspector(node: TopologyNode | undefined, disabled: boolean) {
     setText("node-inspector-title", node?.label ?? "Waiting for component contracts")
-    setText("node-inspector-status", node ? `Process: ${node.lifecycle.replaceAll("_", " ")} · Readiness: ${node.readiness.replaceAll("_", " ")}` : "An updated supervisor publishes the complete topology and supported actions.")
+    setText("node-inspector-status", node ? `State: ${node.lifecycle.replaceAll("_", " ")} · Readiness: ${node.readiness.replaceAll("_", " ")}` : "An updated supervisor publishes the complete topology and supported actions.")
     setText("node-inspector-detail", node?.detail ?? "No component state or connectivity will be invented while the supervisor is unavailable.")
     const meta = requiredById(root, "node-inspector-meta")
-    meta.innerHTML = node ? `<dt>Owner</dt><dd>${escape(node.owner.replaceAll("_", " "))}</dd><dt>Desired state</dt><dd>${escape(node.desired)}</dd><dt>Last checked</dt><dd>${escape(node.checked_at ? new Date(node.checked_at).toLocaleTimeString() : "Not independently checked")}</dd>` : ""
+    const boundary = node?.id === "tunnel" ? transportBoundary(node) : mapBoundaries.find((item) => item.members.includes(selected))
+    const boundaryLabel = boundary ? `${boundary.label} · ${boundary.title}` : "HOST · Remote machine (not a process)"
+    meta.innerHTML = node ? `<dt>Boundary</dt><dd>${escape(boundaryLabel)}</dd><dt>Owner</dt><dd>${escape(node.owner.replaceAll("_", " "))}</dd><dt>Desired state</dt><dd>${escape(node.desired)}</dd><dt>Last checked</dt><dd>${escape(node.checked_at ? new Date(node.checked_at).toLocaleTimeString() : "Not independently checked")}</dd>` : ""
     const actions = node?.actions ?? []
     const stopped = system?.topology?.intent.system === "stopped"
     const signature = JSON.stringify([selected, actions, disabled, stopped, node?.lifecycle])
@@ -94,11 +98,21 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     }
     const connections = requiredById(root, "node-connections")
     const related = system?.topology?.edges.filter((edge) => edge.source === selected || edge.target === selected) ?? []
-    connections.innerHTML = related.length ? `<h4>Connections</h4>${related.map((edge) => `<p><strong>${escape(edge.source.replaceAll("_", " "))} → ${escape(edge.target.replaceAll("_", " "))}</strong><span>${escape(edge.protocol)} · ${stale ? "stale" : escape(edge.state.replaceAll("_", " "))}</span></p>`).join("")}` : ""
+    connections.innerHTML = related.length ? `<h4>Connections</h4>${related.map((edge) => `<p><strong>${escape(edge.source.replaceAll("_", " "))} → ${escape(edge.target.replaceAll("_", " "))}</strong><span>${edgeChannel(edge) === "request" ? "Model request flow" : "Checks / recovery / management"} · ${escape(edge.protocol)} · ${stale ? "stale" : escape(edge.state.replaceAll("_", " "))}</span></p>`).join("")}` : ""
   }
 
   function render() {
     const topology = system?.topology
+    const transport = transportBoundary(topology?.nodes.find((node) => node.id === "tunnel"))
+    for (const element of [transportOutline, transportHeading]) {
+      element.classList.remove("map-process", "map-path", "map-transport")
+      element.classList.add(`map-${transport.kind}`)
+      element.setAttribute("data-boundary-kind", transport.kind)
+    }
+    transportHeading.setAttribute("aria-label", `${transport.label} · ${transport.title}`)
+    transportHeading.querySelector("[data-boundary-label]")!.textContent = transport.label
+    transportHeading.querySelector("[data-boundary-title]")!.textContent = transport.title
+    setText("map-boundary-tunnel-description", `${transport.label} · ${transport.title}. ${transport.detail}`)
     const disabled = stale || pending || !system?.managed || Boolean(system?.recovery.busy) || topology?.run?.status === "running"
     const stopped = topology?.intent.system === "stopped"
     const canWake = supportsRemote(system, "host.wake")
@@ -159,8 +173,12 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       button.setAttribute("aria-pressed", String(button.dataset.nodeId === selected))
       const label = button.querySelector<HTMLElement>("[data-node-label]")!
       if (node && label.textContent !== node.label) label.textContent = node.label
+      if (button.dataset.nodeId === "tunnel") {
+        if (!node) label.textContent = transport.title
+        button.querySelector(".map-node-role")!.textContent = transport.kind === "process" ? "Process" : transport.kind === "path" ? "Path" : "Transport"
+      }
       button.querySelector<HTMLElement>("[data-node-status]")!.textContent = presentation.label
-      button.setAttribute("aria-label", `${label.textContent}: ${presentation.label}`)
+      button.setAttribute("aria-label", `${label.textContent} (${button.querySelector(".map-node-role")?.textContent}): ${presentation.label}`)
     }
     const nextEdges = JSON.stringify([topology?.edges, stale, selected, management.checked])
     if (nextEdges !== edgeSignature) {
@@ -170,12 +188,14 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
         if (edge.relation === "manages" && !management.checked && ![edge.source, edge.target].includes(selected)) continue
         // This page fetching fresh status is direct evidence for its own edge.
         const state = !stale && edge.id === "dashboard_ui_dashboard" ? "ready" : stale ? "unknown" : edge.state
+        const channel = edgeChannel(edge)
         const path = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path")
         path.setAttribute("d", edgePath(edge.source, edge.target))
-        path.setAttribute("class", `map-edge ${edge.relation} ${state}${[edge.source, edge.target].includes(selected) ? " selected" : ""}`)
+        path.setAttribute("data-edge-id", edge.id)
+        path.setAttribute("class", `map-edge ${channel} ${edge.relation} ${state}${[edge.source, edge.target].includes(selected) ? " selected" : ""}`)
         path.setAttribute("marker-end", "url(#map-arrow)")
         const title = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title")
-        title.textContent = `${edge.source} → ${edge.target}: ${edge.protocol} · ${state.replaceAll("_", " ")}`
+        title.textContent = `${channel === "request" ? "Model request flow" : "Checks / recovery / management"} · ${edge.source} → ${edge.target}: ${edge.protocol} · ${state.replaceAll("_", " ")}`
         path.append(title)
         edges.append(path)
       }

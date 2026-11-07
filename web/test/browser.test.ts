@@ -11,6 +11,7 @@ import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import type { SetupStatus } from "../src/lib/setup.js"
 import { isTopology, type RecoveryRun } from "../src/lib/topology.js"
+import { mapNodes, nodeHeight, nodeWidth } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
@@ -714,6 +715,97 @@ test("pausing the health page freezes both the dashboard and supervisor schedule
   await page.close()
 })
 
+test("map prominently encloses every process, its modules and owned files, without calling hosts or services processes", async () => {
+  const page = openPage("controls")
+  const doc = page.document
+  const role = (id: string) => doc.querySelector(`[data-node-id="${id}"] .map-node-role`)?.textContent
+  assert.equal(role("opencode"), "Process")
+  assert.equal(role("plugin"), "Module")
+  assert.equal(role("relay"), "Process")
+  assert.equal(role("storage"), "Files")
+  assert.equal(role("provider"), "External API")
+  assert.match(doc.querySelector(".topology-note")?.textContent ?? "", /Solid PROCESS boxes.*Dashed boxes.*not processes/)
+  const contains = (groupID: string, nodeID: string) => {
+    const group = doc.querySelector(`[data-map-group="${groupID}"]`)!
+    const node = mapNodes.find((item) => item.id === nodeID)!
+    const x = Number(group.getAttribute("x")), y = Number(group.getAttribute("y"))
+    return node.x >= x && node.y >= y && node.x + nodeWidth <= x + Number(group.getAttribute("width")) && node.y + nodeHeight <= y + Number(group.getAttribute("height"))
+  }
+  for (const [id, members] of Object.entries({ desktop: ["desktop"], opencode: ["opencode", "plugin"], gateway: ["gateway"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
+    const outline = doc.querySelector(`[data-map-group="${id}"]`)!
+    assert.equal(outline.getAttribute("data-boundary-kind"), "process", id)
+    assert.ok(outline.classList.contains("map-process"), `${id}: prominent process outline`)
+    assert.match(doc.querySelector(`#map-boundary-${id} [data-boundary-label]`)?.textContent ?? "", /PROCESS/, id)
+    assert.deepEqual(mapNodes.filter((node) => contains(id, node.id)).map((node) => node.id), members, id)
+  }
+  for (const id of ["remote", "network", "provider", "tunnel"]) {
+    assert.notEqual(doc.querySelector(`[data-map-group="${id}"]`)?.getAttribute("data-boundary-kind"), "process", `${id}: no invented process`)
+  }
+  assert.equal(contains("opencode", "plugin"), true)
+  assert.equal(contains("opencode", "gateway"), false)
+  assert.equal(contains("relay", "relay"), true)
+  assert.equal(contains("relay", "storage"), true)
+  assert.equal(contains("remote", "relay"), true)
+  assert.equal(contains("remote", "storage"), true)
+  assert.equal(contains("remote", "provider"), false)
+  assert.equal(contains("provider", "provider"), true)
+  assert.match(doc.querySelector("#map-boundary-opencode-description")?.textContent ?? "", /plugin is loaded inside.*not a separate process/)
+  assert.match(doc.querySelector("#map-boundary-relay-description")?.textContent ?? "", /persistent files.*survive process restarts/)
+  assert.match(doc.querySelector("#map-boundary-remote_provider-description")?.textContent ?? "", /invoked on demand.*not a permanently running server/)
+  assert.match(doc.querySelector(".map-boundary-note")?.textContent ?? "", /files survive restarts/)
+  for (const node of mapNodes) {
+    const description = doc.querySelector(`[data-node-id="${node.id}"]`)?.getAttribute("aria-describedby")
+    assert.ok(description && doc.getElementById(description), `${node.id}: accessible boundary description`)
+  }
+  await page.close()
+})
+
+test("transport boundary switches between a tunnel process and a direct HTTPS path using supervisor evidence", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  const tunnel = status.topology!.nodes.find((node) => node.id === "tunnel")!
+  page.setFetch((url) => url === "/api/system" ? json(status) : json(setupStatus()))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  const doc = page.document
+  const outline = doc.querySelector('[data-map-group="tunnel"]')!
+  const heading = doc.querySelector("#map-boundary-tunnel")!
+  const role = doc.querySelector('[data-node-id="tunnel"] .map-node-role')!
+  await system.refresh()
+  assert.equal(outline.getAttribute("data-boundary-kind"), "process")
+  assert.ok(outline.classList.contains("map-process"))
+  assert.match(heading.textContent ?? "", /PROCESS · LOCAL TUNNEL/)
+  assert.equal(role.textContent, "Process")
+  tunnel.managed = false
+  tunnel.lifecycle = "stopped"
+  tunnel.readiness = "not_ready"
+  tunnel.actions = []
+  await system.refresh()
+  assert.equal(outline.getAttribute("data-boundary-kind"), "process", "stopped/unmanaged tunnels remain processes")
+  tunnel.label = "Direct HTTPS / transport"
+  tunnel.lifecycle = "unknown"
+  await system.refresh()
+  assert.equal(outline.getAttribute("data-boundary-kind"), "path")
+  assert.equal(outline.classList.contains("map-process"), false)
+  assert.ok(outline.classList.contains("map-path"))
+  assert.equal(heading.getAttribute("data-boundary-kind"), "path")
+  assert.equal(heading.classList.contains("map-process"), false)
+  assert.match(heading.querySelector("[data-boundary-label]")?.textContent ?? "", /PATH · NOT A PROCESS/)
+  assert.equal(heading.querySelector("[data-boundary-title]")?.textContent, "Direct HTTPS")
+  assert.equal(role.textContent, "Path")
+  assert.match(doc.querySelector("#map-boundary-tunnel-description")?.textContent ?? "", /no separate tunnel process/)
+  doc.querySelector<HTMLButtonElement>('[data-node-id="tunnel"]')!.click()
+  assert.match(doc.querySelector("#node-inspector-meta")?.textContent ?? "", /BoundaryPATH · NOT A PROCESS · Direct HTTPS/)
+  assert.doesNotMatch(doc.querySelector("#node-inspector-status")?.textContent ?? "", /Process:/)
+  delete status.topology
+  await system.refresh()
+  assert.equal(outline.getAttribute("data-boundary-kind"), "transport")
+  assert.equal(outline.classList.contains("map-path"), false)
+  assert.match(heading.querySelector("[data-boundary-label]")?.textContent ?? "", /MODE UNKNOWN/)
+  assert.equal(role.textContent, "Transport")
+  system.destroy()
+  await page.close()
+})
+
 test("controls show the full map, not service lists or logs, and poll only the supervisor", async () => {
   const page = openPage("controls")
   const status = systemStatus()
@@ -731,10 +823,48 @@ test("controls show the full map, not service lists or logs, and poll only the s
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
   assert.equal(doc.querySelectorAll("[data-node-id]").length, 14)
+  assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Cache \/ saved responses \(Files\): Not verified/)
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
   assert.ok(doc.querySelector("#auth-countdown"))
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup"])
+  doc.querySelector<HTMLButtonElement>('[data-node-id="plugin"]')!.click()
+  assert.match(doc.querySelector("#node-inspector-meta")?.textContent ?? "", /BoundaryPROCESS · OpenCode server/)
+  doc.querySelector<HTMLButtonElement>('[data-node-id="storage"]')!.click()
+  assert.match(doc.querySelector("#node-inspector-meta")?.textContent ?? "", /BoundaryPROCESS \+ OWNED FILES · DeltaRelay relay/)
+  assert.doesNotMatch(doc.querySelector("#node-inspector-status")?.textContent ?? "", /Process:/, "files are not called processes")
+  system.destroy()
+  await page.close()
+})
+
+test("map colors distinguish request arrows from checks and management without hiding readiness", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  page.setFetch((url) => url === "/api/system" ? json(status) : json(setupStatus()))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  assert.match(doc.querySelector(".topology-legend")?.textContent ?? "", /Model request flow.*Checks \/ recovery \/ management/)
+  const edge = (id: string) => doc.querySelector(`[data-edge-id="${id}"]`)
+  assert.ok(edge("desktop_opencode")?.classList.contains("request"))
+  assert.ok(edge("opencode_plugin")?.classList.contains("request"))
+  assert.ok(edge("relay_storage")?.classList.contains("request"))
+  assert.ok(edge("relay_provider")?.classList.contains("request"))
+  assert.ok(edge("network_tunnel")?.classList.contains("control"))
+  assert.ok(edge("remote_relay")?.classList.contains("control"))
+  assert.ok(edge("dashboard_ui_dashboard")?.classList.contains("control"), "dashboard traffic is not model traffic")
+  assert.equal(edge("dashboard_supervisor"), null, "unselected management connections stay hidden")
+  const management = doc.querySelector<HTMLInputElement>("#map-management")!
+  management.checked = true
+  page.fire(management, "change")
+  assert.ok(edge("dashboard_supervisor")?.classList.contains("control"))
+  assert.ok(edge("supervisor_gateway")?.classList.contains("control"))
+  assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /Model request flow.*unknown/)
+  status.topology!.edges.find((item) => item.id === "gateway_tunnel")!.state = "blocked"
+  await system.refresh()
+  assert.ok(edge("gateway_tunnel")?.classList.contains("request"), "a blocked request link retains its flow color")
+  assert.ok(edge("gateway_tunnel")?.classList.contains("blocked"), "the link still exposes readiness")
+  assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /blocked/)
   system.destroy()
   await page.close()
 })

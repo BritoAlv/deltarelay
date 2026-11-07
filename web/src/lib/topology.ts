@@ -30,6 +30,19 @@ export interface TopologyEdge {
   state: Readiness
 }
 
+// The supervisor's "traffic" relation includes dashboard control traffic, while
+// provider hooks and relay storage are part of request handling without being
+// separate HTTP hops. Classify the actual request path explicitly; route/host
+// prerequisites and control-plane edges describe checks or management instead.
+const requestPathEdges = new Set([
+  "desktop_opencode", "opencode_plugin", "plugin_gateway", "gateway_tunnel",
+  "tunnel_relay", "relay_storage", "relay_provider",
+])
+
+export function edgeChannel(edge: TopologyEdge): "request" | "control" {
+  return requestPathEdges.has(edge.id) ? "request" : "control"
+}
+
 export interface RecoveryStep {
   component: NodeID
   action: string

@@ -1,26 +1,41 @@
 ---
 import Icon from "./Icon.astro"
-import { mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
+import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
 ---
 <article class="panel topology-panel" aria-labelledby="topology-title">
   <div class="control-heading"><div><h3 id="topology-title">System connection map</h3><p class="control-detail">Automatic recovery runs in the background—even with this page closed.</p></div><span id="control-connection" class="status-pill neutral">Checking…</span></div>
   <p id="recovery-status" role="status" aria-live="polite">Waiting for the independent local supervisor…</p>
   <p id="network-detail" class="control-detail">Interface, route and DNS changes are monitored automatically.</p>
   <p id="recovery-detail" class="control-detail"></p>
-  <div class="topology-legend"><span><i class="good"></i>Verified</span><span><i class="working"></i>Working</span><span><i class="warning"></i>Not ready</span><span><i class="neutral"></i>Unknown / stopped</span><label><input id="map-management" type="checkbox" /> Management connections</label></div>
+  <div class="topology-legend">
+    <span><svg class="legend-arrow request" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Model request flow</span>
+    <span><svg class="legend-arrow control" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Checks / recovery / management</span>
+    <span><i class="good"></i>Verified</span><span><i class="working"></i>Working</span><span><i class="warning"></i>Not ready</span><span><i class="neutral"></i>Unknown / stopped</span>
+    <label><input id="map-management" type="checkbox" /> Management connections</label>
+  </div>
+  <p class="control-detail topology-note"><strong>Solid PROCESS boxes enclose each process and its components.</strong> Dashed boxes are hosts, networks, paths or external services—not processes. Relay-owned files survive process restarts. Arrow colors show connection roles, not live activity or readiness.</p>
   <div class="topology-workspace">
     <div class="topology-viewport" tabindex="0" aria-label="System diagram. Select a component to inspect it. Scroll horizontally on small screens.">
       <div class="topology-canvas" style={`aspect-ratio:${mapWidth}/${mapHeight}`}>
-        <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Observed connections between system components">
+        <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Process boundaries, owned components, and observed connections. Dashed boundaries are not processes.">
           <defs><marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
-          <rect class="map-region" x="15" y="25" width="925" height="180" rx="12" /><text class="map-region-label" x="35" y="50">YOUR COMPUTER · MODEL REQUEST PATH</text>
-          <rect class="map-region" x="475" y="235" width="465" height="180" rx="12" /><text class="map-region-label" x="495" y="260">NETWORK · ETHERNET / WI-FI / VPN</text>
-          <rect class="map-region" x="945" y="25" width="230" height="605" rx="12" /><text class="map-region-label" x="965" y="50">REMOTE HOST</text>
-          <rect class="map-region" x="15" y="495" width="685" height="365" rx="12" /><text class="map-region-label" x="35" y="520">LOCAL CONTROL PLANE · ALWAYS AVAILABLE</text>
+          {mapRegions.map((region) => <g>
+            <desc id={`map-boundary-${region.id}-description`}>{region.label}. This is a host/location boundary, not a process.</desc>
+            <rect class="map-region" data-map-group={region.id} data-boundary-kind="host" x={region.x} y={region.y} width={region.width} height={region.height} rx="12" />
+            <text class="map-region-label" x={region.x + 20} y={region.y + 28}>{region.label}</text>
+          </g>)}
+          {mapBoundaries.map((boundary) => <rect class={`map-boundary-outline map-${boundary.kind}`} data-map-group={boundary.id} data-boundary-kind={boundary.kind} x={boundary.x} y={boundary.y} width={boundary.width} height={boundary.height} rx="8" />)}
           <g id="map-edges"></g>
+          {mapBoundaries.map((boundary) => <g id={`map-boundary-${boundary.id}`} class={`map-boundary-heading map-${boundary.kind}`} data-boundary-kind={boundary.kind} aria-label={`${boundary.label} · ${boundary.title}`}>
+            <desc id={`map-boundary-${boundary.id}-description`}>{boundary.label} · {boundary.title}. {boundary.detail}</desc>
+            <rect x={boundary.x + 2} y={boundary.y + 2} width={boundary.width - 4} height="53" rx="6" />
+            <text class="map-boundary-kind" data-boundary-label x={boundary.x + 16} y={boundary.y + 22}>{boundary.label}</text>
+            <text class="map-boundary-title" data-boundary-title x={boundary.x + 16} y={boundary.y + 44}>{boundary.title}</text>
+            {boundary.note && <text class="map-boundary-note" x={boundary.x + 16} y={boundary.y + boundary.height - 16}>{boundary.note}</text>}
+          </g>)}
         </svg>
-        {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
-          <span class="map-node-top"><Icon name={node.icon} size={22} /><span class="map-node-spinner" aria-hidden="true"></span></span>
+        {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" aria-describedby={`map-boundary-${mapBoundaries.find((boundary) => boundary.members.includes(node.id))?.id ?? "remote"}-description`} style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
+          <span class="map-node-top"><Icon name={node.icon} size={22} /><span class="map-node-role">{node.role}</span><span class="map-node-spinner" aria-hidden="true"></span></span>
           <strong data-node-label>{node.label}</strong><span data-node-status>Not verified</span>
         </button>)}
       </div>

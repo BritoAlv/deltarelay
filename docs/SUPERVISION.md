@@ -107,11 +107,22 @@ reports an unrecognized occupied port rather than replacing its owner.
 ## Component topology and recovery contract
 
 System controls renders the whole deployment as a live map. The request path is
-Desktop → OpenCode server → DeltaRelay plugin → local gateway → transport →
-Internet/interface path → remote host → relay → storage/provider. A separate
-control path shows the dashboard browser, dashboard service, supervisor, and
-remote-host adapter. Nodes and their connections are reported independently:
+Desktop → OpenCode server (loaded DeltaRelay plugin) → local gateway → transport
+→ relay → external model provider. The map also shows network/host prerequisites
+and relay-owned storage. A separate control path shows the dashboard browser,
+dashboard service, supervisor, and remote-host adapter. Nodes and their connections
+are reported independently:
 two running processes are never presented as proof that their traffic path works.
+
+Solid **PROCESS** boxes enclose each process and its components, in both the
+request and control paths. The loaded plugin belongs to the OpenCode server;
+cache and saved responses are relay-owned persistent files that survive process
+restarts. The remote-host adapter is an on-demand executable, not a permanent
+server. Dashed boundaries identify hosts, networking, direct HTTPS paths, and
+external services rather than processes. A configured tunnel gets a process
+boundary; direct HTTPS does not. The model provider stays outside the relay and
+remote-host boundaries. Arrow colors distinguish model-request flow from checks,
+recovery, and management, independently of readiness or live request activity.
 
 Each node publishes its own desired state, observed lifecycle, readiness,
 current activity, evidence timestamp, and supported actions. The map supports
