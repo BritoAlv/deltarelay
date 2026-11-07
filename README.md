@@ -302,3 +302,20 @@ Installed-OpenCode tests (`make opencode-test`) and performance comparisons
 - [Protocol, storage, limits, and recovery](docs/PROTOCOL.md)
 - [Remote-host providers](docs/REMOTE_PROVIDERS.md)
 - [Recovery acceptance testing](docs/RECOVERY_TESTING.md)
+
+## Limitations
+
+### Client integration
+
+DeltaRelay is currently designed for **OpenCode V2, including OpenCode Desktop**.
+The installation instructions and plugin integration target these clients.
+
+The relay's underlying protocol is provider-independent, but that does **not**
+make it a drop-in replacement for every coding agent or chat interface. Clients
+such as **Claude Code, Codex CLI, and Pi** could potentially use the same approach,
+but would need a compatible integration that routes their requests through
+DeltaRelay and correctly handles response delivery, authentication, streaming,
+and recovery.
+
+**Compatibility with these other clients is not currently established.** Do not
+assume that changing their provider URL alone is sufficient.
