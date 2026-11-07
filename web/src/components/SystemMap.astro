@@ -51,9 +51,9 @@ import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, no
       <div id="node-connections" class="node-connections"></div>
     </aside>
   </div>
-  <details id="recovery-progress" class="recovery-progress"><summary>Recovery steps</summary><ol id="recovery-steps"><li>No recovery operation has been observed yet.</li></ol></details>
-  <details class="recovery-options"><summary>Automatic recovery settings</summary><div class="control-settings">
-    <label><input id="auto-reconnect" type="checkbox" disabled /> Automatic recovery</label>
-    <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" disabled /> Allow automatic remote-host wake (may incur compute charges)</label>
-  </div><p class="control-detail">Network changes trigger checks, not unconditional restarts. Intentionally stopped components stay stopped.</p></details>
+  <details id="recovery-progress" class="recovery-progress" open><summary>Recovery steps</summary><div class="recovery-content"><p class="control-detail">Follow the latest recovery operation and each component’s progress.</p><ol id="recovery-steps"><li class="recovery-empty">No recovery operation has been observed yet.</li></ol></div></details>
+  <details class="recovery-options" open><summary>Automatic recovery settings</summary><div class="recovery-content"><div class="control-settings">
+    <label><input id="auto-reconnect" type="checkbox" aria-describedby="auto-reconnect-description" disabled /><span><strong>Automatic recovery</strong><span id="auto-reconnect-description" class="setting-description">Check and repair the connection in the background when network conditions change.</span></span></label>
+    <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" aria-describedby="auto-wake-description" disabled /><span><strong>Allow automatic remote-host wake</strong><span id="auto-wake-description" class="setting-description">Wake the existing remote host when recovery needs it. <span class="setting-warning">May incur compute charges.</span></span></span></label>
+  </div><p class="control-detail recovery-note">Network changes trigger checks, not unconditional restarts. Intentionally stopped components stay stopped.</p></div></details>
 </article>

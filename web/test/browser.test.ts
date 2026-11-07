@@ -915,13 +915,19 @@ test("map shows the active recovery step and system shutdown keeps control servi
   assert.equal(tunnel.classList.contains("is-working"), true)
   assert.match(tunnel.textContent ?? "", /recover…/)
   assert.match(doc.querySelector("#recovery-status")?.textContent ?? "", /Encrypted tunnel: recover/)
-  assert.match(doc.querySelector("#recovery-steps")?.textContent ?? "", /tunnel: recover · running/)
+  assert.equal(doc.querySelector("#recovery-progress")?.hasAttribute("open"), true)
+  assert.equal(doc.querySelector(".recovery-options")?.hasAttribute("open"), true)
+  const activeStep = doc.querySelector('#recovery-steps [data-step-state="running"]')!
+  assert.equal(activeStep.querySelector("strong")?.textContent, "Encrypted tunnel")
+  assert.equal(activeStep.querySelector(".status-pill")?.textContent, "Running")
+  assert.equal(activeStep.querySelector(".recovery-step-action")?.textContent, "Recover")
   const shutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
   assert.equal(shutdown.disabled, true, "conflicting lifecycle actions stay disabled during a run")
   run.status = "completed"
   run.steps[0]!.status = "completed"
   status.topology!.nodes.find((node) => node.id === "tunnel")!.activity = "idle"
   await system.refresh()
+  assert.equal(doc.querySelector('#recovery-steps [data-step-state="completed"] .status-pill')?.textContent, "Completed")
   const readyShutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
   assert.equal(readyShutdown.disabled, false)
   page.setConfirm((message) => {
@@ -934,6 +940,38 @@ test("map shows the active recovery step and system shutdown keeps control servi
   assert.deepEqual({ ...action, request_id: undefined }, { component: "all", action: "stop", confirmed: true, request_id: undefined })
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
+  system.destroy()
+  await page.close()
+})
+
+test("controls show expanded recovery sections and compact structured connections", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  page.setFetch(() => json(status))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#recovery-progress")?.hasAttribute("open"), true)
+  assert.equal(doc.querySelector(".recovery-options")?.hasAttribute("open"), true)
+  assert.match(doc.querySelector(".recovery-empty")?.textContent ?? "", /No recovery operation/)
+  assert.match(doc.querySelector("#auto-reconnect-description")?.textContent ?? "", /background/)
+  assert.match(doc.querySelector(".setting-warning")?.textContent ?? "", /compute charges/)
+  doc.querySelector<HTMLButtonElement>('[data-node-id="remote"]')!.click()
+  const connections = doc.querySelector("#node-connections")!
+  assert.equal(connections.querySelector("h4")?.textContent, "Connections")
+  const related = status.topology!.edges.filter((edge) => edge.source === "remote" || edge.target === "remote")
+  assert.ok(related.length > 0)
+  assert.equal(connections.querySelectorAll(".connection-list > .connection-card").length, related.length)
+  assert.ok(connections.querySelector(".connection-heading strong")?.textContent?.includes("→"))
+  assert.ok(connections.querySelector(".status-pill")?.textContent)
+  assert.ok(connections.querySelector(".connection-protocol")?.textContent)
+  const progress = doc.querySelector<HTMLDetailsElement>("#recovery-progress")!
+  progress.open = false
+  await system.refresh()
+  assert.equal(progress.open, false, "polling preserves the user's collapsed state")
+  status.topology!.edges = []
+  await system.refresh()
+  assert.equal(connections.textContent, "", "no orphan heading when there are no connections")
   system.destroy()
   await page.close()
 })

@@ -16,6 +16,11 @@ export interface ControlsFeature {
 }
 
 const actionLabels: Record<ComponentAction, string> = { start: "Start", recover: "Recover", restart: "Restart…", wake: "Wake…", stop: "Shut down…" }
+const readableLabel = (value: string) => {
+  const words = value.replaceAll("_", " ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+const statusTone = (state: string) => state === "completed" || state === "ready" ? "good" : state === "running" ? "active" : ["failed", "blocked", "unreachable"].includes(state) ? "warning" : "neutral"
 
 export function mountControls({ root, onRefresh, onAction }: ControlsOptions): ControlsFeature {
   const startSystem = requiredById<HTMLButtonElement>(root, "start-system")
@@ -98,7 +103,8 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     }
     const connections = requiredById(root, "node-connections")
     const related = system?.topology?.edges.filter((edge) => edge.source === selected || edge.target === selected) ?? []
-    connections.innerHTML = related.length ? `<h4>Connections</h4>${related.map((edge) => `<p><strong>${escape(edge.source.replaceAll("_", " "))} → ${escape(edge.target.replaceAll("_", " "))}</strong><span>${edgeChannel(edge) === "request" ? "Model request flow" : "Checks / recovery / management"} · ${escape(edge.protocol)} · ${stale ? "stale" : escape(edge.state.replaceAll("_", " "))}</span></p>`).join("")}` : ""
+    const componentLabel = (id: string) => system?.topology?.nodes.find((item) => item.id === id)?.label ?? readableLabel(id)
+    connections.innerHTML = related.length ? `<h4>Connections</h4><ul class="connection-list">${related.map((edge) => `<li class="connection-card"><div class="connection-heading"><strong>${escape(componentLabel(edge.source))} → ${escape(componentLabel(edge.target))}</strong><span class="status-pill ${stale ? "neutral" : statusTone(edge.state)}">${stale ? "Stale" : escape(readableLabel(edge.state))}</span></div><p>${edgeChannel(edge) === "request" ? "Model request flow" : "Checks / recovery / management"}</p><p class="connection-protocol">${escape(edge.protocol)}</p></li>`).join("")}</ul>` : ""
   }
 
   function render() {
@@ -147,16 +153,18 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
         list.replaceChildren()
         if (run) {
           const summary = root.ownerDocument.createElement("li")
-          summary.textContent = `${run.trigger} ${run.action} ${run.target} · ${run.status}${run.error ? ` · ${controlError(run.error)}` : ""}`
+          summary.className = "recovery-run"
+          summary.innerHTML = `<div class="recovery-step-heading"><strong>${escape(readableLabel(run.trigger))} ${escape(run.action.replaceAll("_", " "))} · ${escape(readableLabel(run.target))}</strong><span class="status-pill ${statusTone(run.status)}">${escape(readableLabel(run.status))}</span></div>${run.error ? `<p class="recovery-error">${escape(controlError(run.error))}</p>` : ""}`
           list.append(summary)
           for (const step of run.steps) {
             const item = root.ownerDocument.createElement("li")
             item.dataset.stepState = step.status
-            item.textContent = `${topology?.nodes.find((node) => node.id === step.component)?.label ?? step.component}: ${step.action} · ${step.status}${step.error ? ` · ${controlError(step.error)}` : ""}`
+            item.innerHTML = `<div class="recovery-step-heading"><strong>${escape(topology?.nodes.find((node) => node.id === step.component)?.label ?? readableLabel(step.component))}</strong><span class="status-pill ${statusTone(step.status)}">${escape(readableLabel(step.status))}</span></div><p class="recovery-step-action">${escape(readableLabel(step.action))}</p>${step.error ? `<p class="recovery-error">${escape(controlError(step.error))}</p>` : ""}`
             list.append(item)
           }
         } else {
           const item = root.ownerDocument.createElement("li")
+          item.className = "recovery-empty"
           item.textContent = "No recovery operation has been observed yet."
           list.append(item)
         }
