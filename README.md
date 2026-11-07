@@ -1,5 +1,11 @@
 # DeltaRelay
 
+> **Disclaimer — AI-authored project:** All code, documentation, and other
+> repository content are written by AI agents. Setup using this repository is
+> likewise expected to be performed by an AI agent, with human oversight.
+> AI-generated material can contain errors; review commands, configuration, and
+> security implications before authorizing changes or deploying the project.
+
 ## The problem: uploading the same context again and again
 
 Coding assistants send conversation history, source code, and tool output to a
