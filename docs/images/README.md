@@ -4,7 +4,9 @@ These PNGs are cropped captures of the running local DeltaRelay dashboard taken
 on November 7, 2026 (UTC), not mockups or synthetic test data.
 
 - `dashboard-savings.png`: Overview upload-composition and cache-reuse panels,
-  with the **Last 24 hours** range selected. Values are rounded by the dashboard.
+  with the **Last 7 days** range selected. Values are rounded by the dashboard.
+  Aggregated traffic starts November 3; earlier totals are preserved but not
+  plotted, as the visible chart notice explains.
   The chart reports finished requests only and retains its failed/cancelled
   counts. Cache reuse and encoded-upload reduction are different measurements.
 - `dashboard-architecture.png`: System controls connection map, including its

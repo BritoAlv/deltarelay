@@ -17,16 +17,18 @@ The OpenCode V2 integration keeps your UI, files, tools, sessions, and sign-ins
 local. Responses stream back through the relay, with no automatic direct-provider
 fallback.
 
-## 445.3 MiB of request bodies. 14.4 MiB uploaded.
+## 3.3 GiB of request bodies. 78.5 MiB uploaded.
 
-**96.8% less uploaded** in the dashboard's captured 24-hour window below.
+**97.7% less uploaded** in the dashboard's captured **Last 7 days** view below.
 
-![Dashboard upload composition and cache-reuse charts: 445.3 MiB original, 14.4 MiB uploaded, 430.9 MiB saved, and 94.9% cache reuse.](docs/images/dashboard-savings.png)
+![Dashboard seven-day upload composition and cache-reuse charts: 3.3 GiB original, 78.5 MiB uploaded, 3.2 GiB saved, and 96.4% cache reuse.](docs/images/dashboard-savings.png)
 
 Actual local dashboard capture, November 7, 2026 (UTC), with rounded display
-values. The chart reports finished requests only: 595 requests, including
-5 failed and 15 cancelled in that window. **This is an observed sample, not a
-benchmark or a speed guarantee.**
+values. The chart reports finished requests only: 3,297 requests, including
+9 failed and 1,041 cancelled in that window. Aggregated traffic starts November 3;
+earlier totals are preserved but not plotted, so the selected range is not seven
+complete days of plotted history. **This is an observed sample, not a benchmark
+or a speed guarantee.**
 
 Reduction is `1 - encoded upload bytes / original body bytes`. It combines chunk
 reuse and compression, includes upload control metadata, and excludes HTTP
