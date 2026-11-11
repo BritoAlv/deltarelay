@@ -1,4 +1,5 @@
 import { bytes, percentage, savings } from "../../lib/metrics.js"
+import { dataValue } from "../../lib/presentation.js"
 import type { DashboardViewState } from "../../lib/state.js"
 import { requiredById } from "../dom.js"
 
@@ -31,13 +32,13 @@ export function mountStats(root: HTMLElement): StatsFeature {
     const saved = totals.body_bytes - totals.encoded_upload_bytes
     setText("stat-saved", bytes(saved))
     requiredById(root, "stat-saved").classList.toggle("negative", saved < 0)
-    setText("stat-saved-foot", `${bytes(totals.encoded_upload_bytes)} sent of ${bytes(totals.body_bytes)} original`)
+    requiredById(root, "stat-saved-foot").innerHTML = `${dataValue(bytes(totals.encoded_upload_bytes))} sent of ${dataValue(bytes(totals.body_bytes))} original`
     const activeSessions = snapshot.history.sessions.filter((session) => session.active > 0).length
     setText("stat-sessions", integer(snapshot.history.sessions.length))
-    setText("stat-sessions-foot", `${activeSessions} active · ${snapshot.history.evicted_sessions ? `${integer(snapshot.history.evicted_sessions)} older evicted` : "retained history"}`)
+    requiredById(root, "stat-sessions-foot").innerHTML = `${dataValue(activeSessions)} active · ${snapshot.history.evicted_sessions ? `${dataValue(integer(snapshot.history.evicted_sessions))} older evicted` : "retained history"}`
     requiredById<HTMLElement>(root, "active-session-dot").style.opacity = activeSessions ? "1" : ".3"
     setText("stat-requests", integer(totals.requests))
-    setText("stat-requests-foot", `${totals.active} running · ${integer(totals.failed)} failed · ${integer(totals.cancelled)} cancelled`)
+    requiredById(root, "stat-requests-foot").innerHTML = `${dataValue(totals.active)} running · ${dataValue(integer(totals.failed))} failed · ${dataValue(integer(totals.cancelled))} cancelled`
   }
 
   return { render: renderStats }

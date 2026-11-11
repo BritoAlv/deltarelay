@@ -1,5 +1,6 @@
 import { escapeHtml } from "../../lib/html.js"
 import { bytes, percentage } from "../../lib/metrics.js"
+import { dataValue } from "../../lib/presentation.js"
 import {
   compositionSegments,
   customRange,
@@ -82,7 +83,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
 
   function reset(message = "Waiting for local data…"): void {
     for (const id of ["chart-original", "chart-encoded", "chart-saved", "chart-reused", "chart-saved-rate", "chart-reuse-rate", "reuse-value", "reuse-bytes", "uploaded-bytes"]) setText(id, "—")
-    setText("chart-count", "0 requests in this window")
+    requiredById(root, "chart-count").innerHTML = `${dataValue(0)} requests in this window`
     setText("reuse-scope", "Selected range")
     requiredById(root, "chart-saved").classList.remove("negative")
     requiredById(root, "chart-saved-rate").classList.remove("negative")
@@ -141,7 +142,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     setText("chart-reuse-rate", percentage(totals.reuse))
     requiredById(root, "chart-saved").classList.toggle("negative", totals.saved < 0)
     requiredById(root, "chart-saved-rate").classList.toggle("negative", totals.saved < 0)
-    setText("chart-count", `${integer(totals.requests)} requests${totals.failed ? ` · ${integer(totals.failed)} failed` : ""}${totals.cancelled ? ` · ${integer(totals.cancelled)} cancelled` : ""} in this window`)
+    requiredById(root, "chart-count").innerHTML = `${dataValue(integer(totals.requests))} requests${totals.failed ? ` · ${dataValue(integer(totals.failed))} failed` : ""}${totals.cancelled ? ` · ${dataValue(integer(totals.cancelled))} cancelled` : ""} in this window`
     setText("reuse-value", percentage(totals.reuse))
     setText("reuse-bytes", bytes(totals.reused))
     setText("uploaded-bytes", bytes(totals.uploadedChunkBytes))
@@ -173,12 +174,12 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   function updateNotice(data: TrafficData): void {
     const messages: string[] = []
     if (data.truncated && data.coverageStart !== null) {
-      messages.push(`Aggregated traffic starts ${formatDate(data.coverageStart)}; earlier totals are preserved but not plotted.`)
+      messages.push(`Aggregated traffic starts ${dataValue(formatDate(data.coverageStart))}; earlier totals are preserved but not plotted.`)
     }
     if (data.totals.requests === 0) messages.push("No finished requests in this range. Widen the range or wait for new traffic.")
     const text = messages.join(" ")
     notice.hidden = messages.length === 0
-    if (messages.length && notice.textContent !== text) notice.textContent = text
+    if (messages.length && notice.innerHTML !== text) notice.innerHTML = text
   }
 
   function showNotice(message: string): void {

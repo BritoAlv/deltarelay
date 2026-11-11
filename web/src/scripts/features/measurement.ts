@@ -1,4 +1,5 @@
 import { escapeHtml as escape } from "../../lib/html.js"
+import { dataValue, facts, reductionEquation } from "../../lib/presentation.js"
 import { bytes, duration, percentage, relativeTime, sessionState } from "../../lib/metrics.js"
 import { barComparison, requestMeasurement, sessionMeasurement } from "../../lib/measurement.js"
 import {
@@ -36,6 +37,15 @@ function stat(label: string, value: string, detail: string, tone = ""): string {
 function barRow(label: string, value: string, width: number, tone: string): string {
   const fill = Math.max(0, Math.min(100, width)) / 100
   return `<div class="trace-bar-row"><span>${escape(label)}</span><div class="trace-bar-track"><span class="trace-bar-fill ${tone}" style="transform:scaleX(${fill.toFixed(4)})"></span></div><strong>${escape(value)}</strong></div>`
+}
+
+function totalCell(label: string, value: string, width: number, tone: string, caption: string): string {
+  const fill = Math.max(0, Math.min(100, width)) / 100
+  return `<div class="trace-total"><div class="trace-total-head"><span>${escape(label)}</span><small>${escape(caption)}</small></div><strong>${escape(value)}</strong><div class="trace-total-track"><span class="trace-total-fill ${tone}" style="transform:scaleX(${fill.toFixed(4)})"></span></div></div>`
+}
+
+function sessionFacts(groups: ReadonlyArray<ReadonlyArray<readonly [string, string]>>): string {
+  return `<div class="trace-session-facts">${groups.map((group) => `<table><tbody>${group.map(([label, value]) => `<tr><th scope="row">${escape(label)}</th><td>${escape(value)}</td></tr>`).join("")}</tbody></table>`).join("")}</div>`
 }
 
 function detail(label: string, value: string, tone = ""): string {
@@ -117,11 +127,17 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   function retentionText(snapshot: Snapshot): string {
     const history = snapshot.history
     const traffic = history.traffic
-    const trafficText = traffic
-      ? ` Traffic charts keep hourly aggregates for ${Math.round(traffic.hourly.retention_seconds / 86_400)} days and daily aggregates for ${Math.round(traffic.daily.retention_seconds / 86_400)} days.`
-      : ""
+    const limits: [string, unknown][] = [
+      ["History since", new Date(history.since).toLocaleString()],
+      ["Gateway session limit", integer(history.session_limit)],
+      ["Request limit", integer(history.request_limit)],
+      ["Sessions trimmed", integer(history.evicted_sessions)],
+      ["Requests trimmed", integer(history.dropped_requests)],
+      ["Storage", history.persistent ? "Private gateway disk" : "In memory only"],
+    ]
+    if (traffic) limits.push(["Hourly aggregates", `${Math.round(traffic.hourly.retention_seconds / 86_400)} days`], ["Daily aggregates", `${Math.round(traffic.daily.retention_seconds / 86_400)} days`])
     const catalogText = state?.catalog ? " The session browser also lists sessions stored by OpenCode; only sessions with gateway measurements can be traced." : ""
-    return `History since ${new Date(history.since).toLocaleString()}. Keeps up to ${history.session_limit} gateway sessions and ${integer(history.request_limit)} requests.${trafficText} ${integer(history.evicted_sessions)} older sessions and ${integer(history.dropped_requests)} request entries trimmed; global totals are preserved. Session totals restart if an evicted session reappears. Earlier gateway history is not imported from logs. ${history.persistent ? "History is saved privately on the gateway." : "History is in memory only."}${catalogText}`
+    return `${facts(limits)}<p>Global totals are preserved. Session totals restart if an evicted session reappears. Earlier gateway history is not imported from logs.${catalogText}</p>`
   }
 
   function stateLabel(entry: CatalogSession): string {
@@ -167,17 +183,10 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     }
     if (entry) {
       triggerTitle.textContent = entry.title || (entry.id || "Unattributed requests")
-      const parts = [entry.id || "Unattributed requests"]
-      if (entry.gateway?.upstream) parts.push(entry.gateway.upstream)
-      else if (entry.model) parts.push(entry.model)
-      if (entry.gateway) parts.push(`${integer(entry.gateway.requests)} requests`)
-      const reduction = catalogReduction(entry)
-      if (reduction !== null) parts.push(`${percentage(reduction)} reduction`)
-      if (!entry.gateway) parts.push("no gateway measurements")
-      triggerMeta.textContent = parts.join(" · ")
+      triggerMeta.textContent = ""
     } else {
       triggerTitle.textContent = "Choose a session"
-      triggerMeta.textContent = `${integer(catalogEntries.length)} stored · ${integer(measuredEntries().length)} measured`
+      triggerMeta.innerHTML = `${dataValue(integer(catalogEntries.length))} stored · ${dataValue(integer(measuredEntries().length))} measured`
     }
     trigger.disabled = false
   }
@@ -247,16 +256,16 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const total = catalogEntries.length
     const measured = measuredEntries().length
     if (filtered.length === 0) {
-      summary.textContent = total ? `0 of ${integer(total)} stored sessions match` : "No stored sessions"
+      summary.innerHTML = total ? `${dataValue(0)} of ${dataValue(integer(total))} stored sessions match` : "No stored sessions"
     } else {
-      summary.textContent = `${integer(start + 1)}–${integer(Math.min(start + sessionPageSize, filtered.length))} of ${integer(filtered.length)}${filtered.length !== total ? ` matching (${integer(total)} stored)` : ""} session${filtered.length === 1 ? "" : "s"} · ${integer(measured)} measured`
+      summary.innerHTML = `${dataValue(`${integer(start + 1)}–${integer(Math.min(start + sessionPageSize, filtered.length))}`)} of ${dataValue(integer(filtered.length))}${filtered.length !== total ? ` matching (${dataValue(`${integer(total)} stored`)})` : ""} session${filtered.length === 1 ? "" : "s"} · ${dataValue(integer(measured))} measured`
     }
     pageLabel.textContent = `Page ${sessionPage} of ${totalPages}`
     previous.disabled = sessionPage <= 1
     next.disabled = sessionPage >= totalPages
     const catalogCount = state?.catalog?.sessions.length ?? 0
-    dialogSummary.textContent = catalogCount > 0
-      ? `All sessions stored by OpenCode${state?.catalog?.truncated ? " (first 2,000)" : ""}. Only sessions with gateway measurements can be traced.`
+    dialogSummary.innerHTML = catalogCount > 0
+      ? `All sessions stored by OpenCode${state?.catalog?.truncated ? ` (first ${dataValue("2,000")})` : ""}. Only sessions with gateway measurements can be traced.`
       : state?.catalog
         ? "OpenCode returned no stored sessions. Showing sessions retained by the gateway."
         : "OpenCode session metadata is unavailable. Showing sessions retained by the gateway."
@@ -304,7 +313,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     triggerTitle.textContent = "Waiting for local gateway…"
     triggerMeta.textContent = ""
     trigger.disabled = true
-    retention.textContent = "History retains up to 256 gateway sessions and 1,000 requests. Global totals survive retention trimming. Earlier gateway history is not imported from logs."
+    retention.innerHTML = `${facts([["Gateway session limit", "256"], ["Request limit", "1,000"]])}<p>Global totals survive retention trimming. Earlier gateway history is not imported from logs.</p>`
     trace.innerHTML = `<div class="empty-state"><h3>Waiting for local gateway…</h3><p>Start the local gateway and dashboard server to trace retained sessions. No provider requests are sent by this page.</p></div>`
     inspector.update(null, undefined, "")
     if (dialog.open) renderSessionBrowser()
@@ -317,11 +326,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const reductionTone = measured.reduction !== null && measured.reduction < 0 ? "negative" : "accent"
     const status = request.status ? ` · HTTP ${request.status}` : ""
     const open = openRequests.has(request.id) ? " open" : ""
-    const formula = measured.pending
-      ? "No finished transfer accounting yet."
-      : measured.original > 0
-        ? `1 − ${bytes(measured.encoded)} ÷ ${bytes(measured.original)} = ${percentage(measured.reduction)}`
-        : "Original body is zero; reduction is unavailable."
+    const formula = reductionEquation(measured.original, measured.encoded)
     const body = measured.pending
       ? `<div class="trace-request-body"><p class="trace-request-note">Transfer totals are written when this request finishes. Elapsed time comes from the latest local gateway observation.</p><button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect Request Evidence</button></div>`
       : `<div class="trace-request-body">
@@ -344,7 +349,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
             ${detail("Uploaded chunks", integer(request.transfer.uploaded_chunks))}
             ${detail("Response download", bytes(request.response_bytes))}
           </div>
-          <p class="trace-formula"><code translate="no">${escape(formula)}</code></p>
+          <div class="trace-formula equation-block">${formula}</div>
           <p class="trace-request-note">Response bytes are shown for context but never subtracted from upload savings. Failed and cancelled attempts remain included in session totals. Uploaded-chunk counters follow logical batches; after recovery, inspect attempt evidence for actual retransmissions.</p>
           ${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}
           <button class="text-button" type="button" data-inspect-request="${request.sequence}">Inspect Request Evidence</button>
@@ -353,14 +358,14 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       <summary>
         <div class="trace-request-heading">
           <code translate="no">${escape(request.id)}</code>
-          <span class="trace-request-meta">${escape(request.kind)} · ${escape(relativeTime(request.started_at))} · ${escape(duration(measured.elapsedMs))}${escape(status)}</span>
+          <span class="trace-request-meta metadata-line">${dataValue(request.kind)} ${dataValue(relativeTime(request.started_at))} ${dataValue(duration(measured.elapsedMs))}${status ? dataValue(`HTTP ${request.status}`) : ""}</span>
           ${request.error_code ? `<span class="trace-request-error">${escape(request.error_code)}</span>` : ""}
         </div>
         <div class="trace-request-values">
           ${selectedRequest === request.sequence ? '<span class="trace-request-selected">Selected</span>' : ""}
           ${pill(request.state, tone)}
           <strong class="${measured.reduction !== null && measured.reduction < 0 ? "negative" : "accent"}">${escape(measured.pending ? "Pending" : percentage(measured.reduction))}</strong>
-          <span>${measured.pending ? "Transfer totals pending" : `${escape(bytes(measured.original))} → ${escape(bytes(measured.encoded))}`}</span>
+          <span class="metadata-line">${measured.pending ? "Transfer totals pending" : `${dataValue(bytes(measured.original))}<span aria-hidden="true">→</span><span class="sr-only">to</span>${dataValue(bytes(measured.encoded))}`}</span>
         </div>
       </summary>
       ${body}
@@ -423,7 +428,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       const fallback = measuredEntries()[0]
       if (!fallback) {
         selectedSession = null
-        retention.textContent = retentionText(snapshot)
+        retention.innerHTML = retentionText(snapshot)
         syncTraceUrl()
         const message = catalogEntries.length
           ? `${integer(catalogEntries.length)} session${catalogEntries.length === 1 ? "" : "s"} are stored by OpenCode, but none have retained gateway measurements. DeltaRelay only measures requests routed through its gateway.`
@@ -456,24 +461,37 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const reductionTone = sessionSummary.reduction !== null && sessionSummary.reduction < 0 ? "negative" : "accent"
     const savedTone = sessionSummary.saved < 0 ? "negative" : ""
     const stateTone = sessionState(current)
-    const reduced = sessionSummary.reduction === null ? "No finished body bytes yet; reduction is unavailable." : `1 − ${bytes(sessionSummary.encoded)} ÷ ${bytes(sessionSummary.original)} = ${percentage(sessionSummary.reduction)}`
+    const reduced = sessionSummary.reduction === null ? '<span class="equation-unavailable">No finished body bytes yet; reduction is unavailable.</span>' : reductionEquation(sessionSummary.original, sessionSummary.encoded)
     const coverage = sessionSummary.missingRequests > 0
-      ? `<p class="trace-coverage">Session totals include ${integer(sessionSummary.missingRequests)} request${sessionSummary.missingRequests === 1 ? "" : "s"} no longer retained. The ledger below covers ${integer(sessionSummary.retainedRequests)} retained entr${sessionSummary.retainedRequests === 1 ? "y" : "ies"}.</p>`
+      ? `<p class="trace-coverage">Session totals include ${dataValue(integer(sessionSummary.missingRequests))} request${sessionSummary.missingRequests === 1 ? "" : "s"} no longer retained. The ledger below covers ${dataValue(integer(sessionSummary.retainedRequests))} retained entr${sessionSummary.retainedRequests === 1 ? "y" : "ies"}.</p>`
       : ""
     const more = requests.length > requestPageSize
       ? `<button class="text-button trace-more" type="button" data-trace-more>${showAll ? `Show Latest ${requestPageSize}` : `Show All ${integer(requests.length)} Retained Requests`}</button>`
       : ""
     const ledger = requests.length === 0
-      ? `<div class="empty-state trace-requests-empty"><h3>No retained request entries</h3><p>Session totals still include ${integer(sessionSummary.totalRequests)} request${sessionSummary.totalRequests === 1 ? "" : "s"}; their request-level entries were trimmed from history.</p></div>`
+      ? `<div class="empty-state trace-requests-empty"><h3>No retained request entries</h3><p>Session totals still include ${dataValue(integer(sessionSummary.totalRequests))} request${sessionSummary.totalRequests === 1 ? "" : "s"}; their request-level entries were trimmed from history.</p></div>`
       : `${coverage}${visible.map((request) => renderRequest(request, snapshot)).join("")}${more}`
 
     const focus = traceFocus()
+    const identityFacts: Array<readonly [string, string]> = [
+      ["Session ID", current.id || "Unattributed requests"],
+      ["Upstream", current.upstream || "Unknown upstream"],
+      ...(entry?.model ? [["Model", entry.model] as const] : []),
+      ...(entry?.agent ? [["Agent", entry.agent] as const] : []),
+      ...(entry?.project ? [["Project", entry.project] as const] : []),
+    ]
+    const activityFacts: Array<readonly [string, string]> = [
+      ["State", stateTone === "active" ? `${current.active} active` : stateTone === "attention" ? "Attention" : "Idle"],
+      ["Model requests", integer(sessionSummary.totalRequests)],
+      ["Failed", integer(current.failed)],
+      ["Cancelled", integer(current.cancelled)],
+      ["Last activity", relativeTime(current.updated_at)],
+    ]
+    const totalLabel = bars.negative ? "Extra sent" : "Saved"
+    const totalCaption = bars.negative ? `${percentage(bars.savedPercent)} over original` : `${percentage(bars.savedPercent)} less than original`
     trace.innerHTML = `<div class="trace-session-head">
-        <div>
-          <div class="trace-session-title">${entry?.title ? `<strong class="trace-session-name">${escape(entry.title)}</strong>` : ""}<code translate="no">${escape(current.id || "Unattributed requests")}</code>${pill(stateTone === "active" ? `${current.active} active` : stateTone === "attention" ? "Attention" : "Idle", stateTone)}</div>
-          <p>${escape(current.upstream || "Unknown upstream")}${entry?.model ? ` · ${escape(entry.model)}` : ""}${entry?.agent ? ` · ${escape(entry.agent)}` : ""}${entry?.project ? ` · ${escape(entry.project)}` : ""} · ${integer(sessionSummary.totalRequests)} model requests · ${integer(current.failed)} failed · ${integer(current.cancelled)} cancelled · last activity ${escape(relativeTime(current.updated_at))}</p>
-        </div>
-        <div class="trace-session-formula"><span>Upload reduction for this session</span><code translate="no">${escape(reduced)}</code></div>
+        ${sessionFacts([identityFacts, activityFacts])}
+        <div class="trace-session-formula"><span>Upload reduction for this session</span><div class="equation-block">${reduced}</div></div>
       </div>
       <div class="trace-summary-grid">
         ${stat("Upload reduction", percentage(sessionSummary.reduction), "of original body bytes", reductionTone)}
@@ -482,27 +500,33 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         ${stat("Encoded upload", bytes(sessionSummary.encoded), "manifests, framing, compression, retries")}
       </div>
       <div class="trace-visual">
-        <div class="trace-bars" role="img" aria-label="Original body ${escape(bytes(sessionSummary.original))}, encoded upload ${escape(bytes(sessionSummary.encoded))}, saved ${escape(bytes(sessionSummary.saved))}">
-          <h3 class="trace-scope">Session upload totals</h3>
-          ${barRow("Original", bytes(sessionSummary.original), bars.originalPercent, "original")}
-          ${barRow("Sent", bytes(sessionSummary.encoded), bars.encodedPercent, "accent")}
-          ${barRow(bars.negative ? "Extra sent" : "Saved", bytes(Math.abs(sessionSummary.saved)), bars.savedPercent, bars.negative ? "danger" : "saved")}
-        </div>
-        <div class="trace-pipeline">
-          <h3>From body to wire</h3>
+        <section class="trace-totals">
+          <div class="trace-visual-head"><h3>Session upload totals</h3><span class="trace-visual-meta">Session totals · finished requests only</span></div>
+          <div class="trace-total-grid" role="img" aria-label="Original body ${escape(bytes(sessionSummary.original))}, encoded upload ${escape(bytes(sessionSummary.encoded))}, saved ${escape(bytes(sessionSummary.saved))}">
+            ${totalCell("Original", bytes(sessionSummary.original), bars.originalPercent, "original", "100% baseline")}
+            ${totalCell("Sent", bytes(sessionSummary.encoded), bars.encodedPercent, "accent", `${percentage(bars.encodedPercent)} of original`)}
+            ${totalCell(totalLabel, bytes(Math.abs(sessionSummary.saved)), bars.savedPercent, bars.negative ? "danger" : "saved", totalCaption)}
+          </div>
+        </section>
+        <section class="trace-stages">
+          <div class="trace-visual-head"><h3>From body to wire</h3><span class="trace-visual-meta">Request-level stages, not a packet capture</span></div>
           <div class="trace-selected-request">
             <span class="trace-selected-label">Selected request</span>
-            ${inspected ? `<code translate="no">${escape(inspected.id)}</code><span class="trace-selected-meta">${escape(inspected.kind)} · ${escape(inspected.state)}${inspected.capture_id ? "" : " · not captured"}</span>` : `<span class="trace-selected-meta">No retained request entries</span>`}
+            ${inspected ? `<code translate="no">${escape(inspected.id)}</code><span class="trace-selected-meta metadata-line">${dataValue(inspected.kind)}${dataValue(inspected.state)}${inspected.capture_id ? "" : dataValue("not captured")}</span>` : `<span class="trace-selected-meta">No retained request entries</span>`}
           </div>
+          <table class="trace-stage-table">
+            <caption class="sr-only">Selected request body-to-wire stages</caption>
+            <thead><tr><th scope="col">Stage</th><th scope="col">What it counts</th><th scope="col" class="number">Amount</th></tr></thead>
+            <tbody>
+              ${pipeline.map(([label, note, value], i) => `<tr><td><span class="trace-stage-step">${i+1}</span><span class="trace-stage-name">${escape(label)}</span></td><td>${escape(note)}</td><td class="number"><code>${escape(measured?.pending ? "Pending" : value)}</code></td></tr>`).join("")}
+            </tbody>
+          </table>
           <p class="trace-request-note">Select a request in the list below to update these stages. Request-level application payload, not packet capture; use the evidence inspector for captured payloads.</p>
-          <ol>
-            ${pipeline.map(([label, note, value], i) => `<li><span>${i+1}</span><div><strong class="trace-pipeline-label">${escape(label)}</strong><p>${escape(note)}</p></div><code>${escape(measured?.pending ? "Pending" : value)}</code></li>`).join("")}
-          </ol>
-        </div>
+        </section>
       </div>
       <p class="trace-caveat">The comparison bars show session totals; the stages show the selected request. Select a request in the list below to update them. Content reuse and encoded upload are separate views, not an additive stack.</p>
       <div class="trace-requests">
-        <div class="trace-requests-head"><div><h3>Requests in this session</h3><p>Retained request entries, newest first. Select one to update the stages above; expand it for full byte accounting.</p></div><span class="section-meta">${integer(requests.length)} retained${sessionSummary.missingRequests ? ` · ${integer(sessionSummary.missingRequests)} trimmed` : ""}</span></div>
+        <div class="trace-requests-head"><div><h3>Requests in this session</h3><p>Retained request entries, newest first. Select one to update the stages above; expand it for full byte accounting.</p></div><span class="section-meta">${dataValue(`${integer(requests.length)} retained`)}${sessionSummary.missingRequests ? ` ${dataValue(`${integer(sessionSummary.missingRequests)} trimmed`)}` : ""}</span></div>
         ${ledger}
       </div>`
     bindOpenState()
@@ -573,7 +597,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         renderUnavailable()
         return
       }
-      retention.textContent = retentionText(snapshot)
+      retention.innerHTML = retentionText(snapshot)
       renderTrigger()
       if (dialog.open) renderSessionBrowser()
       if (catalogEntries.length === 0) {

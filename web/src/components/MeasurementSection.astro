@@ -6,28 +6,49 @@ import Icon from "./Icon.astro"
     <article class="panel method-card">
       <span class="method-icon"><Icon name="activity" size={18} /></span>
       <h2>Original body</h2>
-      <p>Decoded request-body bytes read by the chunker, before chunking or upload compression. If the incoming request was gzip-encoded, this is after gateway decoding. It is the 100% baseline.</p>
-      <code>body_bytes</code>
+      <p>Decoded request-body bytes read by the chunker, before chunking or upload compression. If the incoming request was gzip-encoded, this is after gateway decoding. It is the <span class="data-value">100%</span> baseline.</p>
+      <code class="method-code">body_bytes</code>
     </article>
     <article class="panel method-card">
       <span class="method-icon"><Icon name="arrow" size={18} /></span>
       <h2>Encoded upload</h2>
       <p>Selected RPC request-body bytes consumed by the Go transport: manifests, dispatch, chunk framing, gzip when smaller, and retries. Not packet capture or proof of relay receipt; headers and responses are excluded.</p>
-      <code>request_body_bytes_sent</code>
+      <code class="method-code">request_body_bytes_sent</code>
     </article>
     <article class="panel method-card">
       <span class="method-icon"><Icon name="download" size={18} /></span>
       <h2>Saved / reduction</h2>
-      <p>Saved = original − encoded. Reduction = 100 × (1 − encoded ÷ original). Failed and cancelled attempts remain included, and small calls or retries can produce negative savings.</p>
-      <code>body_bytes − request_body_bytes_sent</code>
+      <p>Failed and cancelled attempts remain included, and small calls or retries can produce negative savings.</p>
+      <code class="method-code">body_bytes − request_body_bytes_sent</code>
     </article>
     <article class="panel method-card">
       <span class="method-icon"><Icon name="bolt" size={18} /></span>
       <h2>Content reuse</h2>
       <p>Body bytes already present in the relay cache at inventory time. This is not provider token/KV-cache reuse and does not promise a provider-billing discount.</p>
-      <code>reused_body_bytes</code>
+      <code class="method-code">reused_body_bytes</code>
     </article>
   </div>
+
+  <article class="panel measurement-formulas" aria-labelledby="measurement-formulas-title">
+    <div class="measurement-formulas-head">
+      <h2 id="measurement-formulas-title">How savings are calculated</h2>
+      <p>Both results compare the encoded upload against the original decoded body. A negative result means the upload was larger.</p>
+    </div>
+    <div class="measurement-formulas-grid">
+      <div>
+        <h3>Saved bytes</h3>
+        <div class="equation-block">
+          <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mtext>Saved</mtext><mo>=</mo><mi>original</mi><mo>−</mo><mi>encoded</mi></mrow></math>
+        </div>
+      </div>
+      <div>
+        <h3>Upload reduction</h3>
+        <div class="equation-block">
+          <math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mrow><mtext>Reduction</mtext><mo>=</mo><mn>100</mn><mo>×</mo><mo>(</mo><mn>1</mn><mo>−</mo><mfrac><mi>encoded</mi><mi>original</mi></mfrac><mo>)</mo><mo>%</mo></mrow></math>
+        </div>
+      </div>
+    </div>
+  </article>
 
   <article class="panel measurement-trace-panel">
     <div class="measurement-toolbar">
@@ -48,7 +69,7 @@ import Icon from "./Icon.astro"
     </div>
     <div class="measurement-trace" id="measurement-trace"></div>
     <section class="request-inspector" id="request-inspector" aria-label="Selected request evidence"></section>
-    <p class="measurement-retention" id="retention-note">History retains up to 256 gateway sessions and 1,000 requests. The session browser can also list sessions stored by OpenCode; only sessions with gateway measurements can be traced. Traffic charts keep hourly aggregates for 31 days and daily aggregates for 91 days. Global totals survive retention trimming. Earlier gateway history is not imported from logs.</p>
+    <div class="measurement-retention" id="retention-note"><dl class="data-facts"><div><dt>Gateway session limit</dt><dd>256</dd></div><div><dt>Request limit</dt><dd>1,000</dd></div><div><dt>Hourly aggregates</dt><dd>31 days</dd></div><div><dt>Daily aggregates</dt><dd>91 days</dd></div></dl><p>Global totals are preserved. Earlier gateway history is not imported from logs.</p></div>
   </article>
 
   <dialog id="measurement-session-dialog" class="session-dialog session-browser-dialog" aria-labelledby="measurement-session-dialog-title">

@@ -2,6 +2,7 @@ import { connectionState, recoveryStatus, sendControl, supportsRemote, type Syst
 import { edgeChannel, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
 import { edgePath, responsePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
 import { escapeHtml as escape } from "../../lib/html.js"
+import { dataValue } from "../../lib/presentation.js"
 import { requiredById } from "../dom.js"
 import { mountMapNavigation } from "./map-navigation.js"
 import { mountComponentCards } from "./component-cards.js"
@@ -86,7 +87,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
 
   function renderInspector(node: TopologyNode | undefined) {
     setText("node-inspector-title", node?.label ?? "Waiting for component contracts")
-    setText("node-inspector-status", node ? `${stale || observationStale(node, system!.collected_at) ? "Stale observation · " : ""}State: ${node.lifecycle.replaceAll("_", " ")} · Readiness: ${node.readiness.replaceAll("_", " ")}` : "An updated supervisor publishes the complete topology and supported actions.")
+    requiredById(root, "node-inspector-status").innerHTML = node ? `${stale || observationStale(node, system!.collected_at) ? `${dataValue("Stale observation")} ` : ""}${dataValue(`State: ${node.lifecycle.replaceAll("_", " ")}`)} ${dataValue(`Readiness: ${node.readiness.replaceAll("_", " ")}`)}` : "An updated supervisor publishes the complete topology and supported actions."
     setText("node-inspector-detail", node?.detail ?? "No component state or connectivity will be invented while the supervisor is unavailable.")
     const meta = requiredById(root, "node-inspector-meta")
     const boundary = node?.id === "tunnel" ? transportBoundary(node) : mapBoundaries.find((item) => inspected && item.members.includes(inspected))
@@ -188,7 +189,9 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       }
     }
     const selectedNode = topology?.nodes.find((node) => node.id === selected)
-    setText("map-selection", selected ? `${selectedNode?.label ?? readableLabel(selected)} · ${edges.querySelectorAll(".selected").length} visible arrows highlighted` : "No component selected")
+    requiredById(root, "map-selection").innerHTML = selected
+      ? `${escape(selectedNode?.label ?? readableLabel(selected))} · ${dataValue(`${edges.querySelectorAll(".selected").length} visible arrows highlighted`)}`
+      : "No component selected"
     if (inspected) renderInspector(topology?.nodes.find((node) => node.id === inspected))
     const text = message || (stale ? "System status is stale. Lifecycle actions are disabled until fresh status is available." : !topology ? "The supervisor needs the topology update before map controls are available. No running services were changed." : "")
     notice.hidden = !text

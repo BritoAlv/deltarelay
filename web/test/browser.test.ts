@@ -428,7 +428,7 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   const trigger = doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!
   assert.equal(trigger.disabled, false)
   const trace = doc.querySelector("#measurement-trace")!
-  assert.match(trace.textContent ?? "", /Relay dashboard measurement/)
+  assert.match(trace.textContent ?? "", /Session ID/)
   assert.match(trace.textContent ?? "", /From body to wire/)
   assert.match(trace.textContent ?? "", /Requests in this session/)
   assert.match(trace.textContent ?? "", /Transfer totals pending/)
@@ -444,7 +444,11 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   assert.match(trace.textContent ?? "", /Requests in this session/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Payload capture is off or not reported/)
   assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Not captured/)
-  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Keeps up to 256 gateway sessions and 1,000 requests/)
+  const retention = doc.querySelector("#retention-note")!
+  assert.match(retention.textContent ?? "", /Gateway session limit/)
+  const retentionValues = [...retention.querySelectorAll(".data-facts dd")].map((item) => item.textContent)
+  assert.ok(retentionValues.includes("256"))
+  assert.ok(retentionValues.includes("1,000"))
 
   trigger.click()
   const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
@@ -460,12 +464,12 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   unmeasured.click()
   assert.equal(dialog.open, true)
   assert.match(dialog.querySelector("#measurement-session-notice")?.textContent ?? "", /no retained gateway measurements/)
-  assert.match(trace.textContent ?? "", /Relay dashboard measurement/)
+  assert.match(doc.querySelector("#measurement-session-trigger-title")?.textContent ?? "", /Relay dashboard measurement/)
 
   const second = [...dialog.querySelectorAll<HTMLButtonElement>("[data-session-choice]")].find((choice) => choice.dataset.sessionChoice === snapshot.history.sessions[1]!.id)!
   second.click()
   assert.equal(dialog.open, false)
-  assert.match(trace.textContent ?? "", /API refactor/)
+  assert.match(doc.querySelector("#measurement-session-trigger-title")?.textContent ?? "", /API refactor/)
   assert.equal(new URL(page.window.location.href).searchParams.get("session"), snapshot.history.sessions[1]!.id)
 
   trigger.click()
@@ -622,7 +626,7 @@ test("measurement page shows an empty state and never invents a trace", async ()
   const doc = page.document
   assert.equal(doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")?.disabled, true)
   assert.match(doc.querySelector("#measurement-trace")?.textContent ?? "", /No retained sessions/)
-  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /global totals are preserved/)
+  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Global totals are preserved/)
   measurement.destroy()
   await page.close()
 })

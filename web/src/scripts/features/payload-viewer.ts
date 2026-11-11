@@ -8,6 +8,7 @@ import { tags } from "@lezer/highlight"
 import { PagedByteSource } from "@hexcanvas/core"
 import type { HexCanvasElement } from "@hexcanvas/element"
 import { decodeBytes, fetchArtifact, hexDump } from "../../lib/inspection.js"
+import { dataValue } from "../../lib/presentation.js"
 
 export interface PayloadViewerOptions {
   mode: "text" | "json" | "hex"
@@ -85,12 +86,12 @@ export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOpti
             if (!update.selectionSet) return
             const position = update.state.selection.main.head
             const line = update.state.doc.lineAt(position)
-            status.textContent = `Read only · Ln ${line.number}, Col ${position - line.from + 1} · ${update.state.doc.lines.toLocaleString()} lines`
+            status.innerHTML = `Read only · Ln ${dataValue(line.number)}, Col ${dataValue(position - line.from + 1)} · ${dataValue(`${update.state.doc.lines.toLocaleString()} lines`)}`
           }),
         ],
       }),
     })
-    status.textContent = `Read only · ${editor.state.doc.lines.toLocaleString()} lines · ${options.mode === "json" ? "Parsed JSON · original tokens preserved" : "UTF-8 byte window"}`
+    status.innerHTML = `Read only · ${dataValue(`${editor.state.doc.lines.toLocaleString()} lines`)} · ${options.mode === "json" ? "Parsed JSON · original tokens preserved" : "UTF-8 byte window"}`
     action("Find", () => { if (editor) { openSearchPanel(editor); editor.focus() } })
     if (options.jsonText) {
       action("Fold all", () => { if (editor) { forceParsing(editor, editor.state.doc.length, 300); foldAll(editor) } })
@@ -145,7 +146,7 @@ export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOpti
         const report = () => {
           const offset = element.cursor.offset
           const byte = source.peek(offset, 1)?.[0]
-          status.textContent = `Read only · Offset 0x${offset.toString(16).padStart(8, "0")} (${offset.toLocaleString()})${byte === undefined ? "" : ` · Hex ${byte.toString(16).padStart(2, "0")} · Decimal ${byte}`} · ${options.total.toLocaleString()} ${options.decoded ? "decoded" : "retained"} bytes`
+          status.innerHTML = `Read only · ${dataValue(`Offset 0x${offset.toString(16).padStart(8, "0")} (${offset.toLocaleString()})`)}${byte === undefined ? "" : ` · Hex ${dataValue(byte.toString(16).padStart(2, "0"))} · Decimal ${dataValue(byte)}`} · ${dataValue(`${options.total.toLocaleString()} ${options.decoded ? "decoded" : "retained"} bytes`)}`
         }
         element.addEventListener("cursorchange", report)
         unsubscribeBytes = source.subscribe(report)

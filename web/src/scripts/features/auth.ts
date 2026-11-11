@@ -1,5 +1,6 @@
 import { countdown, type SystemStatus } from "../../lib/system.js"
 import { requiredById } from "../dom.js"
+import { facts } from "../../lib/presentation.js"
 
 export function mountAuth(root: HTMLElement) {
   const badge = requiredById(root, "auth-state")
@@ -21,7 +22,7 @@ export function mountAuth(root: HTMLElement) {
     const serverNow = Number.isFinite(observed) && receivedAt ? observed + Date.now() - receivedAt : Date.now()
     timer.textContent = auth.expires_at ? `${isStale ? "Last known: " : ""}${countdown(auth.expires_at, serverNow)}` : labels[auth.state] ?? "Unknown"
     timer.className = `auth-countdown ${tone}`
-    deadline.textContent = auth.expires_at ? `Access token expiry: ${new Date(auth.expires_at).toLocaleString()}${auth.checked_at ? ` · checked ${new Date(auth.checked_at).toLocaleTimeString()}` : ""}` : "Configure the correct private OpenCode service registration to read expiry metadata. No credentials are shown."
+    deadline.innerHTML = auth.expires_at ? facts([["Access token expiry", new Date(auth.expires_at).toLocaleString()], ...(auth.checked_at ? [["Checked", new Date(auth.checked_at).toLocaleTimeString()] as const] : [])]) : "Configure the correct private OpenCode service registration to read expiry metadata. No credentials are shown."
   }
 
   return {
