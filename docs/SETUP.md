@@ -139,7 +139,6 @@ The supplied rules cover:
 | Name | Original request origin and path |
 | --- | --- |
 | `openai` | `https://api.openai.com/v1/…` |
-| `chatgpt` | `https://chatgpt.com/backend-api/…` |
 | `opencode` | `https://opencode.ai/inference/…` |
 
 If your actual endpoint differs, add its exact HTTPS origin and a narrowly scoped
