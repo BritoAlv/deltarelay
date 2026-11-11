@@ -1,5 +1,6 @@
 ---
 import Icon from "./Icon.astro"
+import ProviderAuth from "./ProviderAuth.astro"
 ---
 <section id="system" class="system-section" aria-labelledby="health-checks-title">
   <div class="section-heading">
@@ -26,6 +27,7 @@ import Icon from "./Icon.astro"
       <div class="system-card-top"><span class="system-icon"><Icon name="globe" /></span><span class="status-pill neutral">Unobserved</span></div>
       <h3>Provider forwarding</h3>
       <p>No observations</p>
+      <ProviderAuth />
     </article>
   </div>
 </section>

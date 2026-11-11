@@ -80,7 +80,7 @@ test("wake progress distinguishes a running host from a verified relay connectio
 test("paused recovery is explicit even after the host resumes or a provider check fails", () => {
   const paused = { ...status, settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "running" as const } }
   assert.equal(connectionState(paused), "vps_unreachable")
-  assert.match(recoveryStatus(paused), /Internet works.*Automatic recovery is off.*Start system/)
+  assert.match(recoveryStatus(paused), /Internet works.*Automatic recovery is off.*Start \/ recover system/)
   assert.match(recoveryStatus({ ...paused, recovery: { ...paused.recovery, last_error: "provider_timeout" } }), /plugin timed out.*Automatic recovery is off/)
   assert.match(recoveryStatus({ ...paused, relay_state: "protocol_mismatch", recovery: { ...paused.recovery, last_error: "protocol_mismatch" } }), /Deploy matching relay, gateway, OpenCode plugin, and dashboard/)
   assert.match(recoveryStatus({ ...paused, relay_state: "connected" }), /reachable.*Automatic recovery is off/)

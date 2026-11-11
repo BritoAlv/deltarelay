@@ -11,6 +11,7 @@ const pill = (label: string, status: string) => `<span class="status-pill ${stat
 
 export function mountHealth(root: HTMLElement): HealthFeature {
   const cards = requiredById(root, "system-cards")
+  const auth = requiredById(root, "provider-auth")
   const initialCards = cards.innerHTML
   const icons = [...cards.querySelectorAll(".system-icon")].map((icon) => icon.innerHTML)
   const setText = (id: string, value: string | number) => {
@@ -25,6 +26,7 @@ export function mountHealth(root: HTMLElement): HealthFeature {
       setText("system-summary", "Waiting for diagnostics…")
       summaryElement.classList.remove("good", "warning")
       cards.innerHTML = initialCards
+      cards.querySelector("#provider-auth")?.replaceWith(auth)
       return
     }
     const data = state.snapshot
@@ -58,6 +60,7 @@ export function mountHealth(root: HTMLElement): HealthFeature {
       <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[1]}</span>${statePill(remoteStopped ? "Stopped" : noInternet ? "No internet" : relay.reachable ? "Connected" : "Unreachable", remoteStopped ? "neutral" : noInternet ? "warning" : relay.reachable ? "good" : "bad")}</div><h3>Remote host connection</h3><p>${relay.reachable ? `Protocol v${health.version} · ${relay.latency_ms} ms health check<br />Authenticated relay identity` : remoteStopped ? "Remote shutdown confirmed.<br />Resume using System controls or your hosting provider." : noInternet ? "Internet connectivity from this computer failed.<br />The remote host has not been contacted." : vpsUnreachable ? "Internet is reachable, but the relay did not respond.<br />Check the relay, VPN split routes, or SSH tunnel." : "Health check failed or timed out.<br />Check relay, VPN, or SSH tunnel."}</p><p class="system-meta">${relay.reachable ? `STATE ${escape(health.state_id.slice(0, 14))}…` : remoteStopped ? "AUTOMATIC RECOVERY OFF" : noInternet ? "CHECK LOCAL NETWORK" : "NO DIRECT FALLBACK"}</p></article>
       <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[2]}</span>${statePill(!relay.reachable ? "Unknown" : storageIssue ? "Near capacity" : "Available", !relay.reachable ? "neutral" : storageIssue ? "warning" : "good")}</div><h3>Storage &amp; mailbox</h3><p>${relay.reachable ? `Cache ${escape(bytes(health.cache_bytes))} / ${escape(bytes(health.max_cache_bytes))}<br />Responses ${escape(bytes(health.response_storage_bytes))} / ${escape(bytes(health.max_response_storage_bytes))}` : noInternet ? "Storage usage is unavailable.<br />Restore internet connectivity." : "Storage usage is unavailable.<br />Restore the remote host connection."}</p><div class="storage-meter" role="progressbar" aria-label="Highest of cache and response-storage usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${storagePercent}" title="Highest of cache and response-storage usage"><span style="width:${relay.reachable ? Math.min(100, Math.max(cacheRatio, responseRatio) * 100) : 0}%"></span></div><p class="system-meta">${history.persistence_error ? "HISTORY SAVE FAILED" : history.persistent ? "SESSION HISTORY SAVED LOCALLY" : "SESSION HISTORY IN MEMORY"}</p></article>
       <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[3]}</span>${statePill(!relay.reachable ? "Unknown" : health.forwarding ? providerIssue ? "Check results" : "Enabled" : "Disabled", !relay.reachable ? "neutral" : !health.forwarding || providerIssue ? "warning" : "good")}</div><h3>Provider forwarding</h3><p>Latest retained results, not live probes</p><div class="provider-list">${providers || '<span class="section-meta">No upstream observations</span>'}</div></article>`
+    cards.lastElementChild?.append(auth)
   }
 
   return { render: renderSystem }

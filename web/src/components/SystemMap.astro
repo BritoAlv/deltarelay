@@ -3,22 +3,25 @@ import Icon from "./Icon.astro"
 import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
 ---
 <article class="panel topology-panel" aria-labelledby="topology-title">
-  <div class="control-heading"><div><h3 id="topology-title">System connection map</h3><p class="control-detail">Automatic recovery runs in the background—even with this page closed.</p></div><span id="control-connection" class="status-pill neutral">Checking…</span></div>
-  <p id="recovery-status" role="status" aria-live="polite">Waiting for the independent local supervisor…</p>
-  <details class="topology-diagnostics"><summary>Network and recovery details</summary>
-    <p id="network-detail" class="control-detail">Interface, route and DNS changes are monitored automatically.</p>
-    <p id="recovery-detail" class="control-detail"></p>
-    <p class="control-detail topology-note"><strong>Solid PROCESS boxes enclose each process and its components.</strong> Dashed boxes are hosts, networks, paths or external services—not processes. Relay-owned files survive process restarts. Arrow colors show connection roles, not live activity or readiness.</p>
-  </details>
-  <div class="topology-legend">
-    <span><svg class="legend-arrow request" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Model request flow</span>
-    <span><svg class="legend-arrow control" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Checks / recovery / management</span>
-    <span><i class="good"></i>Verified</span><span><i class="working"></i>Working</span><span><i class="warning"></i>Not ready</span><span><i class="neutral"></i>Unknown / stopped</span>
-    <label><input id="map-management" type="checkbox" /> Management connections</label>
+  <div class="control-heading"><div><h3 id="topology-title">System architecture</h3><p class="control-detail">How components connect across processes and hosts.</p></div></div>
+  <div class="topology-legend" role="group" aria-label="Architecture legend">
+    <button type="button" class="legend-toggle" data-map-channel="request" aria-pressed="true" aria-controls="map-edges" title="Hide model request arrows"><svg class="legend-arrow request" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Model request flow<span class="legend-toggle-state">Shown</span></button>
+    <button type="button" class="legend-toggle" data-map-channel="response" aria-pressed="true" aria-controls="map-edges" title="Hide model response arrows"><svg class="legend-arrow response" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M23 6 H3 M8 1 L3 6 L8 11" /></svg>Response / stream<span class="legend-toggle-state">Shown</span></button>
+    <button type="button" class="legend-toggle" data-map-channel="control" aria-pressed="true" aria-controls="map-edges" title="Hide checks, recovery and management arrows"><svg class="legend-arrow control" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Checks / recovery / management<span class="legend-toggle-state">Shown</span></button>
   </div>
-  <p class="topology-scroll-hint control-detail">Select a component for details and actions. Scroll the map horizontally to see all processes. Solid borders: processes · Dashed borders: locations and non-process resources.</p>
+  <dl class="map-boundary-key" aria-label="Map boundaries">
+    <div><dt><span class="legend-boundary process" aria-hidden="true"></span>Process boundary</dt><dd>Encloses a process and its components</dd></div>
+    <div><dt><span class="legend-boundary location" aria-hidden="true"></span>Host / location / resource</dt><dd>Groups context, not a process</dd></div>
+    <div><dt><span class="legend-separator" aria-hidden="true"></span>Frontend / backend</dt><dd>Interfaces on the left, services on the right</dd></div>
+  </dl>
   <div class="topology-workspace">
-    <div class="topology-viewport" tabindex="0" aria-label="System diagram. Select a component to inspect it. Scroll horizontally on small screens.">
+    <div class="map-navigation" role="group" aria-label="Map navigation">
+      <button id="map-zoom-out" type="button" aria-label="Zoom out">−</button>
+      <button id="map-zoom-reset" type="button" aria-label="Reset zoom to 100%" title="Reset zoom to 100%">100%</button>
+      <button id="map-zoom-in" type="button" aria-label="Zoom in">+</button>
+      <button id="map-fit" type="button">Fit all</button>
+    </div>
+    <div class="topology-viewport" tabindex="0" aria-label="System connection map" aria-describedby="map-help">
       <div class="topology-canvas" style={`aspect-ratio:${mapWidth}/${mapHeight}`}>
         <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Process boundaries, owned components, and observed connections. Dashed boundaries are not processes.">
           <defs><marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
@@ -27,6 +30,10 @@ import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, no
             <rect class="map-region" data-map-group={region.id} data-boundary-kind="host" x={region.x} y={region.y} width={region.width} height={region.height} rx="12" />
             <text class="map-region-label" x={region.x + 20} y={region.y + 28}>{region.label}</text>
           </g>)}
+          <g class="map-layer-separation" aria-label="Frontend on the left; backend on the right">
+            <text x="55" y="13">Frontend</text><text x="305" y="13">Backend</text>
+            <line x1="275" y1="4" x2="275" y2={mapHeight - 10} />
+          </g>
           {mapBoundaries.map((boundary) => <rect class={`map-boundary-outline map-${boundary.kind}`} data-map-group={boundary.id} data-boundary-kind={boundary.kind} x={boundary.x} y={boundary.y} width={boundary.width} height={boundary.height} rx="8" />)}
           <g id="map-edges"></g>
           {mapBoundaries.map((boundary) => <g id={`map-boundary-${boundary.id}`} class={`map-boundary-heading map-${boundary.kind}`} data-boundary-kind={boundary.kind} aria-label={`${boundary.label} · ${boundary.title}`}>
@@ -38,22 +45,19 @@ import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, no
           </g>)}
         </svg>
         {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" aria-describedby={`map-boundary-${mapBoundaries.find((boundary) => boundary.members.includes(node.id))?.id ?? "remote"}-description`} style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
-          <span class="map-node-top"><Icon name={node.icon} size={22} /><span class="map-node-role">{node.role}</span><span class="map-node-spinner" aria-hidden="true"></span></span>
-          <strong data-node-label>{node.label}</strong><span data-node-status>Not verified</span>
+          <span class="map-node-top"><Icon name={node.icon} size={22} /><span class="map-node-role">{node.role}</span></span>
+          <strong data-node-label>{node.label}</strong>
         </button>)}
       </div>
     </div>
-    <aside id="node-inspector" class="node-inspector" aria-labelledby="node-inspector-title">
-      <p class="eyebrow">COMPONENT DETAILS</p><h3 id="node-inspector-title">Select a component</h3>
-      <p id="node-inspector-status" class="control-detail">Each process and each connection has its own observed state.</p>
-      <p id="node-inspector-detail">Use the map to inspect readiness and supported lifecycle actions.</p>
-      <dl id="node-inspector-meta"></dl><div id="node-actions" class="node-actions"></div>
-      <div id="node-connections" class="node-connections"></div>
-    </aside>
   </div>
-  <details id="recovery-progress" class="recovery-progress" open><summary>Recovery steps</summary><div class="recovery-content"><p class="control-detail">Follow the latest recovery operation and each component’s progress.</p><ol id="recovery-steps"><li class="recovery-empty">No recovery operation has been observed yet.</li></ol></div></details>
-  <details class="recovery-options" open><summary>Automatic recovery settings</summary><div class="recovery-content"><div class="control-settings">
-    <label><input id="auto-reconnect" type="checkbox" aria-describedby="auto-reconnect-description" disabled /><span><strong>Automatic recovery</strong><span id="auto-reconnect-description" class="setting-description">Check and repair the connection in the background when network conditions change.</span></span></label>
-    <label id="auto-wake-setting" hidden><input id="auto-wake" type="checkbox" aria-describedby="auto-wake-description" disabled /><span><strong>Allow automatic remote-host wake</strong><span id="auto-wake-description" class="setting-description">Wake the existing remote host when recovery needs it. <span class="setting-warning">May incur compute charges.</span></span></span></label>
-  </div><p class="control-detail recovery-note">Network changes trigger checks, not unconditional restarts. Intentionally stopped components stay stopped.</p></div></details>
+  <div class="map-footer">
+    <ul id="map-help" class="map-help" aria-label="Map navigation tips">
+      <li><strong>Pan</strong><span>Drag or use arrow keys</span></li>
+      <li><strong>Zoom</strong><span>Scroll, pinch or <kbd>+</kbd> / <kbd>−</kbd></span></li>
+      <li><strong>Fit</strong><span><kbd>0</kbd></span></li>
+      <li><strong>Highlight</strong><span>Select a component · <kbd>Esc</kbd> to clear</span></li>
+    </ul>
+    <p id="map-selection" class="map-selection" role="status">No component selected</p>
+  </div>
 </article>

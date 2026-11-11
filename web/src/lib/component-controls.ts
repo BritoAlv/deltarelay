@@ -1,0 +1,13 @@
+import type { NodeID } from "./topology.js"
+
+export const controlComponents: { id: NodeID; category: string; description: string }[] = [
+  { id: "desktop", category: "Applications", description: "The desktop application used to interact with OpenCode." },
+  { id: "opencode", category: "Applications", description: "Runs OpenCode and loads the DeltaRelay plugin." },
+  { id: "gateway", category: "Connection", description: "Accepts authenticated requests on this computer." },
+  { id: "tunnel", category: "Connection", description: "Carries relay traffic to the configured remote endpoint." },
+  { id: "remote", category: "Connection", description: "The existing remote machine hosting the relay." },
+  { id: "relay", category: "Connection", description: "Handles relayed requests and owns persistent cache files." },
+  { id: "dashboard", category: "Background services", description: "Serves this dashboard independently of the gateway." },
+  { id: "supervisor", category: "Background services", description: "Monitors components and coordinates automatic recovery." },
+  { id: "remote_provider", category: "Background services", description: "On-demand helper for managing the remote host." },
+]

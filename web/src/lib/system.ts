@@ -76,8 +76,8 @@ export function recoveryStatus(system: SystemStatus): string {
     return `In progress: ${system.recovery.phase.replaceAll("_", " ")}${detail ? `. ${detail}` : ""}`
   }
   const connection = connectionState(system)
-  if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake on the remote-host node to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
-  const paused = !system.settings.auto_reconnect ? " Automatic recovery is off. Use Start system for a one-time repair, or enable Automatic recovery for background recovery." : ""
+  if (connection === "remote_stopped") return `The remote host is stopped. Automatic reconnect and wake are off. ${supportsRemote(system, "host.wake") ? "Use Wake on the remote-host card to resume, then re-enable recovery settings as needed." : "Resume it through your hosting provider."}`
+  const paused = !system.settings.auto_reconnect ? " Automatic recovery is off. Use Start / recover system to recover the connection and resume automatic recovery." : ""
   if (connection === "no_internet") return controlError("no_internet") + paused
   const error = system.recovery.last_error
   if (error && error !== "unreachable") return controlError(error) + paused
@@ -141,7 +141,7 @@ export function controlError(code: string): string {
     shutdown_not_configured: "System shutdown needs an explicit stop command for every managed local service. Configure the missing lifecycle actions; no services were stopped.",
     component_not_ready: "The component did not pass its local readiness check before the deadline. Automatic retries are bounded; inspect its node on the map.",
     component_stop_unverified: "A stop command completed, but the service could not be independently confirmed stopped. Automatic recovery remains paused; inspect the component before retrying.",
-    system_stopped: "The system is intentionally stopped. Use Start system to resume local services and automatic recovery. Remote host shutdown remains available when supported.",
+    system_stopped: "The system is intentionally stopped. Use Start / recover system to resume local services and automatic recovery. Remote host shutdown remains available when supported.",
     operation_interrupted: "The supervisor restarted during an operation. Its outcome is uncertain; current state will be checked before any further repair.",
     unrecognized_port_owner: "A required port has an unrecognized owner. No process was stopped or replaced.",
     identity_mismatch: "The remote relay identity changed. Automatic recovery is blocked; no state was reset.",

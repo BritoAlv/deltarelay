@@ -6,6 +6,8 @@ export default defineConfig({
   output: "static",
   devToolbar: { enabled: false },
   vite: {
+    // The browser-only hex element is lazy-loaded when its tab is selected.
+    optimizeDeps: { include: ["@hexcanvas/element"] },
     // The Go dashboard allows only same-origin external scripts. Astro would
     // otherwise inline small bundles (including the theme picker) by default.
     build: { assetsInlineLimit: 0 },

@@ -25,7 +25,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: deltarelay <serve|gateway|dashboard|sync|fetch|request|doctor|gen-token> [flags]")
+		return errors.New("usage: deltarelay <serve|gateway|gate|dashboard|sync|fetch|request|doctor|gen-token> [flags]")
 	}
 	switch args[0] {
 	case "version", "--version", "-v":
@@ -37,6 +37,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return transferCommand(ctx, args[0], args[1:], stdout, stderr)
 	case "gateway":
 		return gatewayCommand(ctx, args[1:], stderr)
+	case "gate":
+		return gateCommand(ctx, args[1:], stderr)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], stderr)
 	case "doctor":
@@ -46,7 +48,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	case "gen-token":
 		return tokenCommand(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
-		fmt.Fprintln(stdout, "Usage: deltarelay <command> [flags]\n\n  serve      VPS chunk store and durable response mailbox\n  gateway    Authenticated PC loopback gateway for OpenCode\n  dashboard  Local dashboard; controls are optional and supervisor-backed\n  request    Inspect, fetch, acknowledge or cancel a saved request\n  doctor     Check gateway, VPS readiness, and transfer counters\n  gen-token  Generate a private authentication token file\n  sync       Synchronize a file body (diagnostic)\n  fetch      Resume a verified body export (diagnostic)\n\nRun a command with -h for flags. See README.md for setup.")
+		fmt.Fprintln(stdout, "Usage: deltarelay <command> [flags]\n\n  serve      VPS chunk store and durable response mailbox\n  gateway    Authenticated PC loopback gateway for OpenCode\n  gate       Attach-only health gate for the shared OpenCode service\n  dashboard  Local dashboard; controls are optional and supervisor-backed\n  request    Inspect, fetch, acknowledge or cancel a saved request\n  doctor     Check gateway, VPS readiness, and transfer counters\n  gen-token  Generate a private authentication token file\n  sync       Synchronize a file body (diagnostic)\n  fetch      Resume a verified body export (diagnostic)\n\nRun a command with -h for flags. See README.md for setup.")
 		return nil
 	default:
 		return fmt.Errorf("unknown command %q", args[0])

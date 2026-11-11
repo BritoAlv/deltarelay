@@ -107,3 +107,23 @@ export function edgePath(source: NodeID, target: NodeID): string {
   const middle = (sy + ty) / 2
   return `M${ax},${sy} V${middle} H${bx} V${ty}`
 }
+
+/** Return lane, offset from the outgoing route without moving node endpoints off their borders. */
+export function responsePath(source: NodeID, target: NodeID): string {
+  const a = mapNodes.find((node) => node.id === target)!
+  const b = mapNodes.find((node) => node.id === source)!
+  const lane = 16
+  const ax = a.x + nodeWidth / 2 + lane, ay = a.y + nodeHeight / 2 + lane
+  const bx = b.x + nodeWidth / 2 + lane, by = b.y + nodeHeight / 2 + lane
+  if (a.y === b.y) return a.x < b.x
+    ? `M${a.x + nodeWidth},${ay} H${b.x}`
+    : `M${a.x},${ay} H${b.x + nodeWidth}`
+  if (a.x === b.x) return a.y < b.y
+    ? `M${ax},${a.y + nodeHeight} V${b.y}`
+    : `M${ax},${a.y} V${b.y + nodeHeight}`
+  const direction = by > ay ? 1 : -1
+  const sy = ay + direction * nodeHeight / 2 - lane
+  const ty = by - direction * nodeHeight / 2 - lane
+  const middle = (sy + ty) / 2 + lane
+  return `M${ax},${sy} V${middle} H${bx} V${ty}`
+}

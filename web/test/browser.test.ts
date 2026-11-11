@@ -94,23 +94,318 @@ test("initial overview state loads without presenting fabricated diagnostics", a
   await page.close()
 })
 
-test("controls keep primary actions separate from header sizing and secondary map diagnostics collapsed", async () => {
+test("controls keep primary actions separate and architecture details always expanded", async () => {
   const page = openPage("controls")
   const doc = page.document
-  const toolbar = doc.querySelector(".system-toolbar .heading-actions")!
-  assert.deepEqual([...toolbar.querySelectorAll("button")].map((button) => button.id), ["start-system", "stop-remote", "stop-system"])
-  const diagnostics = doc.querySelector<HTMLDetailsElement>(".topology-diagnostics")!
-  assert.equal(diagnostics.open, false)
-  for (const id of ["network-detail", "recovery-detail"]) assert.ok(diagnostics.querySelector(`#${id}`))
-  assert.ok(diagnostics.querySelector(".topology-note"))
-  assert.match(doc.querySelector(".topology-scroll-hint")?.textContent ?? "", /Scroll.*horizontally.*Solid borders.*Dashed borders/)
+  const toolbar = doc.querySelector(".system-overview-actions")!
+  assert.equal(toolbar.classList.contains("heading-actions"), false, "system summary does not inherit full-width header toolbar rules")
+  assert.equal(doc.querySelector(".system-overview")?.classList.contains("system-toolbar"), false)
+  assert.deepEqual([...toolbar.querySelectorAll("button")].map((button) => button.id), ["start-system", "stop-system"])
+  assert.match(doc.querySelector("#start-system")?.textContent ?? "", /Start \/ recover system/)
+  const diagnostics = doc.querySelector("#system-architecture-view .architecture-details")!
+  assert.ok(diagnostics)
+  assert.equal(diagnostics.querySelector("details, summary"), null)
+  for (const id of ["network-detail", "recovery-detail", "shutdown-detail"]) {
+    assert.ok(diagnostics.querySelector(`#${id}`))
+    assert.equal(doc.querySelector(`#system-controls-view #${id}`), null)
+  }
+  assert.ok(doc.querySelector("#system-architecture-view .map-boundary-key"))
+  assert.equal(doc.querySelectorAll("#map-help li").length, 4)
   assert.equal(doc.querySelector(".topology-viewport")?.getAttribute("tabindex"), "0")
   const status = startSystemStatus(doc, { autoStart: false })
   page.setFetch(() => json(systemStatus()))
   await status.refresh()
-  assert.match(diagnostics.querySelector("#network-detail")?.textContent ?? "", /network changes observed/)
-  assert.equal(diagnostics.open, false, "polling must not expand diagnostics")
+  assert.equal(doc.querySelector("#network-changes")?.textContent, systemStatus().topology!.network.generation.toLocaleString())
+  assert.equal(doc.querySelector("#recovery-attempts")?.textContent, systemStatus().recovery.attempts.toLocaleString())
+  assert.equal(doc.querySelector("#recovery-mode")?.textContent, "Enabled")
+  assert.equal(doc.querySelector("#architecture-data-state")?.textContent, "Live supervisor data")
+  assert.equal(diagnostics.querySelector("details"), null, "polling keeps architecture details expanded")
+  assert.equal(diagnostics.querySelectorAll("dl").length, 3)
+  assert.equal(diagnostics.querySelectorAll("time").length, 3)
   status.destroy()
+  await page.close()
+})
+
+test("polling updates card details without opening the architecture or moving its camera", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const status = startSystemStatus(page.document, { autoStart: false })
+  const inspector = page.document.querySelector<HTMLDialogElement>("#node-inspector")!
+  const canvas = page.document.querySelector<HTMLElement>(".topology-canvas")!
+  await status.refresh()
+  assert.equal(inspector.open, false)
+  page.document.querySelector<HTMLButtonElement>('[data-component-detail="relay"]')!.click()
+  assert.equal(inspector.open, true)
+  assert.match(inspector.querySelector("#node-inspector-title")!.textContent ?? "", /relay/i)
+  const camera = canvas.style.transform
+  await status.refresh()
+  assert.equal(canvas.style.transform, camera)
+  assert.equal(inspector.open, true)
+  page.document.querySelector<HTMLButtonElement>("#node-inspector-close")!.click()
+  await status.refresh()
+  assert.equal(inspector.open, false)
+  assert.equal(page.document.querySelector<HTMLElement>("#system-architecture-view")!.hidden, true)
+  status.destroy()
+  await page.close()
+})
+
+test("all operational components use the same cards, with filtering and stable action menus", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  const cards = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
+  assert.equal(cards.length, 9)
+  for (const id of ["dashboard", "supervisor", "remote_provider"]) {
+    const card = doc.querySelector<HTMLElement>(`[data-component-id="${id}"]`)!
+    assert.equal(card.parentElement?.className, "resource-grid")
+    assert.equal(card.hidden, false)
+    assert.equal(card.closest("details"), null)
+  }
+  const filter = doc.querySelector<HTMLInputElement>("#component-filter")!
+  filter.value = "background"
+  page.fire(filter, "input")
+  assert.equal(cards.filter((card) => !card.hidden).length, 3)
+  await app.refresh()
+  assert.equal(cards.filter((card) => !card.hidden).length, 3, "polling preserves the filter")
+  filter.value = "no such component"
+  page.fire(filter, "input")
+  assert.equal(doc.querySelector<HTMLElement>("#component-empty")!.hidden, false)
+  filter.value = ""
+  page.fire(filter, "input")
+  const menu = doc.querySelector<HTMLDetailsElement>('[data-component-id="gateway"] .resource-more')!
+  menu.open = true
+  const action = menu.querySelector('[data-component-action="restart"]')
+  assert.ok(action)
+  await app.refresh()
+  assert.equal(menu.open, true)
+  assert.equal(menu.querySelector('[data-component-action="restart"]'), action, "polling does not replace unchanged actions")
+  page.fire(doc.querySelector(".resource-heading")!, "click")
+  assert.equal(menu.open, false)
+  assert.equal(doc.querySelector("#node-inspector [data-component-action]"), null, "diagnostic dialog is read-only")
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
+  await page.close()
+})
+
+test("architecture retains its complete legend and highlights management arrows without operational actions", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  page.setFetch(() => json(status))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  const tab = doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!
+  const view = doc.querySelector<HTMLElement>("#system-architecture-view")!
+  tab.click()
+  assert.equal(view.hidden, false)
+  assert.equal(tab.getAttribute("aria-selected"), "true")
+  const legend = view.querySelector(".topology-legend")!.textContent ?? ""
+  for (const text of ["Model request flow", "Checks / recovery / management"]) assert.ok(legend.includes(text), text)
+  for (const text of ["Process boundary", "Host / location / resource"]) assert.ok(view.querySelector(".map-boundary-key")!.textContent!.includes(text), text)
+  assert.doesNotMatch(legend, /Verified|Working|Not ready|Unknown \/ stopped/)
+  assert.equal(view.querySelector("#map-management"), null)
+   assert.equal(view.querySelectorAll('.legend-toggle[aria-pressed="true"]').length, 3)
+   assert.equal(view.querySelectorAll(".map-edge:not(.response)").length, status.topology!.edges.length, "all connections start visible")
+   assert.equal(view.querySelectorAll(".map-edge.response").length, 6)
+   assert.ok(view.querySelector(".map-layer-separation line"))
+   assert.equal(view.querySelector('[data-edge-id="relay_storage_response"]'), null, "storage is not a return hop")
+   assert.match(view.querySelector('[data-edge-id="relay_provider_response"] title')?.textContent ?? "", /provider → relay/)
+   assert.notEqual(view.querySelector('[data-edge-id="relay_provider_response"]')?.getAttribute("d"), view.querySelector('[data-edge-id="relay_provider"]')?.getAttribute("d"))
+  assert.equal(view.querySelector("[data-node-status], [data-tone], .map-node-spinner"), null, "architecture is structural, not a second operational status view")
+  const node = doc.querySelector<HTMLButtonElement>('[data-node-id="supervisor"]')!
+  const camera = view.querySelector<HTMLElement>(".topology-canvas")!
+  const before = camera.style.transform
+  node.click()
+  const related = status.topology!.edges.filter((edge) => edge.source === "supervisor" || edge.target === "supervisor")
+  assert.equal(view.querySelectorAll(".map-edge.selected").length, related.length)
+  assert.ok(view.querySelectorAll(".map-edge.manages.selected").length > 0)
+  assert.equal(doc.querySelector<HTMLDialogElement>("#node-inspector")!.open, false)
+  assert.equal(view.querySelector("[data-component-action]"), null)
+  await app.refresh()
+  assert.equal(node.getAttribute("aria-pressed"), "true")
+  assert.equal(camera.style.transform, before, "selection and polling do not move the camera")
+  node.click()
+  assert.equal(view.querySelectorAll(".map-edge.selected").length, 0)
+  node.click()
+  view.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event)
+  assert.equal(node.getAttribute("aria-pressed"), "false")
+  tab.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }) as unknown as Event)
+  assert.equal(view.hidden, true)
+  assert.equal(doc.activeElement, doc.querySelector("#system-controls-tab"))
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
+  await page.close()
+})
+
+test("map background clicks clear selection without fading other components", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const doc = page.document
+  const app = startSystemStatus(doc, { autoStart: false })
+  await app.refresh()
+  doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
+  const selected = doc.querySelector<HTMLButtonElement>('[data-node-id="gateway"]')!
+  selected.querySelector("strong")!.dispatchEvent(new page.window.MouseEvent("click", { bubbles: true }) as unknown as Event)
+  assert.equal(selected.getAttribute("aria-pressed"), "true", "clicks within a component keep it selected")
+  assert.equal(doc.querySelector(".map-unrelated, .has-selection"), null)
+  assert.ok(doc.querySelectorAll(".map-edge.selected").length > 0)
+  for (const target of [".map-region", ".map-boundary-outline", ".topology-viewport"]) {
+    if (selected.getAttribute("aria-pressed") !== "true") selected.click()
+    doc.querySelector(target)!.dispatchEvent(new page.window.MouseEvent("click", { bubbles: true }) as unknown as Event)
+    assert.equal(selected.getAttribute("aria-pressed"), "false", `${target} clears selection`)
+    assert.equal(doc.querySelectorAll(".map-edge.selected").length, 0)
+    assert.equal(doc.querySelector("#map-selection")?.textContent, "No component selected")
+  }
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
+  await page.close()
+})
+
+test("legend arrow buttons independently hide connection groups and retain filters during polling and selection", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const doc = page.document
+  const app = startSystemStatus(doc, { autoStart: false })
+  await app.refresh()
+  const request = doc.querySelector<HTMLButtonElement>('[data-map-channel="request"]')!
+  const response = doc.querySelector<HTMLButtonElement>('[data-map-channel="response"]')!
+  const control = doc.querySelector<HTMLButtonElement>('[data-map-channel="control"]')!
+  const camera = doc.querySelector<HTMLElement>(".topology-canvas")!
+  const before = camera.style.transform
+  const all = doc.querySelectorAll(".map-edge").length
+  control.click()
+  assert.equal(control.getAttribute("aria-pressed"), "false")
+  assert.equal(control.querySelector(".legend-toggle-state")?.textContent, "Hidden")
+  assert.equal(doc.querySelectorAll(".map-edge.control").length, 0)
+  assert.ok(doc.querySelectorAll(".map-edge.request").length > 0)
+  doc.querySelector<HTMLButtonElement>('[data-node-id="supervisor"]')!.click()
+  await app.refresh()
+  assert.equal(doc.querySelectorAll(".map-edge.control").length, 0, "selection and polling never override hidden channels")
+  assert.match(doc.querySelector("#map-selection")?.textContent ?? "", /0 visible arrows/)
+  request.click()
+  assert.ok(doc.querySelectorAll(".map-edge.response").length > 0, "request and response filters are independent")
+  response.click()
+  assert.equal(doc.querySelectorAll(".map-edge").length, 0)
+  control.click()
+  assert.ok(doc.querySelectorAll(".map-edge.manages").length > 0)
+  assert.equal(doc.querySelectorAll(".map-edge.request").length, 0)
+  request.click()
+  response.click()
+  assert.equal(doc.querySelectorAll(".map-edge").length, all)
+  assert.equal(request.getAttribute("aria-pressed"), "true")
+  assert.equal(camera.style.transform, before)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
+  await page.close()
+})
+
+test("three system tabs support keyboard navigation and preserve selection during refresh", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  const tabs = [...doc.querySelectorAll<HTMLButtonElement>('.system-tabs [role="tab"]')]
+  assert.deepEqual(tabs.map((tab) => tab.id), ["system-controls-tab", "system-architecture-tab", "system-settings-tab"])
+  function key(index: number, key: string, expected: number) {
+    tabs[index]!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key, bubbles: true }) as unknown as Event)
+    assert.equal(doc.activeElement, tabs[expected])
+    tabs.forEach((tab, position) => {
+      assert.equal(tab.getAttribute("aria-selected"), String(position === expected))
+      assert.equal(tab.tabIndex, position === expected ? 0 : -1)
+      assert.equal(doc.getElementById(tab.getAttribute("aria-controls")!)!.hidden, position !== expected)
+    })
+  }
+  key(0, "ArrowRight", 1)
+  key(1, "ArrowRight", 2)
+  await app.refresh()
+  assert.equal(doc.querySelector<HTMLElement>("#system-settings-view")!.hidden, false)
+  key(2, "ArrowRight", 0)
+  key(0, "ArrowLeft", 2)
+  key(2, "Home", 0)
+  key(0, "End", 2)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
+  await page.close()
+})
+
+test("settings autosave safely and show errors without leaving the Settings tab", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  let fail = false
+  const writes: RequestInit[] = []
+  page.setFetch((url, init) => {
+    if (url === "/api/system") return json(status)
+    if (url === "/api/system/setup") return json(setupStatus())
+    assert.equal(url, "/api/system/settings")
+    writes.push(init)
+    if (fail) throw new Error("Settings write failed")
+    status.settings.auto_reconnect = false
+    return json({ accepted: true })
+  })
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  doc.querySelector<HTMLButtonElement>("#system-settings-tab")!.click()
+  const input = doc.querySelector<HTMLInputElement>("#auto-reconnect")!
+  input.checked = false
+  page.fire(input, "change")
+  await waitForText(doc.querySelector("#control-notice"), /settings saved/i, "settings autosave")
+  assert.equal(writes.length, 1)
+  assert.deepEqual(JSON.parse(String(writes[0]!.body)), { auto_reconnect: false, auto_wake: false })
+  assert.deepEqual(writes[0]!.headers, { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
+  assert.equal(doc.querySelector<HTMLElement>("#system-settings-view")!.hidden, false)
+  assert.equal(doc.querySelector("#control-notice")!.closest('[role="tabpanel"]'), null, "save feedback is visible regardless of selected tab")
+  await app.refresh()
+  fail = true
+  input.checked = true
+  page.fire(input, "change")
+  await waitForText(doc.querySelector("#control-notice"), /Settings write failed/, "settings error")
+  assert.equal(doc.querySelector<HTMLElement>("#system-settings-view")!.hidden, false)
+  assert.equal(doc.querySelector<HTMLElement>("#control-notice")!.hidden, false)
+  assert.equal(input.checked, false, "failed changes return to the observed setting")
+  app.destroy()
+  await page.close()
+})
+
+test("Start / recover system uses the confirmed existing start operation, not a duplicate recovery command", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  const actions: Record<string, unknown>[] = []
+  let release: (response: Response) => void = () => undefined
+  const held = new Promise<Response>((resolve) => { release = resolve })
+  page.setFetch((url, init) => {
+    if (url === "/api/system") return json(status)
+    if (url === "/api/system/setup") return json(setupStatus())
+    assert.equal(url, "/api/system/action")
+    actions.push(JSON.parse(String(init.body)))
+    return held
+  })
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const button = page.document.querySelector<HTMLButtonElement>("#start-system")!
+  page.setConfirm(() => false)
+  button.click()
+  assert.equal(actions.length, 0)
+  page.setConfirm((message) => {
+    assert.match(message ?? "", /recover the connection and enable automatic recovery/)
+    assert.match(message ?? "", /billing/)
+    return true
+  })
+  button.click()
+  button.click()
+  assert.equal(actions.length, 1)
+  assert.equal(actions[0]?.component, "all")
+  assert.equal(actions[0]?.action, "start")
+  assert.equal(actions[0]?.confirmed, true)
+  assert.match(String(actions[0]?.request_id), /^[a-f0-9]{32}$/)
+  release(json({ accepted: true }, 202))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(page.document.querySelector("#recovery-progress"), null)
+  assert.doesNotMatch(page.document.querySelector("#control-notice")?.textContent ?? "", /Recovery history/)
+  app.destroy()
   await page.close()
 })
 
@@ -251,11 +546,23 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   await waitForText(inspector, /Captured bytes/, "body evidence did not load")
   assert.match(inspector.textContent ?? "", /Private disk capture enabled/)
   assert.match(inspector.textContent ?? "", /héllo/)
+  assert.equal(inspector.querySelector('[data-inspect-mode="json"]')?.getAttribute("aria-pressed"), "true")
+  assert.ok(inspector.querySelector(".cm-gutters"))
+  assert.equal(inspector.querySelector(".cm-content")?.getAttribute("contenteditable"), "false")
+  assert.match(inspector.querySelector(".cm-content")?.textContent ?? "", /9007199254740993/)
+  const fold = [...inspector.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Fold all")!
+  fold.click()
+  assert.ok(inspector.querySelector(".cm-foldPlaceholder"))
+  ;[...inspector.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Unfold all")!.click()
+  assert.equal(inspector.querySelector(".cm-foldPlaceholder"), null)
+  ;[...inspector.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Find")!.click()
+  assert.ok(inspector.querySelector(".cm-search"))
   assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()}\\u00A0B`))
   doc.querySelector<HTMLButtonElement>('[data-inspect-mode="json"]')!.click()
   await waitForText(inspector, /9007199254740993/, "lossless JSON presentation did not load")
   assert.match(inspector.textContent ?? "", /"z": 1,\s*"z": 2/)
   assert.match(inspector.textContent ?? "", /Formatting is not the captured byte layout/)
+  assert.ok(inspector.querySelector(".cm-content span"), "CodeMirror applies parser-based syntax highlighting")
 
   doc.querySelector<HTMLButtonElement>('[data-inspect-stage="inventory"]')!.click()
   await waitForText(inspector, /This page: chunks 0–0/, "inventory did not load")
@@ -264,7 +571,7 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   await waitForText(inspector, /Selected chunk #0/, "chunk selection did not render")
   await waitForText(inspector, /c3 a9/, "chunk bytes did not load")
   assert.match(inspector.textContent ?? "", /00000030/)
-  assert.match(inspector.textContent ?? "", new RegExp(`byte range \\[0, ${body.length.toLocaleString()}\\)`))
+  assert.match(inspector.textContent ?? "", /Addresses are absolute byte offsets/)
 
   doc.querySelector<HTMLButtonElement>('[data-inspect-stage="upload"]')!.click()
   await waitForText(inspector, /Prepared frame layout/, "upload attempt did not load")
@@ -694,6 +1001,24 @@ test("system health combines gateway diagnostics with supervisor network state",
   assert.equal(doc.querySelector("#session-rows"), null)
   assert.equal(doc.querySelector("#stat-sessions"), null)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard", "/api/system"])
+  const auth = doc.querySelector("#provider-auth")!
+  assert.equal(auth.closest("article")?.querySelector("h3")?.textContent, "Provider forwarding")
+  assert.equal(auth.querySelector("#auth-state")?.textContent, "Current token")
+  assert.match(auth.querySelector("#auth-countdown")?.textContent ?? "", /59m|1h/)
+  const disclosure = auth.querySelector<HTMLDetailsElement>("details")!
+  disclosure.open = true
+  await dashboard.refresh()
+  assert.equal(doc.querySelector("#provider-auth"), auth)
+  assert.equal(disclosure.open, true)
+  status.auth.stale = true
+  await system.refresh()
+  assert.equal(auth.querySelector("#auth-state")?.textContent, "Stale metadata")
+  assert.match(auth.querySelector("#auth-countdown")?.textContent ?? "", /^Last known:/)
+  status.auth.stale = false
+  status.auth.state = "needs_auth"
+  status.auth.expires_at = undefined
+  await system.refresh()
+  assert.equal(auth.querySelector("#auth-countdown")?.textContent, "Sign-in required")
   dashboard.destroy()
   system.destroy()
   await page.close()
@@ -745,7 +1070,7 @@ test("map prominently encloses every process, its modules and owned files, witho
   assert.equal(role("relay"), "Process")
   assert.equal(role("storage"), "Files")
   assert.equal(role("provider"), "External API")
-  assert.match(doc.querySelector(".topology-note")?.textContent ?? "", /Solid PROCESS boxes.*Dashed boxes.*not processes/)
+  assert.match(doc.querySelector(".map-boundary-key")?.textContent ?? "", /Process boundary.*Encloses a process.*Host \/ location \/ resource.*not a process/)
   const contains = (groupID: string, nodeID: string) => {
     const group = doc.querySelector(`[data-map-group="${groupID}"]`)!
     const node = mapNodes.find((item) => item.id === nodeID)!
@@ -814,7 +1139,7 @@ test("transport boundary switches between a tunnel process and a direct HTTPS pa
   assert.equal(heading.querySelector("[data-boundary-title]")?.textContent, "Direct HTTPS")
   assert.equal(role.textContent, "Path")
   assert.match(doc.querySelector("#map-boundary-tunnel-description")?.textContent ?? "", /no separate tunnel process/)
-  doc.querySelector<HTMLButtonElement>('[data-node-id="tunnel"]')!.click()
+  doc.querySelector<HTMLButtonElement>('[data-component-detail="tunnel"]')!.click()
   assert.match(doc.querySelector("#node-inspector-meta")?.textContent ?? "", /BoundaryPATH · NOT A PROCESS · Direct HTTPS/)
   assert.doesNotMatch(doc.querySelector("#node-inspector-status")?.textContent ?? "", /Process:/)
   delete status.topology
@@ -827,7 +1152,7 @@ test("transport boundary switches between a tunnel process and a direct HTTPS pa
   await page.close()
 })
 
-test("controls show the full map, not service lists or logs, and poll only the supervisor", async () => {
+test("controls show component cards separately from the read-only map and poll only the supervisor", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   page.setFetch((url) => {
@@ -844,21 +1169,28 @@ test("controls show the full map, not service lists or logs, and poll only the s
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
   assert.equal(doc.querySelectorAll("[data-node-id]").length, 14)
-  assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Cache \/ saved responses \(Files\): Not verified/)
+  assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Cache \/ saved responses \(Files\).*Highlight connections/)
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
-  assert.ok(doc.querySelector("#auth-countdown"))
+  assert.equal(doc.querySelector("#auth-countdown"), null)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup"])
+  assert.equal(doc.querySelectorAll("[data-component-id]").length, 9)
+  assert.ok(doc.querySelector('[data-component-id="supervisor"]'))
+  assert.ok(doc.querySelector('[data-component-id="dashboard"]'))
+  doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
+  assert.equal(doc.querySelector<HTMLElement>("#system-controls-view")!.hidden, true)
+  assert.equal(doc.querySelector<HTMLElement>("#system-architecture-view")!.hidden, false)
   doc.querySelector<HTMLButtonElement>('[data-node-id="plugin"]')!.click()
-  assert.match(doc.querySelector("#node-inspector-meta")?.textContent ?? "", /BoundaryPROCESS · OpenCode server/)
+  assert.equal(doc.querySelector<HTMLDialogElement>("#node-inspector")!.open, false)
+  assert.ok(doc.querySelector('[data-edge-id="opencode_plugin"]')?.classList.contains("selected"))
   doc.querySelector<HTMLButtonElement>('[data-node-id="storage"]')!.click()
-  assert.match(doc.querySelector("#node-inspector-meta")?.textContent ?? "", /BoundaryPROCESS \+ OWNED FILES · DeltaRelay relay/)
-  assert.doesNotMatch(doc.querySelector("#node-inspector-status")?.textContent ?? "", /Process:/, "files are not called processes")
+  assert.ok(doc.querySelector('[data-edge-id="relay_storage"]')?.classList.contains("selected"))
+  assert.equal(doc.querySelector("#system-architecture-view [data-component-action]"), null)
   system.destroy()
   await page.close()
 })
 
-test("map colors distinguish request arrows from checks and management without hiding readiness", async () => {
+test("architecture roles stay independent of live health, which remains available in control details", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   page.setFetch((url) => url === "/api/system" ? json(status) : json(setupStatus()))
@@ -874,23 +1206,24 @@ test("map colors distinguish request arrows from checks and management without h
   assert.ok(edge("network_tunnel")?.classList.contains("control"))
   assert.ok(edge("remote_relay")?.classList.contains("control"))
   assert.ok(edge("dashboard_ui_dashboard")?.classList.contains("control"), "dashboard traffic is not model traffic")
-  assert.equal(edge("dashboard_supervisor"), null, "unselected management connections stay hidden")
-  const management = doc.querySelector<HTMLInputElement>("#map-management")!
-  management.checked = true
-  page.fire(management, "change")
+  assert.ok(edge("dashboard_supervisor"), "management connections are visible by default")
   assert.ok(edge("dashboard_supervisor")?.classList.contains("control"))
   assert.ok(edge("supervisor_gateway")?.classList.contains("control"))
-  assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /Model request flow.*unknown/)
+  assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /Model request flow/)
+  assert.doesNotMatch(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /unknown|ready|blocked/)
+  const original = edge("gateway_tunnel")
   status.topology!.edges.find((item) => item.id === "gateway_tunnel")!.state = "blocked"
   await system.refresh()
   assert.ok(edge("gateway_tunnel")?.classList.contains("request"), "a blocked request link retains its flow color")
-  assert.ok(edge("gateway_tunnel")?.classList.contains("blocked"), "the link still exposes readiness")
-  assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /blocked/)
+  assert.equal(edge("gateway_tunnel"), original, "live state changes do not rebuild structural architecture arrows")
+  assert.equal(edge("gateway_tunnel")?.classList.contains("blocked"), false)
+  doc.querySelector<HTMLButtonElement>('[data-component-detail="gateway"]')!.click()
+  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Blocked/, "operational connection health is shown in card diagnostics")
   system.destroy()
   await page.close()
 })
 
-test("map shows the active recovery step and system shutdown keeps control services explicit", async () => {
+test("controls show current recovery status without history and keep shutdown safeguards", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   const run: RecoveryRun = {
@@ -912,23 +1245,19 @@ test("map shows the active recovery step and system shutdown keeps control servi
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   const doc = page.document
-  const tunnel = doc.querySelector<HTMLButtonElement>('[data-node-id="tunnel"]')!
-  assert.equal(tunnel.classList.contains("is-working"), true)
+  const tunnel = doc.querySelector('[data-component-id="tunnel"] [data-component-status]')!
+  assert.equal(tunnel.classList.contains("working"), true)
   assert.match(tunnel.textContent ?? "", /recover…/)
   assert.match(doc.querySelector("#recovery-status")?.textContent ?? "", /Encrypted tunnel: recover/)
-  assert.equal(doc.querySelector("#recovery-progress")?.hasAttribute("open"), true)
-  assert.equal(doc.querySelector(".recovery-options")?.hasAttribute("open"), true)
-  const activeStep = doc.querySelector('#recovery-steps [data-step-state="running"]')!
-  assert.equal(activeStep.querySelector("strong")?.textContent, "Encrypted tunnel")
-  assert.equal(activeStep.querySelector(".status-pill")?.textContent, "Running")
-  assert.equal(activeStep.querySelector(".recovery-step-action")?.textContent, "Recover")
+  assert.equal(doc.querySelector("#recovery-progress, #recovery-steps"), null)
+  assert.equal(doc.querySelector<HTMLInputElement>("#auto-reconnect")!.disabled, true)
   const shutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
   assert.equal(shutdown.disabled, true, "conflicting lifecycle actions stay disabled during a run")
   run.status = "completed"
   run.steps[0]!.status = "completed"
   status.topology!.nodes.find((node) => node.id === "tunnel")!.activity = "idle"
   await system.refresh()
-  assert.equal(doc.querySelector('#recovery-steps [data-step-state="completed"] .status-pill')?.textContent, "Completed")
+  assert.equal(tunnel.classList.contains("working"), false)
   const readyShutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
   assert.equal(readyShutdown.disabled, false)
   page.setConfirm((message) => {
@@ -945,19 +1274,27 @@ test("map shows the active recovery step and system shutdown keeps control servi
   await page.close()
 })
 
-test("controls show expanded recovery sections and compact structured connections", async () => {
+test("recovery settings are directly visible in Settings and card details retain structured connections", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   page.setFetch(() => json(status))
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   const doc = page.document
-  assert.equal(doc.querySelector("#recovery-progress")?.hasAttribute("open"), true)
-  assert.equal(doc.querySelector(".recovery-options")?.hasAttribute("open"), true)
-  assert.match(doc.querySelector(".recovery-empty")?.textContent ?? "", /No recovery operation/)
+  assert.equal(doc.querySelector("#recovery-progress, #recovery-steps, .recovery-options"), null)
+  doc.querySelector<HTMLButtonElement>("#system-settings-tab")!.click()
+  const settings = doc.querySelector<HTMLElement>("#system-settings-view")!
+  assert.equal(settings.hidden, false)
+  assert.ok(settings.querySelector("#auto-reconnect"))
+  assert.ok(settings.querySelector("#auto-wake"))
+  assert.equal(settings.querySelector("details, summary"), null)
+  assert.equal(doc.querySelector("#system-controls-view #auto-reconnect"), null)
   assert.match(doc.querySelector("#auto-reconnect-description")?.textContent ?? "", /background/)
   assert.match(doc.querySelector(".setting-warning")?.textContent ?? "", /compute charges/)
-  doc.querySelector<HTMLButtonElement>('[data-node-id="remote"]')!.click()
+  await system.refresh()
+  assert.equal(settings.hidden, false, "polling preserves the selected tab")
+  doc.querySelector<HTMLButtonElement>("#system-controls-tab")!.click()
+  doc.querySelector<HTMLButtonElement>('[data-component-detail="remote"]')!.click()
   const connections = doc.querySelector("#node-connections")!
   assert.equal(connections.querySelector("h4")?.textContent, "Connections")
   const related = status.topology!.edges.filter((edge) => edge.source === "remote" || edge.target === "remote")
@@ -966,10 +1303,6 @@ test("controls show expanded recovery sections and compact structured connection
   assert.ok(connections.querySelector(".connection-heading strong")?.textContent?.includes("→"))
   assert.ok(connections.querySelector(".status-pill")?.textContent)
   assert.ok(connections.querySelector(".connection-protocol")?.textContent)
-  const progress = doc.querySelector<HTMLDetailsElement>("#recovery-progress")!
-  progress.open = false
-  await system.refresh()
-  assert.equal(progress.open, false, "polling preserves the user's collapsed state")
   status.topology!.edges = []
   await system.refresh()
   assert.equal(connections.textContent, "", "no orphan heading when there are no connections")
@@ -984,7 +1317,7 @@ test("controls explain a stopped tunnel when internet works but automatic reconn
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   assert.equal(page.document.querySelector("#control-connection")?.textContent, "Connection unavailable")
-  assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /Automatic recovery is off.*Start system/)
+  assert.match(page.document.querySelector("#recovery-status")?.textContent ?? "", /Automatic recovery is off.*Start \/ recover system/)
   assert.equal(page.document.querySelector<HTMLInputElement>("#auto-reconnect")?.checked, false)
   assert.equal(page.document.querySelector<HTMLButtonElement>("#start-system")?.disabled, false)
   assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "displaying a paused link must not change recovery settings")
@@ -1012,8 +1345,7 @@ test("Wake follows the entire connection operation with recovery settings off an
   })
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
-  page.document.querySelector<HTMLButtonElement>('[data-node-id="remote"]')!.click()
-  const button = page.document.querySelector<HTMLButtonElement>('[data-component-action="wake"]')!
+  const button = page.document.querySelector<HTMLButtonElement>('[data-component-id="remote"] [data-component-action="wake"]')!
   assert.equal(button.disabled, false)
   page.setConfirm(() => false)
   button.click()
@@ -1030,7 +1362,7 @@ test("Wake follows the entire connection operation with recovery settings off an
   release(json({ accepted: true }, 202))
   await waitForText(page.document.querySelector("#recovery-status"), /connecting and verifying the relay comes next/, "wake progress")
   assert.equal(page.document.querySelector("#control-connection")?.textContent, "Recovering")
-  assert.equal(page.document.querySelector<HTMLButtonElement>('[data-component-action="wake"]')!.disabled, true)
+  assert.equal(page.document.querySelector<HTMLButtonElement>('[data-component-id="remote"] [data-component-action="wake"]')!.disabled, true)
 
   status = { ...status, remote: { ...status.remote, host_state: "running" }, recovery: { ...status.recovery, phase: "connecting_tunnel" } }
   await system.refresh()
@@ -1086,8 +1418,7 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
   page.setConfirm(() => true)
-  page.document.querySelector<HTMLButtonElement>('[data-node-id="desktop"]')!.click()
-  const button = page.document.querySelector<HTMLButtonElement>('[data-component-action="start"]')!
+  const button = page.document.querySelector<HTMLButtonElement>('[data-component-id="desktop"] [data-component-action="start"]')!
   assert.equal(button.disabled, false)
   button.click()
   button.click()
@@ -1097,7 +1428,7 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   delete action.request_id
   assert.deepEqual(action, { component: "desktop", action: "start", confirmed: false })
   assert.deepEqual(actionHeaders[0], { "Content-Type": "application/json", "X-DeltaRelay-Control": status.csrf_token })
-  assert.equal(page.document.querySelector<HTMLButtonElement>('[data-component-action="start"]')!.disabled, true)
+  assert.equal(page.document.querySelector<HTMLButtonElement>('[data-component-id="desktop"] [data-component-action="start"]')!.disabled, true)
   release(json({ accepted: true }, 202))
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(page.document.querySelector("#activity-console"), null)
@@ -1113,7 +1444,7 @@ test("stale or unmanaged supervisor status keeps every service control disabled"
   await system.refresh()
   const doc = page.document
   assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, true)
-  assert.ok([...doc.querySelectorAll<HTMLButtonElement>("#node-actions button")].every((button) => button.disabled))
+  assert.ok([...doc.querySelectorAll<HTMLButtonElement>("[data-component-action]")].every((button) => button.disabled))
   status = systemStatus()
   page.setFetch(() => json(status))
   await system.refresh()
@@ -1121,9 +1452,25 @@ test("stale or unmanaged supervisor status keeps every service control disabled"
   page.setFetch(() => { throw new Error("offline") })
   await system.refresh()
   assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")?.disabled, true)
-  assert.ok([...doc.querySelectorAll<HTMLButtonElement>("#node-actions button")].every((button) => button.disabled))
+  assert.ok([...doc.querySelectorAll<HTMLButtonElement>("[data-component-action]")].every((button) => button.disabled))
   assert.match(doc.querySelector("#connection-label")?.textContent ?? "", /Disconnected/)
   system.destroy()
+  await page.close()
+})
+
+test("intentional system stop blocks card recovery but keeps supported remote shutdown available", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  status.topology!.intent.system = "stopped"
+  page.setFetch(() => json(status))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")!.disabled, false)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#stop-remote")!.disabled, false)
+  assert.equal(doc.querySelector<HTMLButtonElement>('[data-component-id="gateway"] [data-component-action="recover"]')!.disabled, true)
+  assert.equal(doc.querySelector<HTMLInputElement>("#auto-reconnect")!.disabled, true)
+  app.destroy()
   await page.close()
 })
 
@@ -1219,12 +1566,12 @@ test("SSH dashboard uses configured host capabilities without assuming cloud pow
   await system.refresh()
   const doc = page.document
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
-  assert.equal(doc.querySelector<HTMLButtonElement>("#stop-remote")?.disabled, true)
+  assert.equal(doc.querySelector("#stop-remote"), null)
   assert.equal(doc.querySelector<HTMLElement>("#auto-wake-setting")?.hidden, true)
-  doc.querySelector<HTMLButtonElement>('[data-node-id="remote"]')!.click()
+  doc.querySelector<HTMLButtonElement>('[data-component-detail="remote"]')!.click()
   assert.equal(doc.querySelector("#node-inspector-title")?.textContent, "SSH remote host")
   assert.equal(doc.querySelector("[data-component-action=\"wake\"]"), null)
-  assert.equal(doc.querySelector("[data-component-action=\"stop\"]"), null)
+  assert.equal(doc.querySelector("[data-component-id=\"remote\"] [data-component-action=\"stop\"]"), null)
   assert.doesNotMatch(doc.querySelector("#shutdown-detail")?.textContent ?? "", /VPS|billing|Codespace/)
   let confirmations = 0
   page.setConfirm((message) => {

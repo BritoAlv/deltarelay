@@ -6,6 +6,7 @@ import { mountControls } from "./features/controls.js"
 import { mountHeader } from "./features/header.js"
 import { fetchSetup, type SetupStatus } from "../lib/setup.js"
 import { mountSetup } from "./features/setup.js"
+import { mountAuth } from "./features/auth.js"
 
 export interface SystemOptions {
   autoStart?: boolean
@@ -52,11 +53,13 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     onPauseToggle: () => togglePause(),
   }) : null
   const controls = controlsRoot ? mountControls({ root: controlsRoot, onRefresh: () => void refresh() }) : null
+  const authRoot = doc.getElementById("provider-auth")
+  const auth = authRoot ? mountAuth(authRoot) : null
   const setupRoot = doc.getElementById("remote-setup")
   const setup = setupRoot ? mountSetup(setupRoot, () => void refresh()) : null
   const poller = createPoller({ intervalMs: controlsRoot ? 1_000 : 5_000, run: refreshStatus, document: doc, onPaused: render })
-  const countdownTimer: ReturnType<typeof setInterval> | null = controls && autoStart
-    ? view.setInterval(() => { if (doc.visibilityState !== "hidden") controls.renderAuth() }, 1_000)
+  const countdownTimer: ReturnType<typeof setInterval> | null = auth && autoStart
+    ? view.setInterval(() => { if (doc.visibilityState !== "hidden") auth.render() }, 1_000)
     : null
 
   function observation(): SystemObservation {
@@ -73,6 +76,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   function render() {
     if (destroyed) return
     controls?.update(system, stale, receivedAt)
+    auth?.update(system, stale, receivedAt)
     setup?.update(setupStatus, system, stale || setupStale)
     systemObservations.publish(observation())
     if (!header) return
@@ -140,7 +144,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
 
   return {
     refresh,
-    renderAuth: () => controls?.renderAuth(),
+    renderAuth: () => auth?.render(),
     pause() {
       if (paused) return
       togglePause()
@@ -152,6 +156,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     destroy() {
       destroyed = true
       poller.stop()
+      controls?.destroy()
       if (countdownTimer !== null) view.clearInterval(countdownTimer)
     },
     get paused() { return paused },

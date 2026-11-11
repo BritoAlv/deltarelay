@@ -1,0 +1,21 @@
+[Unit]
+Description=DeltaRelay OpenCode health gate (attach-only)
+After=network.target
+
+[Service]
+Type=simple
+# Adjust executable, registration, token, and workspace paths for your deployment.
+# Point directly at the real service registration so password/port rotation works.
+ExecStart=%h/.local/bin/deltarelay gate \
+  --listen 127.0.0.1:18789 \
+  --service-file %h/proyectos/deltarelay/.runtime/codespace-test/profile/state/opencode/service.json \
+  --gateway http://127.0.0.1:18788 \
+  --local-token-file %h/proyectos/deltarelay/.runtime/codespace-test/local.token \
+  --workspace-directory %h/proyectos/deltarelay
+Restart=on-failure
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

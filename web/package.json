@@ -11,6 +11,15 @@
     "test:browser": "pnpm build && node node_modules/typescript/bin/tsc -p tsconfig.test.json && node --test .test-build/test/browser.test.js"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.15",
+    "@hexcanvas/core": "0.2.0",
+    "@hexcanvas/element": "0.2.0",
+    "@lezer/highlight": "1.2.5",
     "astro": "5.18.2"
   },
   "devDependencies": {

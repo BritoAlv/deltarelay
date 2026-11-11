@@ -1,0 +1,5 @@
+{
+  "varro.server.autoStart": false,
+  "varro.server.autoUpdate": false,
+  "varro.server.port": 18789
+}

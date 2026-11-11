@@ -1,4 +1,5 @@
 import { escapeHtml as escape } from "../../lib/html.js"
+import { mountPayloadViewer, type PayloadViewerOptions } from "./payload-viewer.js"
 import { bytes, percentage, savings } from "../../lib/metrics.js"
 import {
   artifactURL, decodeBytes, fetchArtifact, fetchAttempt, fetchCapture, fetchChunks, formatJSON, hexDump,
@@ -29,6 +30,9 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
   let chunks: ChunkPage | null = null, selectedChunk: CapturedChunk | null = null
   let selectedAttempt: UploadAttempt | null = null, page: ArtifactPage | null = null
   let mode: "hex" | "text" | "json" = "text", decoded = false, jsonPreview = ""
+  let preferJSON = true
+  let viewerOptions: PayloadViewerOptions | null = null
+  let payloadViewer: ReturnType<typeof mountPayloadViewer> | null = null
   let busy = false, failure = "", viewNote = "", transferMismatch = false, generation = 0, destroyed = false
   let controller: AbortController | null = null
   const view = root.ownerDocument.defaultView ?? globalThis
@@ -56,11 +60,12 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
     if (!a || !capture) return `<p class="inspect-empty">No payload artifact was captured for this operation.</p>`
     const content = page ? decodeBytes(page.data) : null
     let rendered = ""
+    let textDecoded = false
     if (mode === "json") rendered = jsonPreview
     else if (content) {
       if (mode === "hex") rendered = hexDump(content, page!.offset)
       else {
-        try { rendered = new TextDecoder("utf-8", { fatal: true }).decode(content) }
+        try { rendered = new TextDecoder("utf-8", { fatal: true }).decode(content); textDecoded = true }
         catch { rendered = hexDump(content, page!.offset); viewNote = "This byte window is not independently valid UTF-8 (it may cut a character). Showing hex without replacement characters." }
       }
     }
@@ -69,6 +74,12 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
     const sourceLabel = a.representation === "redacted" ? "Representation bytes" : "Observed source bytes"
     const downloadable = a.captured_bytes > 0 || a.complete && a.source_bytes === 0
     const placeholder = mode === "json" ? "JSON presentation unavailable for this artifact; use the byte viewer." : busy ? "Loading byte window…" : total === 0 && a.source_bytes === 0 && a.complete ? "Empty body (0 bytes)." : "No byte window loaded."
+    const json = Boolean(rendered) && (mode === "json" || textDecoded && /(?:\/|\+)json(?:\s*;|$)/i.test(a.content_type))
+    if (rendered || content?.length === 0) viewerOptions = {
+      mode: mode === "hex" || !textDecoded && mode !== "json" ? "hex" : mode,
+      text: rendered, jsonText: json, bytes: content, offset: page?.offset ?? 0,
+      total, captureID: capture.id, artifactID: a.id, decoded,
+    }
     return `<section class="inspect-viewer" aria-label="Payload byte viewer">
       <div class="inspect-viewer-head"><div><h4>${stage === "body" || stage === "inventory" ? "Body bytes" : "Attempt payload"}</h4><p>${escape(artifactState(a))}</p></div>
         ${downloadable ? `<a class="text-button" href="${escape(artifactURL(capture.id, a.id, true, decoded))}" download>${a.representation === "redacted" ? "Download Redacted Representation" : decoded ? "Download Decoded Bytes (Not Stored Bytes)" : a.truncated || a.write_error || !a.complete ? "Download Captured Prefix" : "Download Captured Bytes"}</a>` : ""}
@@ -76,13 +87,13 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
       <dl class="inspect-fields">${field(sourceLabel, exact(a.source_bytes))}${field("Retained bytes", exact(a.captured_bytes))}${field("Content type (declared)", a.content_type || "Not declared")}${field("Stored encoding", a.encoding)}${field(a.representation === "redacted" ? "Retained representation SHA-256" : "Observed source SHA-256", a.sha256 || "Unavailable: source not read to EOF")}</dl>
       ${selectedChunk && (stage === "body" || stage === "inventory") ? `<p class="inspect-selection">Selected chunk #${selectedChunk.index} · byte range [${selectedChunk.offset.toLocaleString()}, ${(selectedChunk.offset+selectedChunk.size).toLocaleString()}) · ${escape(selectedChunk.availability)} at the selected inventory · ${escape(selectedChunk.hash)}</p>` : ""}
       <div class="inspect-view-tools" role="group" aria-label="Payload representation">
-        ${(["text", "hex", "json"] as const).map((m) => `<button class="text-button" type="button" data-inspect-mode="${m}" aria-pressed="${mode === m}">${m === "json" ? "JSON (lossless formatting)" : m === "hex" ? "Hex + ASCII" : "UTF-8 text"}</button>`).join("")}
+        ${(["text", "hex", "json"] as const).map((m) => `<button class="text-button" type="button" data-inspect-mode="${m}" aria-pressed="${mode === m}">${m === "json" ? "JSON viewer" : m === "hex" ? "Hex + ASCII" : "UTF-8 text"}</button>`).join("")}
         ${a.encoding === "gzip" ? `<label><input type="checkbox" name="decode-gzip" data-inspect-decode${decoded ? " checked" : ""}${a.truncated || a.write_error || !a.complete ? " disabled" : ""}> Decode gzip (not stored bytes)</label>` : ""}
       </div>
       ${viewNote ? `<p class="inspect-notice">${escape(viewNote)}</p>` : ""}
-      <p class="inspect-range">${jsonPreview ? "Complete JSON presentation; original tokens preserved. Formatting is not the captured byte layout." : `Byte range [${(page?.offset ?? 0).toLocaleString()}, ${end.toLocaleString()}) of ${total.toLocaleString()} ${page?.decoded ? "decoded" : "retained"} bytes. Offsets are bytes, not characters.`}</p>
-      <pre class="inspect-code" tabindex="0" aria-label="${mode === "json" ? "JSON presentation" : page?.decoded ? "Decoded byte window" : "Captured byte window"}"><code translate="no">${escape(rendered || placeholder)}</code></pre>
-      <form class="inspect-pagination" data-inspect-offset-form>${button("Previous Bytes", "payload-prev", busy || payloadOffset === 0 || mode === "json")}
+      <p class="inspect-range">${jsonPreview ? "Complete JSON presentation; original tokens preserved. Formatting is not the captured byte layout." : viewerOptions?.mode === "hex" ? `Interactive hex viewer of ${total.toLocaleString()} ${page?.decoded ? "decoded" : "retained"} bytes. Addresses are absolute byte offsets; bytes load on demand.` : `Byte range [${(page?.offset ?? 0).toLocaleString()}, ${end.toLocaleString()}) of ${total.toLocaleString()} ${page?.decoded ? "decoded" : "retained"} bytes. Offsets are bytes, not characters.`}</p>
+      <div class="inspect-code" data-payload-viewer aria-label="${mode === "json" ? "JSON presentation" : page?.decoded ? "Decoded byte window" : "Captured byte window"}">${viewerOptions ? "" : `<p class="inspect-empty">${escape(placeholder)}</p>`}</div>
+      <form class="inspect-pagination" data-inspect-offset-form${viewerOptions?.mode === "hex" ? " hidden" : ""}>${button("Previous Bytes", "payload-prev", busy || payloadOffset === 0 || mode === "json")}
         <label>Byte offset <input name="offset" type="number" inputmode="numeric" autocomplete="off" min="0" max="${Math.max(0, total)}" value="${payloadOffset}" step="1" aria-label="Payload byte offset"></label><button type="submit" class="text-button"${busy || mode === "json" ? " disabled" : ""}>Go to Offset</button>
         ${button("Next Bytes", "payload-next", busy || end >= total || mode === "json")}</form>
     </section>`
@@ -139,7 +150,10 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
 
   function render() {
     if (destroyed) return
-    const scrolls = [...root.querySelectorAll<HTMLElement>(".inspect-code, .inspect-table-scroll, .inspect-map-scroll")].map((el) => [el.scrollTop, el.scrollLeft])
+    const scrolls = [...root.querySelectorAll<HTMLElement>(".cm-scroller, hexcanvas-editor, .inspect-table-scroll, .inspect-map-scroll")].map((el) => [el.scrollTop, el.scrollLeft])
+    payloadViewer?.destroy()
+    payloadViewer = null
+    viewerOptions = null
     root.innerHTML = `${notice()}<div class="inspect-heading"><div><h3>Request evidence inspector</h3><p>${request ? `<code>${escape(request.id)}</code> · observation #${request.sequence} · ${escape(request.state)}${request.status ? ` · HTTP ${request.status}` : ""}${request.error_code ? ` · ${escape(request.error_code)}` : ""}` : "Select a retained request to inspect its evidence."}</p></div>${request?.capture_id ? button(busy ? "Loading…" : "Refresh Evidence", "refresh", busy) : ""}</div>
       <div class="inspect-stages" role="group" aria-label="Request evidence stage">${stages.map(([id, label], i) => `<button type="button" data-inspect-stage="${id}" aria-pressed="${stage === id}"${request ? "" : " disabled"}><span>${i+1}</span>${label}</button>`).join("")}</div>
       ${failure ? `<p class="inspect-notice warning" role="alert">${escape(failure)}</p>` : ""}
@@ -147,13 +161,19 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
         ${capture.dropped_events || capture.storage_error || capture.state === "interrupted" ? `<p class="inspect-notice warning">Evidence incomplete: ${capture.dropped_events} events omitted${capture.storage_error ? "; storage errors" : ""}${capture.state === "interrupted" ? "; gateway interrupted — only checkpointed evidence is available" : ""}. Unknown information is not filled in.</p>` : ""}
         ${transferMismatch ? `<p class="inspect-notice warning">The capture’s transfer counters differ from the retained request ledger. The views below use the capture’s recorded counters; do not assume they reconcile to the ledger.</p>` : ""}
         <div class="inspect-stage-content" aria-busy="${busy}">${stage === "body" ? `<p class="inspect-explanation">The actual body read by the chunker, after gateway gzip decoding and before chunking. It is not the full incoming HTTP request or a reconstruction from JSON. The source hash is recorded at EOF; truncation may mean only its prefix is retained.</p>${viewer()}` : stage === "inventory" ? inventoryView() : stage === "savings" ? savingsView() : attemptsView()}</div>`}`
-    root.querySelectorAll<HTMLElement>(".inspect-code, .inspect-table-scroll, .inspect-map-scroll").forEach((el, i) => { const position = scrolls[i]; if (position) { el.scrollTop = position[0] ?? 0; el.scrollLeft = position[1] ?? 0 } })
+    const host = root.querySelector<HTMLElement>("[data-payload-viewer]")
+    if (host && viewerOptions) payloadViewer = mountPayloadViewer(host, viewerOptions)
+    root.querySelectorAll<HTMLElement>(".cm-scroller, hexcanvas-editor, .inspect-table-scroll, .inspect-map-scroll").forEach((el, i) => { const position = scrolls[i]; if (position) { el.scrollTop = position[0] ?? 0; el.scrollLeft = position[1] ?? 0 } })
   }
 
   async function loadPayload(signal: AbortSignal) {
     const a = payload()
     if (!capture || !a) { page = null; return }
     if (a.encoding !== "gzip") decoded = false
+    if (preferJSON) {
+      preferJSON = false
+      if (/(?:\/|\+)json(?:\s*;|$)/i.test(a.content_type) && (a.encoding !== "gzip" || decoded) && a.complete && !a.truncated && !a.write_error && a.captured_bytes <= 8<<20) mode = "json"
+    }
     if (payloadOffset > a.captured_bytes && !decoded) { page = null; viewNote = "The selected byte range was not retained. No replacement content is shown."; return }
     if (mode === "json") {
       if (a.encoding === "gzip" && !decoded) {
@@ -164,7 +184,7 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
       const first = await fetchArtifact(capture.id, a.id, 0, signal, decoded, 65536)
       page = first
       if (!a.complete || a.truncated || a.write_error) { page = null; viewNote = "JSON presentation requires a complete captured representation. Use the byte viewer for this partial capture."; return }
-      if (first.total > 1<<20) { page = null; viewNote = "JSON preview is limited to 1 MiB. Use the paged text/hex views or download the captured file; content has not been shortened into a fake JSON document."; return }
+      if (first.total > 8<<20) { page = null; viewNote = "JSON preview is limited to 8 MiB. Use the paged text/hex viewers or download the captured file; content has not been shortened into a fake JSON document."; return }
       const parts = [decodeBytes(first.data)]
       for (let offset = parts[0]!.length; offset < first.total; offset += 65536) parts.push(decodeBytes((await fetchArtifact(capture.id, a.id, offset, signal, decoded, 65536)).data))
       const all = new Uint8Array(first.total)
@@ -212,7 +232,7 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
         const attempts = capture.attempts.filter((a) => stage !== "upload" || a.operation === "chunks")
         const chosen = attempts.find((a) => a.index === attemptIndex) ?? attempts[0]
         selectedAttempt = chosen ? await fetchAttempt(capture.id, chosen.index, signal) : null
-        if (selectedAttempt) { attemptIndex = selectedAttempt.index; mode = selectedAttempt.content_type.includes("deltarelay.chunks") ? "hex" : "text"; await loadPayload(signal) }
+        if (selectedAttempt) { attemptIndex = selectedAttempt.index; if (selectedAttempt.content_type.includes("deltarelay.chunks")) { mode = "hex"; preferJSON = false } await loadPayload(signal) }
       }
     } catch (error) {
       if (signal.aborted || current !== generation) return
@@ -228,6 +248,7 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
   function open(next: InspectionStage) {
     controller?.abort(); generation++
     stage = next; page = null; selectedAttempt = null; selectedChunk = null; chunks = null; payloadOffset = 0; decoded = false; jsonPreview = ""; viewNote = ""; busy = false; mode = next === "upload" ? "hex" : "text"
+    preferJSON = next === "body" || next === "encoded"
     if (request?.capture_id) void load()
     else render()
   }
@@ -236,13 +257,13 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
     const target = (event.target as Element).closest<HTMLElement>("[data-inspect-stage], [data-inspect-action], [data-inspect-mode], [data-inspect-chunk], [data-inspect-attempt]")
     if (!target || (target as HTMLButtonElement).disabled) return
     if (target.dataset.inspectStage) { open(target.dataset.inspectStage as InspectionStage); return }
-    if (target.dataset.inspectMode) { mode = target.dataset.inspectMode as typeof mode; payloadOffset = 0; void load(); return }
+    if (target.dataset.inspectMode) { mode = target.dataset.inspectMode as typeof mode; preferJSON = false; page = null; payloadOffset = 0; void load(); return }
     if (target.dataset.inspectChunk) {
       selectedChunk = chunks?.chunks.find((c) => c.index === Number(target.dataset.inspectChunk)) ?? null
-      payloadOffset = selectedChunk?.offset ?? 0; mode = "hex"; decoded = false; page = null
+      payloadOffset = selectedChunk?.offset ?? 0; mode = "hex"; preferJSON = false; decoded = false; page = null
       void load(); return
     }
-    if (target.dataset.inspectAttempt) { attemptIndex = Number(target.dataset.inspectAttempt); payloadOffset = 0; decoded = false; page = null; void load(); return }
+    if (target.dataset.inspectAttempt) { attemptIndex = Number(target.dataset.inspectAttempt); preferJSON = true; mode = "text"; payloadOffset = 0; decoded = false; page = null; void load(); return }
     switch (target.dataset.inspectAction) {
       case "refresh": void load(true); break
       case "chunks-prev": chunkStart = Math.max(0, chunkStart-128); selectedChunk = null; void load(); break
@@ -283,11 +304,12 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
         controller?.abort(); generation++; key = nextKey
         capture = null; chunks = null; page = null; selectedChunk = null; selectedAttempt = null; failure = ""; viewNote = ""; jsonPreview = ""; transferMismatch = false
         chunkStart = 0; inventoryIndex = 0; attemptIndex = 0; payloadOffset = 0; decoded = false; mode = stage === "upload" ? "hex" : "text"; busy = false
+        preferJSON = stage === "body" || stage === "encoded"
         if (next?.capture_id) { void load(); return }
       } else if (refresh && next?.capture_id) { void load(true); return }
       // Polling metadata does not replace the viewer DOM or reset selection.
       if (!capture && !busy || !next) render()
     },
-    destroy() { destroyed = true; generation++; controller?.abort(); root.removeEventListener("click", click); root.removeEventListener("change", change); root.removeEventListener("submit", submit); root.replaceChildren() },
+    destroy() { destroyed = true; generation++; controller?.abort(); payloadViewer?.destroy(); root.removeEventListener("click", click); root.removeEventListener("change", change); root.removeEventListener("submit", submit); root.replaceChildren() },
   }
 }
