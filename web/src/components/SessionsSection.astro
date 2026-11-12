@@ -17,20 +17,32 @@ import Icon from "./Icon.astro"
         <button type="button" class="filter-chip" data-filter-value="attention" aria-pressed="false">Needs attention</button>
       </div>
       <span class="count-badge" id="session-count" aria-hidden="true">0</span>
+      <div class="compact-sort" id="session-sort-controls">
+        <label class="compact-sort-field"><span>Sort</span><select id="session-sort" aria-label="Sort sessions by">
+          <option value="session">Session</option>
+          <option value="state">State</option>
+          <option value="requests">Requests</option>
+          <option value="original">Original</option>
+          <option value="uploaded">Uploaded</option>
+          <option value="reduction">Reduction</option>
+          <option value="activity">Activity</option>
+        </select></label>
+        <button class="compact-sort-direction" id="session-sort-direction" type="button" aria-label="Sort direction: descending" title="Reverse sort direction"><Icon name="chevron" size={12} /></button>
+      </div>
       <button class="text-button export-button" id="export-button" type="button" disabled><Icon name="download" size={16} />Export CSV</button>
     </div>
     <div class="table-scroll" id="session-table-scroll">
       <table>
-        <caption class="sr-only">Retained sessions with request counts, transfer sizes, upload reduction, and last activity</caption>
+        <caption class="sr-only">Retained sessions with request counts, transfer sizes, upload reduction, and last activity. Sortable column headers are available on wide screens; a sort control is available on narrow screens.</caption>
         <thead>
           <tr>
-            <th scope="col">Session / upstream</th>
-            <th scope="col">State</th>
-            <th scope="col" class="number">Requests</th>
-            <th scope="col" class="number">Original</th>
-            <th scope="col" class="number">Uploaded</th>
-            <th scope="col" class="number">Reduction</th>
-            <th scope="col">Last activity</th>
+            <th scope="col" data-sort-key="session" aria-sort="none"><button class="table-sort" type="button" data-sort-key="session" data-sort-label="session"><span>Session / upstream</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="state" aria-sort="none"><button class="table-sort" type="button" data-sort-key="state" data-sort-label="state"><span>State</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" class="number" data-sort-key="requests" aria-sort="none"><button class="table-sort" type="button" data-sort-key="requests" data-sort-label="requests"><span>Requests</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" class="number" data-sort-key="original" aria-sort="none"><button class="table-sort" type="button" data-sort-key="original" data-sort-label="original size"><span>Original</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" class="number" data-sort-key="uploaded" aria-sort="none"><button class="table-sort" type="button" data-sort-key="uploaded" data-sort-label="uploaded size"><span>Uploaded</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" class="number" data-sort-key="reduction" aria-sort="none"><button class="table-sort" type="button" data-sort-key="reduction" data-sort-label="reduction"><span>Reduction</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="activity" aria-sort="descending"><button class="table-sort" type="button" data-sort-key="activity" data-sort-label="last activity"><span>Last activity</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
             <th scope="col"><span class="sr-only">Details</span></th>
           </tr>
         </thead>

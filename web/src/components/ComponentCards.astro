@@ -11,11 +11,37 @@ for (const component of controlComponents) {
 }
 ---
 <div class="resource-heading">
-  <div><h3>Components <span id="component-count" class="count-badge">{controlComponents.length}</span></h3><p>Applications, connection services and background services. One consistent set of controls.</p></div>
-  <label class="resource-search"><Icon name="search" size={16} /><span class="sr-only">Filter components</span><input id="component-filter" type="search" placeholder="Filter components…" aria-label="Filter components" /></label>
+  <div class="resource-heading-copy"><h3>Components <span id="component-count" class="count-badge">{controlComponents.length}</span></h3><p>Applications, connection services and background services. One consistent set of controls.</p></div>
+  <div class="resource-controls">
+    <div class="filter-chips component-chips" id="component-category-chips" role="group" aria-label="Filter components by category">
+      <button type="button" class="filter-chip" data-component-category="all" aria-pressed="true" aria-label={`All components, ${controlComponents.length} total`}>All <span class="filter-count" aria-hidden="true">{controlComponents.length}</span></button>
+      {groups.map((group) => <button type="button" class="filter-chip" data-component-category={group.name} aria-pressed="false" aria-label={`${group.name}, ${group.components.length} components`}>{group.name} <span class="filter-count" aria-hidden="true">{group.components.length}</span></button>)}
+    </div>
+    <label class="resource-search"><Icon name="search" size={16} /><span class="sr-only">Filter components</span><input id="component-filter" type="search" placeholder="Filter components…" aria-label="Filter components" /></label>
+    <div class="compact-sort component-sort" id="component-sort-controls">
+      <label class="compact-sort-field"><span>Sort</span><select id="component-sort" aria-label="Sort components by">
+        <option value="default">Default</option>
+        <option value="component">Component</option>
+        <option value="status">Status</option>
+        <option value="lifecycle">Lifecycle</option>
+        <option value="location">Location</option>
+      </select></label>
+      <button class="compact-sort-direction" id="component-sort-direction" type="button" aria-label="Sort direction: ascending" title="Reverse sort direction"><Icon name="chevron" size={12} /></button>
+    </div>
+  </div>
 </div>
 <div class="resource-grid" aria-label="Component controls">
-  <div class="component-columns" aria-hidden="true"><span>Component</span><span>Status</span><span>Lifecycle / location</span><span>Actions</span></div>
+  <table class="component-columns" aria-label="Component columns">
+    <thead>
+      <tr>
+        <th scope="col" data-sort-key="component" aria-sort="none"><button class="table-sort" type="button" data-sort-key="component" data-sort-label="component"><span>Component</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+        <th scope="col" data-sort-key="status" aria-sort="none"><button class="table-sort" type="button" data-sort-key="status" data-sort-label="status"><span>Status</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+        <th scope="col" data-sort-key="lifecycle" aria-sort="none"><button class="table-sort" type="button" data-sort-key="lifecycle" data-sort-label="lifecycle"><span>Lifecycle</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+        <th scope="col" data-sort-key="location" aria-sort="none"><button class="table-sort" type="button" data-sort-key="location" data-sort-label="location"><span>Location</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+        <th scope="col" aria-label="Actions">Actions</th>
+      </tr>
+    </thead>
+  </table>
   {groups.map((group) => <Fragment>
     <div class="component-group" data-component-group={group.name}><span>{group.name}</span><span data-group-count>{String(group.components.length).padStart(2, "0")}</span></div>
     {group.components.map((component) => {
@@ -36,4 +62,5 @@ for (const component of controlComponents) {
     })}
   </Fragment>)}
 </div>
+<p id="component-summary" class="sr-only" role="status" aria-live="polite"></p>
 <p id="component-empty" class="control-detail" role="status" hidden>No matching components.</p>

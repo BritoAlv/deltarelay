@@ -89,13 +89,32 @@ import Icon from "./Icon.astro"
       </div>
       <label class="session-browser-filter">Day <select id="measurement-session-day" name="measurement-session-day"><option value="">All days</option></select></label>
       <label class="session-browser-filter">Show <select id="measurement-session-availability" name="measurement-session-availability"><option value="all">All stored sessions</option><option value="measured">Measured only</option></select></label>
+      <div class="compact-sort session-browser-sort" id="measurement-session-sort-controls">
+        <label class="compact-sort-field"><span>Sort</span><select id="measurement-session-sort" aria-label="Sort sessions by">
+          <option value="updated">Updated</option>
+          <option value="session">Session</option>
+          <option value="started">Started</option>
+          <option value="provider">Provider</option>
+          <option value="requests">Requests</option>
+          <option value="reduction">Reduction</option>
+          <option value="status">Status</option>
+        </select></label>
+        <button class="compact-sort-direction" id="measurement-session-sort-direction" type="button" aria-label="Sort direction: descending" title="Reverse sort direction"><Icon name="chevron" size={12} /></button>
+      </div>
     </div>
     <div class="session-browser-notice" id="measurement-session-notice" role="status" aria-live="polite" hidden></div>
     <div class="session-browser-scroll" id="measurement-session-scroll">
       <table class="session-browser-table">
-        <caption class="sr-only">Sessions stored by OpenCode, with gateway measurement availability</caption>
+        <caption class="sr-only">Sessions stored by OpenCode, with gateway measurement availability. Sortable column headers are available on wide screens; a sort control is available on narrow screens.</caption>
         <thead>
-          <tr><th scope="col">Session</th><th scope="col">Started</th><th scope="col">Provider</th><th scope="col" class="number">Requests</th><th scope="col" class="number">Reduction</th><th scope="col">Status</th></tr>
+          <tr>
+            <th scope="col" data-sort-key="session" aria-sort="none"><button class="table-sort" type="button" data-sort-key="session" data-sort-label="session"><span>Session</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="started" aria-sort="none"><button class="table-sort" type="button" data-sort-key="started" data-sort-label="started date"><span>Started</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="provider" aria-sort="none"><button class="table-sort" type="button" data-sort-key="provider" data-sort-label="provider"><span>Provider</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" class="number" data-sort-key="requests" aria-sort="none"><button class="table-sort" type="button" data-sort-key="requests" data-sort-label="requests"><span>Requests</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" class="number" data-sort-key="reduction" aria-sort="none"><button class="table-sort" type="button" data-sort-key="reduction" data-sort-label="reduction"><span>Reduction</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="status" aria-sort="none"><button class="table-sort" type="button" data-sort-key="status" data-sort-label="status"><span>Status</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+          </tr>
         </thead>
         <tbody id="measurement-session-rows"></tbody>
       </table>

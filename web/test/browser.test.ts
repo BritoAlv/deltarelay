@@ -32,6 +32,28 @@ function selectRequest(doc: Document, request: { id: string }): void {
   row.querySelector<HTMLButtonElement>("[data-inspect-request]")!.click()
 }
 
+function parseBytesLabel(text: string | undefined): number {
+  const match = (text ?? "").replace(/\u00A0/g, " ").match(/([\d.,]+)\s*(B|KiB|MiB|GiB|TiB)/)
+  assert.ok(match, `not a byte label: ${text}`)
+  const value = Number(match[1]!.replaceAll(",", ""))
+  const unit = ["B", "KiB", "MiB", "GiB", "TiB"].indexOf(match[2]!)
+  return value * 1024 ** unit
+}
+
+function parsePercentLabel(text: string | undefined): number {
+  const match = (text ?? "").replace(",", ".").match(/-?[\d.]+(?=%)/)
+  assert.ok(match, `not a percentage: ${text}`)
+  return Number(match[0])
+}
+
+function ascending(values: number[]): boolean {
+  return values.every((value, index) => index === 0 || values[index - 1]! <= value)
+}
+
+function descending(values: number[]): boolean {
+  return values.every((value, index) => index === 0 || values[index - 1]! >= value)
+}
+
 function systemStatus(overrides: Partial<SystemStatus> = {}): SystemStatus {
   const topology = readContract("topology-v1.json")
   assert.ok(isTopology(topology))
@@ -188,6 +210,95 @@ test("all operational components use the same cards, with filtering and stable a
   assert.equal(menu.open, false)
   assert.equal(doc.querySelector("#node-inspector [data-component-action]"), null, "diagnostic dialog is read-only")
   assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
+  await page.close()
+})
+
+test("component inventory filters by category and sorts inside each group", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  const cards = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
+  const groupHeaders = [...doc.querySelectorAll<HTMLElement>("[data-component-group]")]
+  const chips = [...doc.querySelectorAll<HTMLButtonElement>("#component-category-chips [data-component-category]")]
+  const filter = doc.querySelector<HTMLInputElement>("#component-filter")!
+  const sortSelect = doc.querySelector<HTMLSelectElement>("#component-sort")!
+  const total = doc.querySelector("#component-count")!
+  const summary = doc.querySelector("#component-summary")!
+  const labelsByGroup = () => groupHeaders.map((group) => {
+    const labels: string[] = []
+    let node = group.nextElementSibling
+    while (node && !node.matches("[data-component-group]")) {
+      if (node.matches("[data-component-id]")) labels.push(node.querySelector("[data-component-label]")?.textContent ?? "")
+      node = node.nextElementSibling
+    }
+    return labels
+  })
+  const defaultLabels = labelsByGroup()
+
+  assert.equal(chips.length, 4)
+  assert.deepEqual(chips.map((chip) => chip.dataset.componentCategory), ["all", "Applications", "Connection", "Background services"])
+  assert.equal(chips[0]!.getAttribute("aria-pressed"), "true")
+  chips[0]!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event)
+  assert.equal(doc.activeElement, chips[1], "category chips support arrow-key navigation")
+
+  const applications = chips.find((chip) => chip.dataset.componentCategory === "Applications")!
+  applications.click()
+  assert.equal(applications.getAttribute("aria-pressed"), "true")
+  assert.equal(cards.filter((card) => !card.hidden).length, 2)
+  assert.deepEqual(groupHeaders.filter((group) => !group.hidden).map((group) => group.dataset.componentGroup), ["Applications"])
+  assert.equal(groupHeaders.find((group) => group.dataset.componentGroup === "Applications")?.querySelector("[data-group-count]")?.textContent, "02")
+  assert.equal(total.textContent, "2")
+  assert.match(summary.textContent ?? "", /2 of 9 components in Applications · default order/)
+
+  filter.value = "OpenCode"
+  page.fire(filter, "input")
+  assert.equal(cards.filter((card) => !card.hidden).length, 2, "category and search filters combine")
+  filter.value = "remote-host"
+  page.fire(filter, "input")
+  assert.equal(cards.filter((card) => !card.hidden).length, 0)
+  assert.equal(doc.querySelector<HTMLElement>("#component-empty")!.hidden, false)
+  assert.ok(groupHeaders.every((group) => group.hidden))
+
+  filter.value = ""
+  page.fire(filter, "input")
+  const connection = chips.find((chip) => chip.dataset.componentCategory === "Connection")!
+  connection.click()
+  assert.equal(cards.filter((card) => !card.hidden).length, 4)
+  assert.match(summary.textContent ?? "", /4 of 9 components in Connection/)
+  chips[0]!.click()
+  assert.equal(cards.filter((card) => !card.hidden).length, 9)
+
+  const componentHeader = doc.querySelector<HTMLElement>('th[data-sort-key="component"]')!
+  const componentButton = componentHeader.querySelector<HTMLButtonElement>("button")!
+  componentButton.click()
+  assert.equal(componentHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(sortSelect.value, "component")
+  const ascendingLabels = labelsByGroup()
+  ascendingLabels.forEach((labels, index) => assert.deepEqual(labels, [...defaultLabels[index]!].sort((a, b) => a.localeCompare(b))))
+  assert.deepEqual(groupHeaders.map((group) => group.dataset.componentGroup), ["Applications", "Connection", "Background services"], "groups stay in their original order")
+  assert.equal(groupHeaders[0]?.querySelector("[data-group-count]")?.textContent, "02")
+
+  componentButton.click()
+  assert.equal(componentHeader.getAttribute("aria-sort"), "descending")
+  labelsByGroup().forEach((labels, index) => assert.deepEqual(labels, [...defaultLabels[index]!].sort((a, b) => b.localeCompare(a))))
+
+  const lifecycleHeader = doc.querySelector<HTMLElement>('th[data-sort-key="lifecycle"]')!
+  lifecycleHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(lifecycleHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(componentHeader.getAttribute("aria-sort"), "none")
+  assert.equal(sortSelect.value, "lifecycle")
+  for (const group of groupHeaders) {
+    const values: string[] = []
+    let node = group.nextElementSibling
+    while (node && !node.matches("[data-component-group]")) {
+      if (node.matches("[data-component-id]")) values.push(node.querySelector("[data-component-lifecycle]")?.textContent ?? "")
+      node = node.nextElementSibling
+    }
+    assert.ok(values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) <= 0), "lifecycle sorting stays inside each group")
+  }
   app.destroy()
   await page.close()
 })
@@ -497,6 +608,70 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   page.fire(search, "input")
   dialog.querySelector<HTMLButtonElement>("#close-measurement-session")!.click()
   assert.equal(dialog.open, false)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement session browser sorts by columns, resets pages, and restores sort from the URL", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  const catalog = makeOpenCodeSessions(now)
+  page.window.history.replaceState(null, "", "/measurement?sort=requests&dir=desc")
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/opencode/sessions") return json(catalog)
+    throw new Error(`Unexpected measurement URL ${url}`)
+  })
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  await waitForText(doc.querySelector("#measurement-session-trigger-title"), /Choose a session|Relay dashboard measurement/, "catalog did not load before sorting")
+  doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!.click()
+  const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
+  const rows = () => [...dialog.querySelectorAll<HTMLElement>("#measurement-session-rows tr")]
+  const requestNumbers = () => rows().map((row) => row.children[3]?.textContent?.trim() ?? "")
+  const numericRequests = () => requestNumbers().filter((value) => value !== "—").map(Number)
+  const requestsHeader = dialog.querySelector<HTMLElement>('th[data-sort-key="requests"]')!
+  const startedHeader = dialog.querySelector<HTMLElement>('th[data-sort-key="started"]')!
+  const sessionHeader = dialog.querySelector<HTMLElement>('th[data-sort-key="session"]')!
+  const reductionHeader = dialog.querySelector<HTMLElement>('th[data-sort-key="reduction"]')!
+  const sortSelect = dialog.querySelector<HTMLSelectElement>("#measurement-session-sort")!
+
+  assert.equal(requestsHeader.getAttribute("aria-sort"), "descending")
+  assert.equal(sortSelect.value, "requests")
+  assert.ok(descending(numericRequests()), "measured request counts sort numerically descending")
+  assert.equal(requestNumbers().at(-1), "—", "unmeasured rows stay last")
+
+  dialog.querySelector<HTMLButtonElement>("#measurement-session-next")!.click()
+  assert.equal(dialog.querySelector("#measurement-session-page")?.textContent, "Page 2 of 2")
+  requestsHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(dialog.querySelector("#measurement-session-page")?.textContent, "Page 1 of 2", "sorting resets pagination")
+  assert.equal(requestsHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "requests")
+  assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "asc")
+  assert.ok(ascending(numericRequests()), "measured request counts sort numerically ascending")
+  assert.equal(requestNumbers().at(-1), "—", "unmeasured rows stay last when ascending")
+
+  reductionHeader.querySelector<HTMLButtonElement>("button")!.click()
+  const reductions = rows().map((row) => row.children[4]?.textContent?.trim() ?? "").filter((value) => value !== "—").map((value) => parsePercentLabel(value))
+  assert.equal(reductionHeader.getAttribute("aria-sort"), "ascending")
+  assert.ok(ascending(reductions), "reduction sorts numerically")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "reduction")
+
+  startedHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(startedHeader.getAttribute("aria-sort"), "descending")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "started")
+  assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "desc")
+
+  sessionHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(sessionHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "session")
+  assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "asc")
+
+  sortSelect.value = "updated"
+  page.fire(sortSelect, "change")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), null, "default recent order stays implicit")
+  assert.equal(doc.querySelector('[data-sort-key="session"]')?.getAttribute("aria-sort"), "none")
   measurement.destroy()
   await page.close()
 })
@@ -923,6 +1098,75 @@ test("session filtering and pagination only render retained matches", async () =
   assert.equal(attention.getAttribute("aria-pressed"), "true")
   assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
   assert.match(doc.querySelector("#session-rows")?.textContent ?? "", /Attention/)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("session sorting toggles numeric columns, resets pagination, and restores from the URL", async () => {
+  const page = openPage("sessions")
+  const snapshot = makeSnapshot(now)
+  const extra = snapshot.history.sessions.slice(0, 4).map((session, index) => ({
+    ...session,
+    id: `ses_sort_extra_${index}`,
+    upstream: "sort-upstream",
+    active: 0,
+    last_status: 200,
+    last_error: undefined,
+  }))
+  snapshot.history.sessions.push(...extra)
+  page.window.history.replaceState(null, "", "/sessions?sort=requests&dir=desc")
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const rows = () => [...doc.querySelectorAll<HTMLElement>("#session-rows tr")]
+  const numbers = (column: number, parse: (text: string | undefined) => number) => rows().map((row) => parse(row.children[column]?.textContent ?? ""))
+  const requestsHeader = doc.querySelector<HTMLElement>('th[data-sort-key="requests"]')!
+  const requestsButton = requestsHeader.querySelector<HTMLButtonElement>("button")!
+  const originalHeader = doc.querySelector<HTMLElement>('th[data-sort-key="original"]')!
+  const reductionHeader = doc.querySelector<HTMLElement>('th[data-sort-key="reduction"]')!
+  const activityHeader = doc.querySelector<HTMLElement>('th[data-sort-key="activity"]')!
+  const sortSelect = doc.querySelector<HTMLSelectElement>("#session-sort")!
+  const sortDirection = doc.querySelector<HTMLButtonElement>("#session-sort-direction")!
+
+  assert.equal(requestsHeader.getAttribute("aria-sort"), "descending")
+  assert.equal(sortSelect.value, "requests")
+  assert.match(requestsButton.getAttribute("aria-label") ?? "", /sorted descending/)
+  assert.ok(descending(numbers(2, Number)), "requests sort numerically descending")
+
+  doc.querySelector<HTMLButtonElement>("#next-page")!.click()
+  assert.equal(doc.querySelector("#page-label")?.textContent, "Page 2 of 2")
+  requestsButton.click()
+  assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 2", "sorting resets pagination")
+  assert.equal(requestsHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "requests")
+  assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "asc")
+  assert.ok(ascending(numbers(2, Number)), "requests sort numerically ascending")
+
+  originalHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(originalHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(requestsHeader.getAttribute("aria-sort"), "none")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "original")
+  assert.ok(ascending(numbers(3, parseBytesLabel)), "original bytes sort numerically")
+
+  originalHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(originalHeader.getAttribute("aria-sort"), "descending")
+  assert.ok(descending(numbers(3, parseBytesLabel)), "original bytes sort numerically descending")
+
+  reductionHeader.querySelector<HTMLButtonElement>("button")!.click()
+  assert.equal(reductionHeader.getAttribute("aria-sort"), "ascending")
+  assert.ok(ascending(numbers(5, parsePercentLabel)), "reduction percentage sorts numerically")
+  assert.match(reductionHeader.querySelector("button")!.getAttribute("aria-label") ?? "", /sorted ascending/)
+
+  sortSelect.value = "activity"
+  page.fire(sortSelect, "change")
+  assert.equal(activityHeader.getAttribute("aria-sort"), "descending")
+  assert.equal(sortDirection.dataset.direction, "desc")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), null, "default recent order stays implicit")
+  sortDirection.click()
+  assert.equal(activityHeader.getAttribute("aria-sort"), "ascending")
+  assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "activity")
+  assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "asc")
   dashboard.destroy()
   await page.close()
 })

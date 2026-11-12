@@ -23,3 +23,38 @@ export function replaceParams(doc: Document, values: Record<string, string | nul
     // A denied history API must never break the live view.
   }
 }
+
+export type SortDirection = "asc" | "desc"
+
+export interface SortState<Key extends string> {
+  key: Key
+  direction: SortDirection
+}
+
+// Table sort state shares the same URL entry as search and pagination. Unknown
+// keys fall back to the view's historical order instead of leaking into the UI.
+export function readSort<Key extends string>(
+  params: URLSearchParams,
+  keys: readonly Key[],
+  defaultKey: Key,
+  defaultDirection: SortDirection = "desc",
+): SortState<Key> {
+  const requested = params.get("sort")
+  const key = requested && keys.includes(requested as Key) ? requested as Key : defaultKey
+  const requestedDirection = params.get("dir")
+  const direction = key === requested && (requestedDirection === "asc" || requestedDirection === "desc")
+    ? requestedDirection
+    : defaultDirection
+  return { key, direction }
+}
+
+// Default order stays implicit so existing links and the common case keep a
+// short address.
+export function sortParams<Key extends string>(
+  sort: SortState<Key>,
+  defaultKey: Key,
+  defaultDirection: SortDirection = "desc",
+): { sort: string | null; dir: SortDirection | null } {
+  if (sort.key === defaultKey && sort.direction === defaultDirection) return { sort: null, dir: null }
+  return { sort: sort.key, dir: sort.direction }
+}

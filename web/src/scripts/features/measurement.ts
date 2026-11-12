@@ -16,7 +16,7 @@ import {
 } from "../../lib/session-catalog.js"
 import type { DashboardViewState } from "../../lib/state.js"
 import type { RelayRequest, Session, Snapshot } from "../../lib/types.js"
-import { readParams, replaceParams } from "../../lib/url-state.js"
+import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 import { mountInspection } from "./inspection.js"
 
@@ -29,6 +29,20 @@ const requestPageSize = 8
 const sessionPageSize = 8
 const integer = (value: number) => value.toLocaleString()
 const pill = (label: string, state: string) => `<span class="status-pill ${state}">${escape(label)}</span>`
+const sessionSortKeys = ["updated", "session", "started", "provider", "requests", "reduction", "status"] as const
+type SessionSortKey = (typeof sessionSortKeys)[number]
+const sessionSortLabels: Record<SessionSortKey, string> = {
+  updated: "last updated",
+  session: "session",
+  started: "started date",
+  provider: "provider",
+  requests: "requests",
+  reduction: "reduction",
+  status: "status",
+}
+const asSessionSortKey = (value: string | undefined): SessionSortKey | null => sessionSortKeys.find((key) => key === value) ?? null
+const sortWord = (direction: SortState<SessionSortKey>["direction"]) => direction === "asc" ? "ascending" : "descending"
+const capitalised = (value: string) => value.replace(/^./, (letter) => letter.toUpperCase())
 
 function stat(label: string, value: string, detail: string, tone = ""): string {
   return `<div class="trace-stat"><span>${escape(label)}</span><strong class="${tone}">${escape(value)}</strong><small>${escape(detail)}</small></div>`
@@ -70,6 +84,10 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   const search = requiredById<HTMLInputElement>(root, "measurement-session-search")
   const daySelect = requiredById<HTMLSelectElement>(root, "measurement-session-day")
   const availabilitySelect = requiredById<HTMLSelectElement>(root, "measurement-session-availability")
+  const sortSelect = requiredById<HTMLSelectElement>(root, "measurement-session-sort")
+  const sortDirectionButton = requiredById<HTMLButtonElement>(root, "measurement-session-sort-direction")
+  const sortButtons = [...root.querySelectorAll<HTMLButtonElement>("#measurement-session-dialog button[data-sort-key]")]
+  const sortHeaders = [...root.querySelectorAll<HTMLElement>("#measurement-session-dialog th[data-sort-key]")]
   const rowsBody = requiredById(root, "measurement-session-rows")
   const tableScroll = requiredById<HTMLElement>(root, "measurement-session-scroll")
   const emptyBrowser = requiredById<HTMLElement>(root, "measurement-session-empty")
@@ -94,6 +112,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   let sessionQuery = initial.get("q") ?? ""
   let sessionDay = validDay(initial.get("day"))
   let sessionAvailability: CatalogAvailability = initial.get("show") === "measured" ? "measured" : "all"
+  let sessionSort = readSort(initial, sessionSortKeys, "updated", "desc")
   let sessionPage = positivePage(initial.get("page"))
   let daySignature = ""
   let browserNotice = ""
@@ -107,6 +126,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       q: sessionQuery.trim() || null,
       show: sessionAvailability === "measured" ? "measured" : null,
       page: sessionPage > 1 ? String(sessionPage) : null,
+      ...sortParams(sessionSort, "updated", "desc"),
     })
   }
 
@@ -166,6 +186,69 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     return parts.join(" · ")
   }
 
+  function compareCatalog(left: CatalogSession, right: CatalogSession): number {
+    const direction = sessionSort.direction === "asc" ? 1 : -1
+    const numeric = (a: number | null, b: number | null): number => {
+      if (a === null && b === null) return 0
+      if (a === null) return 1
+      if (b === null) return -1
+      return (a - b) * direction
+    }
+    switch (sessionSort.key) {
+      case "session":
+        return `${left.title} ${left.id}`.localeCompare(`${right.title} ${right.id}`, undefined, { numeric: true, sensitivity: "base" }) * direction
+      case "started":
+        return numeric(Date.parse(left.created_at) || null, Date.parse(right.created_at) || null)
+      case "provider":
+        return providerLabel(left).localeCompare(providerLabel(right), undefined, { numeric: true, sensitivity: "base" }) * direction
+      case "requests":
+        return numeric(left.gateway?.requests ?? null, right.gateway?.requests ?? null)
+      case "reduction":
+        return numeric(catalogReduction(left), catalogReduction(right))
+      case "status":
+        return stateLabel(left).localeCompare(stateLabel(right), undefined, { sensitivity: "base" }) * direction
+      case "updated":
+        return numeric(Date.parse(left.updated_at) || null, Date.parse(right.updated_at) || null)
+    }
+  }
+
+  function updateSortControls(): void {
+    for (const header of sortHeaders) {
+      const active = header.dataset.sortKey === sessionSort.key
+      header.setAttribute("aria-sort", active ? (sessionSort.direction === "asc" ? "ascending" : "descending") : "none")
+    }
+    for (const button of sortButtons) {
+      const key = asSessionSortKey(button.dataset.sortKey)
+      if (!key) continue
+      const label = sessionSortLabels[key]
+      const active = key === sessionSort.key
+      button.setAttribute("aria-label", active
+        ? `${capitalised(label)}, sorted ${sortWord(sessionSort.direction)}. Activate to sort ${sessionSort.direction === "asc" ? "descending" : "ascending"}.`
+        : `Sort by ${label}`)
+    }
+    sortSelect.value = sessionSort.key
+    const nextDirection = sessionSort.direction === "asc" ? "descending" : "ascending"
+    sortDirectionButton.dataset.direction = sessionSort.direction
+    sortDirectionButton.setAttribute("aria-label", `Sort direction: ${sortWord(sessionSort.direction)}. Activate to sort ${nextDirection}.`)
+    sortDirectionButton.title = `Sorted ${sortWord(sessionSort.direction)} — reverse order`
+  }
+
+  function sortSessionsBy(key: SessionSortKey): void {
+    if (key === sessionSort.key) {
+      sessionSort = { key, direction: sessionSort.direction === "asc" ? "desc" : "asc" }
+    } else {
+      sessionSort = { key, direction: key === "started" || key === "updated" ? "desc" : "asc" }
+    }
+    sessionPage = 1
+    renderSessionBrowser()
+  }
+
+  function reverseSessionSort(): void {
+    sessionSort = { key: sessionSort.key, direction: sessionSort.direction === "asc" ? "desc" : "asc" }
+    sessionPage = 1
+    renderSessionBrowser()
+  }
+
   function renderTrigger(): void {
     const snapshot = state?.snapshot
     const entry = catalogEntry(catalogEntries, selectedSession)
@@ -222,11 +305,13 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   }
 
   function renderSessionBrowser(): void {
+    updateSortControls()
     const days = catalogDays(catalogEntries)
     updateDayOptions(days)
     search.value = sessionQuery
     availabilitySelect.value = sessionAvailability
     const filtered = filterCatalogSessions(catalogEntries, sessionQuery, sessionDay, sessionAvailability)
+      .sort((left, right) => compareCatalog(left, right))
     const totalPages = Math.max(1, Math.ceil(filtered.length / sessionPageSize))
     sessionPage = Math.min(Math.max(1, sessionPage), totalPages)
     const start = (sessionPage - 1) * sessionPageSize
@@ -255,11 +340,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     tableScroll.hidden = filtered.length === 0
     const total = catalogEntries.length
     const measured = measuredEntries().length
-    if (filtered.length === 0) {
-      summary.innerHTML = total ? `${dataValue(0)} of ${dataValue(integer(total))} stored sessions match` : "No stored sessions"
-    } else {
-      summary.innerHTML = `${dataValue(`${integer(start + 1)}–${integer(Math.min(start + sessionPageSize, filtered.length))}`)} of ${dataValue(integer(filtered.length))}${filtered.length !== total ? ` matching (${dataValue(`${integer(total)} stored`)})` : ""} session${filtered.length === 1 ? "" : "s"} · ${dataValue(integer(measured))} measured`
-    }
+    const sortNote = ` · sorted by ${sessionSortLabels[sessionSort.key]} ${sortWord(sessionSort.direction)}`
+    const summaryHtml = filtered.length === 0
+      ? (total ? `${dataValue(0)} of ${dataValue(integer(total))} stored sessions match${sortNote}` : "No stored sessions")
+      : `${dataValue(`${integer(start + 1)}–${integer(Math.min(start + sessionPageSize, filtered.length))}`)} of ${dataValue(integer(filtered.length))}${filtered.length !== total ? ` matching (${dataValue(`${integer(total)} stored`)})` : ""} session${filtered.length === 1 ? "" : "s"} · ${dataValue(integer(measured))} measured${sortNote}`
+    if (summary.innerHTML !== summaryHtml) summary.innerHTML = summaryHtml
     pageLabel.textContent = `Page ${sessionPage} of ${totalPages}`
     previous.disabled = sessionPage <= 1
     next.disabled = sessionPage >= totalPages
@@ -295,6 +380,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     showAll = false
     browserNotice = ""
     const filtered = filterCatalogSessions(catalogEntries, sessionQuery, sessionDay, sessionAvailability)
+      .sort((left, right) => compareCatalog(left, right))
     const index = filtered.findIndex((candidate) => candidate.id === id)
     if (index >= 0) sessionPage = Math.floor(index / sessionPageSize) + 1
     syncTraceUrl()
@@ -560,6 +646,17 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     browserNotice = ""
     renderSessionBrowser()
   })
+  for (const button of sortButtons) {
+    button.addEventListener("click", () => {
+      const key = asSessionSortKey(button.dataset.sortKey)
+      if (key) sortSessionsBy(key)
+    })
+  }
+  sortSelect.addEventListener("change", () => {
+    const key = asSessionSortKey(sortSelect.value)
+    if (key) sortSessionsBy(key)
+  })
+  sortDirectionButton.addEventListener("click", reverseSessionSort)
   previous.addEventListener("click", () => {
     sessionPage--
     renderSessionBrowser()
@@ -586,6 +683,8 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     showAll = !showAll
     renderTrace()
   })
+
+  updateSortControls()
 
   return {
     destroy() { inspector.destroy() },
