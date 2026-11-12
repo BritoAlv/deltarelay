@@ -1346,9 +1346,6 @@
   .sessions-panel .table-scroll { overflow-x: auto; overscroll-behavior-inline: contain; }
   .sessions-panel table { border-collapse: separate; border-spacing: 0; }
   .sessions-panel th {
-    position: sticky;
-    top: var(--topbar-h);
-    z-index: 3;
     height: 36px;
     padding: 0 14px;
     border-bottom: 1px solid var(--border);
@@ -2020,7 +2017,6 @@
       border-radius: 999px;
       background: var(--border-strong);
     }
-    .sessions-panel th { position: static; }
     .sessions-panel table { min-width: 780px; }
     .sessions-panel .table-footer { padding: 8px 12px; }
     .pagination { gap: 5px; }
