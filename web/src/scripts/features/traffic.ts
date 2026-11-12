@@ -27,7 +27,6 @@ export interface TrafficFeature {
   destroy(): void
 }
 
-const REUSE_RING_LENGTH = 414.69
 const validPresets: readonly TrafficPreset[] = ["24h", "7d", "30d", "90d", "custom"]
 
 interface ChartLayout {
@@ -50,9 +49,11 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   const trendsButton = requiredById<HTMLButtonElement>(root, "chart-view-trends")
   const chart = requiredById<HTMLElement>(root, "traffic-chart")
   const tooltip = requiredById<HTMLElement>(root, "chart-tooltip")
-  const legend = requiredById<HTMLElement>(root, "chart-legend")
   const notice = requiredById<HTMLElement>(root, "chart-notice")
-  const reuseRing = requiredById<SVGCircleElement>(root, "reuse-ring")
+  const reuseMeterReuse = requiredById<HTMLElement>(root, "reuse-meter-reuse")
+  const reuseMeterRaw = requiredById<HTMLElement>(root, "reuse-meter-raw")
+  const compositionSavedBar = requiredById<HTMLElement>(root, "composition-saved-bar")
+  const compositionSentBar = requiredById<HTMLElement>(root, "composition-sent-bar")
   const integer = (value: number) => value.toLocaleString()
   const setText = (id: string, value: string | number) => { requiredById(root, id).textContent = String(value) }
 
@@ -81,18 +82,26 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     return Number.isFinite(parsed) ? parsed : Date.now()
   }
 
+  function setMeterWidths(reuse: number, saved: number): void {
+    const reuseWidth = Math.max(0, Math.min(100, reuse))
+    const savedWidth = Math.max(0, Math.min(100, saved))
+    reuseMeterReuse.style.width = `${reuseWidth}%`
+    reuseMeterRaw.style.width = `${100 - reuseWidth}%`
+    compositionSavedBar.style.width = `${savedWidth}%`
+    compositionSentBar.style.width = `${100 - savedWidth}%`
+  }
+
   function reset(message = "Waiting for local data…"): void {
-    for (const id of ["chart-original", "chart-encoded", "chart-saved", "chart-reused", "chart-saved-rate", "chart-reuse-rate", "reuse-value", "reuse-bytes", "uploaded-bytes"]) setText(id, "—")
+    for (const id of ["chart-original", "chart-encoded", "chart-saved", "chart-reused", "chart-saved-rate", "chart-reuse-rate", "reuse-value", "reuse-bytes", "uploaded-bytes", "composition-saved", "composition-sent"]) setText(id, "—")
     requiredById(root, "chart-count").innerHTML = `${dataValue(0)} requests in this window`
     setText("reuse-scope", "Selected range")
     requiredById(root, "chart-saved").classList.remove("negative")
     requiredById(root, "chart-saved-rate").classList.remove("negative")
-    reuseRing.style.strokeDashoffset = String(REUSE_RING_LENGTH)
+    setMeterWidths(0, 0)
     chart.innerHTML = `<div class="chart-placeholder">${escapeHtml(message)}</div>`
     chart.setAttribute("aria-label", "Upload traffic chart awaiting data")
     notice.hidden = true
     tooltip.hidden = true
-    updateLegend()
     lastData = null
     lastRange = null
     layout = null
@@ -146,29 +155,10 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     setText("reuse-value", percentage(totals.reuse))
     setText("reuse-bytes", bytes(totals.reused))
     setText("uploaded-bytes", bytes(totals.uploadedChunkBytes))
+    setText("composition-saved", bytes(totals.saved))
+    setText("composition-sent", bytes(totals.encoded))
     if (lastRange) setText("reuse-scope", lastRange.label)
-    const reuse = Math.max(0, Math.min(100, totals.reuse ?? 0))
-    reuseRing.style.strokeDashoffset = String(REUSE_RING_LENGTH * (1 - reuse / 100))
-  }
-
-  function updateLegend(): void {
-    const items = view === "composition"
-      ? [
-          { dot: "delta", label: "Uploaded" },
-          { dot: "reuse", label: "Relay cache reuse" },
-          { dot: "saved", label: "Bandwidth saved · other" },
-          { line: true, label: "Original total" },
-        ]
-      : [
-          { line: true, label: "Original" },
-          { dot: "delta", label: "Uploaded" },
-          { dot: "saved", label: "Bandwidth saved" },
-          { dot: "reuse", label: "Relay cache reuse" },
-        ]
-    legend.innerHTML = items.map((item) => {
-      const marker = item.line ? '<span class="legend-line original"></span>' : `<span class="legend-dot ${item.dot}"></span>`
-      return `<span class="chart-legend-item" role="listitem">${marker}${escapeHtml(item.label)}</span>`
-    }).join("")
+    setMeterWidths(totals.reuse ?? 0, totals.reduction ?? 0)
   }
 
   function updateNotice(data: TrafficData): void {
@@ -450,7 +440,6 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     view = next
     compositionButton.setAttribute("aria-pressed", String(next === "composition"))
     trendsButton.setAttribute("aria-pressed", String(next === "trends"))
-    updateLegend()
     syncUrl()
     if (lastState) render(lastState)
   }
@@ -531,7 +520,6 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   trendsButton.setAttribute("aria-pressed", String(view === "trends"))
   if (preset === "custom") ensureCustomDefaults(Date.now())
   syncUrl()
-  updateLegend()
   reset()
 
   return {

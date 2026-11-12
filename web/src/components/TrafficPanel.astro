@@ -42,18 +42,23 @@ import Icon from "./Icon.astro"
       <span id="chart-keyboard-hint" class="sr-only">Focus the chart and use the left and right arrow keys, Home, and End to inspect data points.</span>
       <div id="chart-tooltip" class="chart-tooltip" role="tooltip" aria-live="polite" aria-atomic="true" hidden></div>
     </div>
-    <div id="chart-legend" class="chart-legend" role="list" aria-label="Chart legend"></div>
     <div class="panel-bottom"><span><Icon name="info" size={14} /> Finished requests only · aggregated locally</span><span id="chart-count">0 requests in this window</span></div>
   </article>
 
   <article class="panel efficiency-panel">
-    <div class="panel-heading"><div><h2>Relay cache reuse</h2><p id="reuse-scope">Selected range</p></div><span class="small-icon"><Icon name="bolt" size={18} /></span></div>
-    <div class="efficiency-ring">
-      <svg viewBox="0 0 160 160" aria-hidden="true"><g><circle class="ring-track" cx="80" cy="80" r="66" /><circle id="reuse-ring" class="ring-value" cx="80" cy="80" r="66" /></g></svg>
-      <div><strong id="reuse-value">—</strong><span>cache reuse</span></div>
-    </div>
+    <div class="panel-heading"><div><h2>Relay cache reuse</h2><p id="reuse-scope">Selected range</p></div></div>
+    <div class="rail-percent"><strong id="reuse-value">—</strong><span>cache reuse</span></div>
+    <div class="rail-meter" aria-hidden="true"><span class="reuse" id="reuse-meter-reuse"></span><span class="raw" id="reuse-meter-raw"></span></div>
     <div class="efficiency-row"><span><i class="legend-dot reuse" aria-hidden="true"></i>Reused body bytes</span><strong id="reuse-bytes">—</strong></div>
     <div class="efficiency-row"><span><i class="legend-dot delta" aria-hidden="true"></i>Raw chunks uploaded</span><strong id="uploaded-bytes">—</strong></div>
+    <div class="rail-composition">
+      <span class="rail-label">Upload composition</span>
+      <div class="rail-comp-bar" aria-hidden="true"><span class="saved" id="composition-saved-bar"></span><span class="sent" id="composition-sent-bar"></span></div>
+      <div class="rail-legend">
+        <span><i class="dot saved" aria-hidden="true"></i>Saved <strong id="composition-saved">—</strong></span>
+        <span><i class="dot sent" aria-hidden="true"></i>Sent <strong id="composition-sent">—</strong></span>
+      </div>
+    </div>
     <p class="efficiency-note">Cache reuse and compression reduce uploads; neither guarantees lower provider billing.</p>
   </article>
 </div>

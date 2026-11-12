@@ -9,14 +9,27 @@ export function mountComponentCards(root: HTMLElement, onAction: (id: NodeID, ac
   const doc = root.ownerDocument
   const filter = requiredById<HTMLInputElement>(root, "component-filter")
   const cards = [...root.querySelectorAll<HTMLElement>("[data-component-id]")]
+  const groups = [...root.querySelectorAll<HTMLElement>("[data-component-group]")]
   const signatures = new Map<string, string>()
+  const categoryOf = (card: HTMLElement) => card.querySelector(".resource-category")?.textContent?.trim() ?? ""
   function applyFilter() {
     const query = filter.value.trim().toLocaleLowerCase()
+    const visibleByCategory = new Map<string, number>()
     let visible = 0
     for (const card of cards) {
-      const searchable = `${card.querySelector("[data-component-label]")?.textContent} ${card.querySelector(".resource-category")?.textContent}`
+      const category = categoryOf(card)
+      const searchable = `${card.querySelector("[data-component-label]")?.textContent} ${category}`
       card.hidden = !searchable.toLocaleLowerCase().includes(query)
-      if (!card.hidden) visible++
+      if (!card.hidden) {
+        visible++
+        visibleByCategory.set(category, (visibleByCategory.get(category) ?? 0) + 1)
+      }
+    }
+    for (const group of groups) {
+      const count = visibleByCategory.get(group.dataset.componentGroup ?? "") ?? 0
+      group.hidden = count === 0
+      const counter = group.querySelector<HTMLElement>("[data-group-count]")
+      if (counter) counter.textContent = String(count).padStart(2, "0")
     }
     requiredById<HTMLElement>(root, "component-empty").hidden = visible > 0
     requiredById(root, "component-count").textContent = String(visible)

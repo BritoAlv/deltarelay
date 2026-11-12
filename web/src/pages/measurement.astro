@@ -1,8 +1,6 @@
 ---
 import DashboardFooter from "../components/DashboardFooter.astro"
-import Icon from "../components/Icon.astro"
 import MeasurementSection from "../components/MeasurementSection.astro"
-import ThemePicker from "../components/ThemePicker.astro"
 import DashboardLayout from "../layouts/DashboardLayout.astro"
 ---
 <DashboardLayout
@@ -10,26 +8,10 @@ import DashboardLayout from "../layouts/DashboardLayout.astro"
   description="Trace how DeltaRelay measures upload savings for retained sessions, request by request."
   current="measurement"
   skipLabel="Skip to measurement"
+  subtitle="How original request bodies become smaller encoded uploads."
+  headingId="measurement-title"
+  idPrefix="measurement-"
 >
-  <div class="appearance-controls"><ThemePicker /></div>
-  <div class="page-heading">
-    <div>
-      <h1 id="measurement-title">Measurement</h1>
-      <p class="page-subtitle">How original request bodies become smaller encoded uploads.</p>
-    </div>
-    <div class="heading-actions">
-      <button class="icon-button" id="measurement-pause-button" type="button" aria-label="Pause automatic refresh" aria-pressed="false" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
-      <button class="button button-secondary" id="measurement-refresh-button" type="button"><Icon name="refresh" size={16} />Refresh</button>
-    </div>
-  </div>
-  <div class="connection-line">
-    <span class="live-badge" id="measurement-connection-badge" role="status" aria-live="polite"><span class="tiny-dot" aria-hidden="true"></span><span id="measurement-connection-label">Connecting…</span></span>
-    <span id="measurement-updated-at">Waiting for local gateway…</span>
-    <span class="refresh-note" id="measurement-refresh-note">Auto-refresh every 10s</span>
-  </div>
-  <div id="measurement-notice" class="notice" role="status" hidden></div>
-  <noscript><div class="notice">Enable JavaScript to load local diagnostics. This page makes no provider requests.</div></noscript>
-
   <MeasurementSection />
   <DashboardFooter href="/" label="Back to dashboard" />
 

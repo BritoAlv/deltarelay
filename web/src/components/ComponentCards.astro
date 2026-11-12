@@ -2,27 +2,38 @@
 import Icon from "./Icon.astro"
 import { controlComponents } from "../lib/component-controls"
 import { mapNodes } from "../lib/topology-layout"
+
+const groups: { name: string; components: typeof controlComponents }[] = []
+for (const component of controlComponents) {
+  const group = groups.find((candidate) => candidate.name === component.category)
+  if (group) group.components.push(component)
+  else groups.push({ name: component.category, components: [component] })
+}
 ---
 <div class="resource-heading">
   <div><h3>Components <span id="component-count" class="count-badge">{controlComponents.length}</span></h3><p>Applications, connection services and background services. One consistent set of controls.</p></div>
-  <label class="resource-search"><Icon name="search" size={16} /><span class="sr-only">Filter components</span><input id="component-filter" type="search" placeholder="Filter components…" /></label>
+  <label class="resource-search"><Icon name="search" size={16} /><span class="sr-only">Filter components</span><input id="component-filter" type="search" placeholder="Filter components…" aria-label="Filter components" /></label>
 </div>
 <div class="resource-grid" aria-label="Component controls">
-  {controlComponents.map((component) => {
-    const node = mapNodes.find((node) => node.id === component.id)!
-    return <article class="resource-card" data-component-id={component.id} aria-labelledby={`component-${component.id}-title`}>
-      <header class="resource-top">
-        <span class="resource-icon"><Icon name={node.icon} size={18} /></span>
-        <div><p class="resource-category">{component.category}</p><h4 id={`component-${component.id}-title`} data-component-label>{node.label}</h4></div>
-        <details class="resource-more" hidden><summary aria-label={`More actions for ${node.label}`}>⋯</summary><div class="resource-menu" data-secondary-actions></div></details>
-      </header>
-      <div class="resource-body">
-        <p class="resource-observation neutral" data-component-status>Not verified</p>
-        <p class="resource-description">{component.description}</p>
-        <dl class="resource-facts"><div><dt>{component.id === "remote" ? "Host state" : "Lifecycle"}</dt><dd data-component-lifecycle>Unknown</dd></div><div><dt>Location</dt><dd data-component-location>Not verified</dd></div></dl>
-      </div>
-      <footer class="resource-footer"><div data-primary-action><span class="resource-managed">Waiting for supervisor</span></div><button type="button" class="resource-details-link" data-component-detail={component.id}>Details <Icon name="arrow" size={12} /></button></footer>
-    </article>
-  })}
+  <div class="component-columns" aria-hidden="true"><span>Component</span><span>Status</span><span>Lifecycle / location</span><span>Actions</span></div>
+  {groups.map((group) => <Fragment>
+    <div class="component-group" data-component-group={group.name}><span>{group.name}</span><span data-group-count>{String(group.components.length).padStart(2, "0")}</span></div>
+    {group.components.map((component) => {
+      const node = mapNodes.find((candidate) => candidate.id === component.id)!
+      return <article class="resource-card" data-component-id={component.id} aria-labelledby={`component-${component.id}-title`}>
+        <header class="resource-top">
+          <span class="resource-icon"><Icon name={node.icon} size={18} /></span>
+          <div><p class="resource-category">{component.category}</p><h4 id={`component-${component.id}-title`} data-component-label>{node.label}</h4></div>
+          <details class="resource-more" hidden><summary aria-label={`More actions for ${node.label}`}>⋯</summary><div class="resource-menu" data-secondary-actions></div></details>
+        </header>
+        <div class="resource-body">
+          <p class="resource-observation neutral" data-component-status>Not verified</p>
+          <p class="resource-description">{component.description}</p>
+          <dl class="resource-facts"><div><dt>{component.id === "remote" ? "Host state" : "Lifecycle"}</dt><dd data-component-lifecycle>Unknown</dd></div><div><dt>Location</dt><dd data-component-location>Not verified</dd></div></dl>
+        </div>
+        <footer class="resource-footer"><div data-primary-action><span class="resource-managed">Waiting for supervisor</span></div><button type="button" class="resource-details-link" data-component-detail={component.id}>Details <Icon name="arrow" size={12} /></button></footer>
+      </article>
+    })}
+  </Fragment>)}
 </div>
 <p id="component-empty" class="control-detail" role="status" hidden>No matching components.</p>

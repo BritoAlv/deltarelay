@@ -1,14 +1,20 @@
 ---
 import Icon from "./Icon.astro"
 import { defaultTheme, themes } from "../lib/themes"
+
+interface Props {
+  id?: string
+  primary?: boolean
+}
+
+const { id = "dashboard-theme", primary = true } = Astro.props
 ---
-<div class="theme-picker">
-  <label for="dashboard-theme"><Icon name="palette" size={16} />Theme</label>
-  <select id="dashboard-theme" name="dashboard-theme" autocomplete="off" aria-describedby="theme-status" disabled>
+<div class:list={["theme-picker", { "theme-picker-compact": !primary }]}>
+  <label for={id}><Icon name="palette" size={primary ? 16 : 14} />Theme</label>
+  <select id={id} name={id} autocomplete="off" data-theme-select aria-describedby={primary ? "theme-status" : undefined} disabled>
     {(["dark", "light"] as const).map((mode) => <optgroup label={mode === "dark" ? "Dark themes" : "Light themes"}>
       {themes.filter((theme) => theme.mode === mode).map((theme) => <option value={theme.id} selected={theme.id === defaultTheme.id}>{theme.name}</option>)}
     </optgroup>)}
   </select>
-  <span id="theme-status" class="sr-only" role="status">Theme preference is saved on this browser only.</span>
+  {primary && <span id="theme-status" class="sr-only" role="status">Theme preference is saved on this browser only.</span>}
 </div>
-<script src="../scripts/theme.ts"></script>

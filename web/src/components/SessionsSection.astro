@@ -10,14 +10,13 @@ import Icon from "./Icon.astro"
         <label class="sr-only" for="session-search">Search session ID or upstream</label>
         <input id="session-search" name="session-search" type="search" placeholder="Search sessions or upstreams…" autocomplete="off" spellcheck="false" />
       </div>
+      <div class="filter-chips" id="session-filter-chips" role="group" aria-label="Filter sessions by state">
+        <button type="button" class="filter-chip" data-filter-value="all" aria-pressed="true">All</button>
+        <button type="button" class="filter-chip" data-filter-value="active" aria-pressed="false">Active</button>
+        <button type="button" class="filter-chip" data-filter-value="idle" aria-pressed="false">Idle</button>
+        <button type="button" class="filter-chip" data-filter-value="attention" aria-pressed="false">Needs attention</button>
+      </div>
       <span class="count-badge" id="session-count" aria-hidden="true">0</span>
-      <label class="sr-only" for="session-filter">Filter sessions by state</label>
-      <select id="session-filter" name="session-state">
-        <option value="all">All states</option>
-        <option value="active">Active</option>
-        <option value="idle">Idle</option>
-        <option value="attention">Needs attention</option>
-      </select>
       <button class="text-button export-button" id="export-button" type="button" disabled><Icon name="download" size={16} />Export CSV</button>
     </div>
     <div class="table-scroll" id="session-table-scroll">

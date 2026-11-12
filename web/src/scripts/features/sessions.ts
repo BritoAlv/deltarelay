@@ -17,7 +17,7 @@ const pill = (label: string, state: string) => `<span class="status-pill ${state
 
 export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): SessionsFeature {
   const search = requiredById<HTMLInputElement>(root, "session-search")
-  const filter = requiredById<HTMLSelectElement>(root, "session-filter")
+  const filterChips = [...root.querySelectorAll<HTMLButtonElement>("#session-filter-chips [data-filter-value]")]
   const exportButton = requiredById<HTMLButtonElement>(root, "export-button")
   const rowsBody = requiredById(root, "session-rows")
   const tableScroll = requiredById<HTMLElement>(root, "session-table-scroll")
@@ -36,8 +36,9 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
   const initial = readParams(root.ownerDocument)
   const validStates = ["all", "active", "idle", "attention"]
   const initialState = initial.get("state") ?? "all"
+  let filterValue = validStates.includes(initialState) ? initialState : "all"
   search.value = initial.get("q") ?? ""
-  filter.value = validStates.includes(initialState) ? initialState : "all"
+  for (const chip of filterChips) chip.setAttribute("aria-pressed", String(chip.dataset.filterValue === filterValue))
   const pageParam = Number(initial.get("page"))
   let state: DashboardViewState | null = null
   let page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1
@@ -47,14 +48,14 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
   function syncUrl(): void {
     replaceParams(root.ownerDocument, {
       q: search.value.trim() || null,
-      state: filter.value === "all" ? null : filter.value,
+      state: filterValue === "all" ? null : filterValue,
       page: page > 1 ? String(page) : null,
       session: dialog.open && selectedSession ? selectedSession : pendingOpen,
     })
   }
 
   function visibleSessions(): Session[] {
-    return filterSessions(state?.snapshot?.history.sessions ?? [], search.value, filter.value)
+    return filterSessions(state?.snapshot?.history.sessions ?? [], search.value, filterValue)
   }
 
   function renderDetail() {
@@ -124,8 +125,29 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     }
   }
 
+  function setFilter(value: string): void {
+    filterValue = value
+    for (const chip of filterChips) chip.setAttribute("aria-pressed", String(chip.dataset.filterValue === value))
+    page = 1
+    renderSessions()
+  }
+
+  for (const chip of filterChips) chip.addEventListener("click", () => setFilter(chip.dataset.filterValue ?? "all"))
+  const chips = requiredById<HTMLElement>(root, "session-filter-chips")
+  chips.addEventListener("keydown", (event) => {
+    const current = (event.target as Element).closest<HTMLButtonElement>("[data-filter-value]")
+    if (!current) return
+    const index = filterChips.indexOf(current)
+    let next = index
+    if (event.key === "ArrowRight") next = Math.min(filterChips.length - 1, index + 1)
+    else if (event.key === "ArrowLeft") next = Math.max(0, index - 1)
+    else if (event.key === "Home") next = 0
+    else if (event.key === "End") next = filterChips.length - 1
+    else return
+    event.preventDefault()
+    filterChips[next]?.focus()
+  })
   search.addEventListener("input", () => { page = 1; renderSessions() })
-  filter.addEventListener("change", () => { page = 1; renderSessions() })
   previous.addEventListener("click", () => { page--; renderSessions() })
   next.addEventListener("click", () => { page++; renderSessions() })
   rowsBody.addEventListener("click", (event) => {

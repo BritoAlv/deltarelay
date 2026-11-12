@@ -17,11 +17,11 @@ export const themes = [
   {
     id: "graphite", name: "Graphite + Blue", mode: "dark",
     colors: {
-      bg: "#101216", sidebar: "#14171c", surface: "#181c22", "surface-raised": "#222832",
-      border: "#2d3541", "border-strong": "#475366", text: "#edf1f7", muted: "#acb5c5", subtle: "#909bad",
-      accent: "#87b8ff", "on-accent": "#101a29", "primary-start": "#1e2c40", "primary-end": "#19212d",
-      "chart-original": "#8b98ac", "chart-reuse": "#c7a6ff", success: "#7bd4aa", warning: "#efc479", danger: "#f2999b",
-      shadow: "#00000080", backdrop: "#0b0d15b0",
+      bg: "#0e1116", sidebar: "#111419", surface: "#151a21", "surface-raised": "#1b222b",
+      border: "#252d38", "border-strong": "#3a4554", text: "#e9eef6", muted: "#9fabbc", subtle: "#7f8b9d",
+      accent: "#6ea8fe", "on-accent": "#08111f", "primary-start": "#16202c", "primary-end": "#121821",
+      "chart-original": "#7c8aa0", "chart-reuse": "#63c2c7", success: "#69c99a", warning: "#e6bd72", danger: "#ef8e92",
+      shadow: "#00000080", backdrop: "#080b10b0",
     },
   },
   {

@@ -32,7 +32,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   const {
     autoStart = true,
     manageHeader = true,
-    refreshNote = "Live component checks",
+    refreshNote = "Auto-refresh every 1s",
     waitingLabel = "Waiting for local supervisor…",
   } = options
   const view = doc.defaultView ?? globalThis

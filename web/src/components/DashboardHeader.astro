@@ -4,28 +4,34 @@ import ThemePicker from "./ThemePicker.astro"
 
 interface Props {
   title: string
-  subtitle?: string
+  group: string
   refreshNote?: string
+  idPrefix?: string
 }
 
-const { title, subtitle, refreshNote = "Auto-refresh every 10s" } = Astro.props
+const { title, group, refreshNote = "Auto-refresh every 10s", idPrefix = "" } = Astro.props
+const id = (name: string) => `${idPrefix}${name}`
 ---
-<div class="appearance-controls"><ThemePicker /></div>
-<div class="page-heading">
-  <div>
-    <h1>{title}</h1>
-    {subtitle && <p class="page-subtitle">{subtitle}</p>}
+<header class="topbar">
+  <div class="topbar-crumb">
+    <span class="topbar-brand" aria-hidden="true">Δ</span>
+    <span class="topbar-product">{group}</span>
+    <span class="topbar-slash" aria-hidden="true">/</span>
+    <strong title={title}>{title}</strong>
   </div>
-  <div class="heading-actions">
-    <slot name="actions" />
-    <button class="icon-button" id="pause-button" type="button" aria-label="Pause automatic refresh" aria-pressed="false" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
-    <button class="button button-secondary" id="refresh-button" type="button"><Icon name="refresh" size={16} />Refresh</button>
+  <div class="topbar-actions">
+    <div class="topbar-status">
+      <span class="live-badge" id={id("connection-badge")} role="status" aria-live="polite"><span class="tiny-dot" aria-hidden="true"></span><span id={id("connection-label")}>Connecting…</span></span>
+      <span id={id("updated-at")} class="topbar-updated">Waiting for local data…</span>
+      <span class="refresh-note" id={id("refresh-note")}>{refreshNote}</span>
+    </div>
+    <details class="theme-popover">
+      <summary aria-label="Appearance" title="Appearance"><Icon name="palette" size={15} /></summary>
+      <div class="theme-popover-body"><ThemePicker id={id("theme-popover")} primary={false} /></div>
+    </details>
+    <div class="topbar-buttons">
+      <button class="icon-button" id={id("pause-button")} type="button" aria-label="Pause automatic refresh" aria-pressed="false" title="Pause automatic refresh"><Icon name="pause" size={17} /></button>
+      <button class="button button-secondary topbar-refresh" id={id("refresh-button")} type="button"><Icon name="refresh" size={16} /><span class="button-label">Refresh</span></button>
+    </div>
   </div>
-</div>
-<div class="connection-line">
-  <span class="live-badge" id="connection-badge" role="status" aria-live="polite"><span class="tiny-dot" aria-hidden="true"></span><span id="connection-label">Connecting…</span></span>
-  <span id="updated-at">Waiting for local data…</span>
-  <span class="refresh-note" id="refresh-note">{refreshNote}</span>
-</div>
-<div id="notice" class="notice" role="status" hidden></div>
-<noscript><div class="notice">Enable JavaScript to load local diagnostics. This page makes no provider requests.</div></noscript>
+</header>

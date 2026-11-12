@@ -1,5 +1,4 @@
 ---
-import DashboardHeader from "../components/DashboardHeader.astro"
 import OverviewSection from "../components/OverviewSection.astro"
 import DashboardLayout from "../layouts/DashboardLayout.astro"
 ---
@@ -8,8 +7,8 @@ import DashboardLayout from "../layouts/DashboardLayout.astro"
   description="Local, private observability for DeltaRelay. Track per-session bandwidth savings and relay health."
   current="overview"
   skipLabel="Skip to overview"
+  subtitle="Upload savings and relay traffic across retained sessions."
 >
-  <DashboardHeader title="Overview" subtitle="Upload savings and relay traffic across retained sessions." />
   <OverviewSection />
 
   <Fragment slot="scripts">

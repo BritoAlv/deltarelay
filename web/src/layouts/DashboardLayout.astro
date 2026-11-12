@@ -1,5 +1,7 @@
 ---
 import "../styles/dashboard.css"
+import DashboardHeader from "../components/DashboardHeader.astro"
+import Icon from "../components/Icon.astro"
 import Sidebar from "../components/Sidebar.astro"
 import { defaultTheme } from "../lib/themes"
 
@@ -8,9 +10,40 @@ interface Props {
   description: string
   current?: "overview" | "sessions" | "measurement" | "controls" | "system"
   skipLabel?: string
+  subtitle?: string
+  refreshNote?: string
+  headingId?: string
+  idPrefix?: string
 }
 
-const { title, description, current = "overview", skipLabel = "Skip to content" } = Astro.props
+const {
+  title,
+  description,
+  current = "overview",
+  skipLabel = "Skip to content",
+  subtitle,
+  refreshNote = "Auto-refresh every 10s",
+  headingId,
+  idPrefix = "",
+} = Astro.props
+
+const pages = {
+  overview: { group: "Monitor", heading: "Overview" },
+  sessions: { group: "Monitor", heading: "Sessions" },
+  measurement: { group: "Monitor", heading: "Measurement" },
+  controls: { group: "System", heading: "System controls" },
+  system: { group: "System", heading: "System health" },
+} as const
+const page = pages[current]
+const noticeId = `${idPrefix}notice`
+
+const tabs = [
+  { current: "overview", href: "/", label: "Overview", icon: "overview" },
+  { current: "sessions", href: "/sessions", label: "Sessions", icon: "sessions" },
+  { current: "measurement", href: "/measurement", label: "Measure", icon: "measure" },
+  { current: "controls", href: "/controls", label: "Controls", icon: "system" },
+  { current: "system", href: "/system", label: "Health", icon: "activity" },
+] as const
 ---
 <!doctype html>
 <html lang="en" data-theme={defaultTheme.id}>
@@ -30,12 +63,26 @@ const { title, description, current = "overview", skipLabel = "Skip to content" 
     <Sidebar current={current} />
 
     <div class="page-shell">
+      <DashboardHeader title={page.heading} group={page.group} refreshNote={refreshNote} idPrefix={idPrefix} />
       <main id="main">
+        <div class="page-heading">
+          <div>
+            <h1 id={headingId}>{page.heading}</h1>
+            {subtitle && <p class="page-subtitle">{subtitle}</p>}
+          </div>
+        </div>
+        <div id={noticeId} class="notice" role="status" hidden></div>
+        <noscript><div class="notice">Enable JavaScript to load local diagnostics. This page makes no provider requests.</div></noscript>
         <slot />
       </main>
     </div>
 
+    <nav class="mobile-tabs" aria-label="Dashboard sections">
+      {tabs.map((tab) => <a class:list={["mobile-tab", { selected: current === tab.current }]} href={tab.href} aria-current={current === tab.current ? "page" : undefined} aria-label={tab.current === "measurement" ? "Measurement" : tab.current === "controls" ? "System controls" : tab.current === "system" ? "System health" : tab.label}><Icon name={tab.icon} size={18} /><span>{tab.label}</span></a>)}
+    </nav>
+
     <slot name="overlays" />
     <slot name="scripts" />
+    <script src="../scripts/theme.ts"></script>
   </body>
 </html>

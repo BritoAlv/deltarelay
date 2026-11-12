@@ -1,5 +1,4 @@
 ---
-import DashboardHeader from "../components/DashboardHeader.astro"
 import SessionDialog from "../components/SessionDialog.astro"
 import SessionsSection from "../components/SessionsSection.astro"
 import DashboardLayout from "../layouts/DashboardLayout.astro"
@@ -9,8 +8,8 @@ import DashboardLayout from "../layouts/DashboardLayout.astro"
   description="Inspect retained DeltaRelay sessions, request volume, uploads, and bandwidth savings."
   current="sessions"
   skipLabel="Skip to sessions"
+  subtitle="Retained request history grouped by session and upstream."
 >
-  <DashboardHeader title="Sessions" subtitle="Retained request history grouped by session and upstream." />
   <SessionsSection />
 
   <Fragment slot="overlays">

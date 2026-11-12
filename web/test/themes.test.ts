@@ -71,8 +71,9 @@ test("dashboard components and chart graphics do not hardcode palette colors", a
   const css = await readFile(new URL("../../src/styles/dashboard.css", import.meta.url), "utf8")
   const chart = await readFile(new URL("../../src/scripts/dashboard.ts", import.meta.url), "utf8")
   for (const source of [css, chart]) assert.doesNotMatch(source, /#[0-9a-f]{6}([0-9a-f]{2})?\b/i)
+  const layoutTokens = new Set(["mono", "topbar-h", "sidebar-w", "radius", "radius-sm"])
   for (const [, token] of css.matchAll(/var\(--([a-z-]+)/g)) {
-    assert.ok(token === "mono" || themeTokens.some((key) => key === token), `Unknown theme token: ${token}`)
+    assert.ok(layoutTokens.has(token ?? "") || themeTokens.some((key) => key === token), `Unknown theme token: ${token}`)
   }
   const layout = await readFile(new URL("../../src/layouts/DashboardLayout.astro", import.meta.url), "utf8")
   assert.match(layout, /<script is:inline src="\/_astro\/theme-init\.js"><\/script>/)

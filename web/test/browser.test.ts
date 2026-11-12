@@ -167,11 +167,14 @@ test("all operational components use the same cards, with filtering and stable a
   filter.value = "background"
   page.fire(filter, "input")
   assert.equal(cards.filter((card) => !card.hidden).length, 3)
+  assert.deepEqual([...doc.querySelectorAll<HTMLElement>("[data-component-group]")].filter((group) => !group.hidden).map((group) => group.dataset.componentGroup), ["Background services"])
+  assert.equal(doc.querySelector('[data-component-group="Background services"] [data-group-count]')?.textContent, "03")
   await app.refresh()
   assert.equal(cards.filter((card) => !card.hidden).length, 3, "polling preserves the filter")
   filter.value = "no such component"
   page.fire(filter, "input")
   assert.equal(doc.querySelector<HTMLElement>("#component-empty")!.hidden, false)
+  assert.ok([...doc.querySelectorAll<HTMLElement>("[data-component-group]")].every((group) => group.hidden))
   filter.value = ""
   page.fire(filter, "input")
   const menu = doc.querySelector<HTMLDetailsElement>('[data-component-id="gateway"] .resource-more')!
@@ -687,8 +690,10 @@ test("overview refresh renders stats and an accessible chart without session or 
   assert.match(doc.querySelector("#traffic-chart")?.innerHTML ?? "", /<svg/)
   assert.equal(doc.querySelector("#traffic-chart svg")?.getAttribute("preserveAspectRatio"), "xMidYMid meet")
   assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 24 hours.*72 requests/)
-  assert.match(doc.querySelector("#chart-legend")?.textContent ?? "", /Bandwidth saved/)
-  assert.match(doc.querySelector("#chart-legend")?.textContent ?? "", /Relay cache reuse/)
+  assert.match(doc.querySelector("#chart-saved")?.textContent ?? "", /GiB|MiB|KiB|B/)
+  assert.match(doc.querySelector("#chart-reused")?.textContent ?? "", /GiB|MiB|KiB|B/)
+  assert.match(doc.querySelector("#reuse-value")?.textContent ?? "", /%/)
+  assert.match(doc.querySelector<HTMLElement>("#reuse-meter-reuse")?.style.width ?? "", /%/)
   assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /72 requests · 1 failed · 1 cancelled/)
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 1)
   assert.equal(doc.querySelector("#session-rows"), null)
@@ -779,16 +784,15 @@ test("session search, state, and pagination are deep-linked through the URL", as
   await dashboard.refresh()
   const doc = page.document
   const search = doc.querySelector<HTMLInputElement>("#session-search")!
-  const filter = doc.querySelector<HTMLSelectElement>("#session-filter")!
+  const idle = doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="idle"]')!
   assert.equal(search.value, "api")
-  assert.equal(filter.value, "idle")
+  assert.equal(idle.getAttribute("aria-pressed"), "true")
   assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 1")
   assert.equal(new URL(page.window.location.href).searchParams.get("page"), null)
 
   search.value = "openai"
   page.fire(search, "input")
-  filter.value = "all"
-  page.fire(filter, "change")
+  doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="all"]')!.click()
   const params = new URL(page.window.location.href).searchParams
   assert.equal(params.get("q"), "openai")
   assert.equal(params.get("state"), null)
@@ -914,9 +918,9 @@ test("session filtering and pagination only render retained matches", async () =
   assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
   search.value = ""
   page.fire(search, "input")
-  const filter = doc.querySelector<HTMLSelectElement>("#session-filter")!
-  filter.value = "attention"
-  page.fire(filter, "change")
+  const attention = doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="attention"]')!
+  attention.click()
+  assert.equal(attention.getAttribute("aria-pressed"), "true")
   assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
   assert.match(doc.querySelector("#session-rows")?.textContent ?? "", /Attention/)
   dashboard.destroy()

@@ -1,5 +1,4 @@
 ---
-import DashboardHeader from "../components/DashboardHeader.astro"
 import SystemHealth from "../components/SystemHealth.astro"
 import DashboardLayout from "../layouts/DashboardLayout.astro"
 ---
@@ -8,8 +7,8 @@ import DashboardLayout from "../layouts/DashboardLayout.astro"
   description="Local gateway, remote host connection, storage, and provider forwarding health for DeltaRelay."
   current="system"
   skipLabel="Skip to system health"
+  subtitle="Local gateway, relay connection, storage, and provider forwarding."
 >
-  <DashboardHeader title="System health" subtitle="Local gateway, relay connection, storage, and provider forwarding." />
   <SystemHealth />
 
   <Fragment slot="scripts">
