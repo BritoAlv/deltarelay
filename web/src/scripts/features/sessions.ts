@@ -16,7 +16,8 @@ export interface SessionsOptions {
   onHostChange(host: string): void
 }
 
-const pageSize = 8
+const defaultPageSize = 8
+const pageSizes = [8, 25, 50, 100] as const
 const integer = (value: number) => value.toLocaleString()
 const pill = (label: string, state: string) => `<span class="status-pill ${state}">${escape(label)}</span>`
 const sortKeys = ["session", "host", "state", "requests", "original", "uploaded", "reduction", "activity"] as const
@@ -45,6 +46,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   const empty = requiredById<HTMLElement>(root, "sessions-empty")
   const previous = requiredById<HTMLButtonElement>(root, "previous-page")
   const next = requiredById<HTMLButtonElement>(root, "next-page")
+  const pageSizeSelect = requiredById<HTMLSelectElement>(root, "session-page-size")
   const sortButtons = [...root.querySelectorAll<HTMLButtonElement>("#session-table-scroll button[data-sort-key]")]
   const sortHeaders = [...root.querySelectorAll<HTMLElement>("#session-table-scroll th[data-sort-key]")]
   const filterButtons = [...root.querySelectorAll<HTMLButtonElement>("button[data-filter-key]")]
@@ -81,6 +83,9 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   const pageParam = Number(initial.get("page"))
   let state: DashboardViewState | null = null
   let page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1
+  const rowsParam = initial.get("rows")
+  let pageSize = pageSizes.find((size) => String(size) === rowsParam) ?? defaultPageSize
+  pageSizeSelect.value = String(pageSize)
   let selectedSession: string | null = null
   let pendingOpen = initial.get("session")
   let openFilterKey: SessionSortKey | null = null
@@ -91,6 +96,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
       q: search.value.trim() || null,
       state: filterValue === "all" ? null : filterValue,
       page: page > 1 ? String(page) : null,
+      rows: pageSize === defaultPageSize ? null : String(pageSize),
       session: dialog.open && selectedSession ? selectedSession : pendingOpen,
       ...sortParams(sortState, "activity", "desc"),
       ...sessionFilterParams(columnFilters),
@@ -524,6 +530,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
       : totalSessions ? `${dataValue(0)} of ${dataValue(integer(totalSessions))} sessions match this filter${filterNote}${sortNote}` : `${dataValue(0)} sessions`
     if (summary.innerHTML !== summaryHtml) summary.innerHTML = summaryHtml
     setText("page-label", `Page ${page} of ${totalPages}`)
+    pageSizeSelect.value = String(pageSize)
     previous.disabled = page <= 1
     next.disabled = page >= totalPages
     exportButton.disabled = sessions.length === 0
@@ -589,6 +596,13 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   search.addEventListener("input", () => { page = 1; renderSessions() })
   previous.addEventListener("click", () => { page--; renderSessions() })
   next.addEventListener("click", () => { page++; renderSessions() })
+  pageSizeSelect.addEventListener("change", () => {
+    const selected = pageSizes.find((size) => String(size) === pageSizeSelect.value)
+    if (!selected || selected === pageSize) return
+    pageSize = selected
+    page = 1
+    renderSessions()
+  })
   rowsBody.addEventListener("click", (event) => {
     const target = (event.target as Element).closest<HTMLButtonElement>("button[data-session-id]")
     if (!target) return

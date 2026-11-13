@@ -1212,15 +1212,53 @@ test("traffic range and view are deep-linked through the URL", async () => {
   await page.close()
 })
 
+test("session page size can be changed and resets pagination", async () => {
+  const page = openPage("sessions")
+  const snapshot = makeSnapshot(now)
+  const extra = Array.from({ length: 10 }, (_, index) => ({
+    ...snapshot.history.sessions[index % 6]!,
+    id: `ses_page_size_${index}`,
+    active: 0,
+    last_status: 200,
+    last_error: undefined,
+  }))
+  snapshot.history.sessions.push(...extra)
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const size = doc.querySelector<HTMLSelectElement>("#session-page-size")!
+  assert.equal(size.value, "8")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 8)
+  assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 2")
+
+  doc.querySelector<HTMLButtonElement>("#next-page")!.click()
+  assert.equal(doc.querySelector("#page-label")?.textContent, "Page 2 of 2")
+
+  size.value = "50"
+  page.fire(size, "change")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 16)
+  assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 1", "changing page size resets pagination")
+  assert.equal(new URL(page.window.location.href).searchParams.get("rows"), "50")
+
+  size.value = "8"
+  page.fire(size, "change")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 8)
+  assert.equal(new URL(page.window.location.href).searchParams.get("rows"), null, "the default page size stays implicit")
+  dashboard.destroy()
+  await page.close()
+})
+
 test("session search, state, and pagination are deep-linked through the URL", async () => {
   const page = openPage("sessions")
-  page.window.history.replaceState(null, "", "/sessions?q=api&state=idle&page=2")
+  page.window.history.replaceState(null, "", "/sessions?q=api&state=idle&page=2&rows=25")
   page.setFetch(() => json(makeSnapshot(now)))
   const dashboard = startDashboard(page.document, { autoStart: false })
   await dashboard.refresh()
   const doc = page.document
   const search = doc.querySelector<HTMLInputElement>("#session-search")!
   assert.equal(search.value, "api")
+  assert.equal(doc.querySelector<HTMLSelectElement>("#session-page-size")?.value, "25")
   assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 1")
   assert.equal(new URL(page.window.location.href).searchParams.get("page"), null)
   const popover = openColumnFilter(doc, "state")

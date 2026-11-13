@@ -1,6 +1,7 @@
 ---
 import Icon from "./Icon.astro"
 
+const pageSizes = [8, 25, 50, 100]
 const columns = [
   { key: "session", label: "Session", sortLabel: "session", filterLabel: "session", number: false },
   { key: "host", label: "Remote codespace host", sortLabel: "remote codespace host", filterLabel: "remote host", number: false },
@@ -69,6 +70,9 @@ const columns = [
     <div class="table-footer">
       <span id="table-summary" role="status" aria-live="polite">0 sessions</span>
       <div class="pagination">
+        <label class="page-size-field"><span>Rows</span><select id="session-page-size" aria-label="Rows per page">
+          {pageSizes.map((size) => <option value={size}>{size}</option>)}
+        </select></label>
         <button class="text-button" id="previous-page" type="button" aria-label="Previous page" disabled>Previous</button>
         <span id="page-label">Page 1 of 1</span>
         <button class="text-button" id="next-page" type="button" aria-label="Next page" disabled>Next</button>
