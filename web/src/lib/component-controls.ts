@@ -3,6 +3,8 @@ import type { NodeID } from "./topology.js"
 export const controlComponents: { id: NodeID; category: string; description: string }[] = [
   { id: "desktop", category: "Applications", description: "The desktop application used to interact with OpenCode." },
   { id: "opencode", category: "Applications", description: "Runs OpenCode and loads the DeltaRelay plugin." },
+  { id: "vscode", category: "Applications", description: "Editor where Varro attaches to the shared OpenCode service. Open it from here or yourself; the supervisor never starts it automatically, restarts it, or observes it." },
+  { id: "gate", category: "Connection", description: "The loopback health gate Varro uses to attach to the shared OpenCode service." },
   { id: "gateway", category: "Connection", description: "Accepts authenticated requests on this computer." },
   { id: "tunnel", category: "Connection", description: "Carries relay traffic to the configured remote endpoint." },
   { id: "remote", category: "Connection", description: "The existing remote machine hosting the relay." },

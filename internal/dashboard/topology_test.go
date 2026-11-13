@@ -14,6 +14,16 @@ func TestTopologyContractAndPrivateFieldFiltering(t *testing.T) {
 	if err := json.Unmarshal(raw, &topology); err != nil || !validTopology(&topology, raw) {
 		t.Fatalf("shared topology rejected: %v", err)
 	}
+	var editor TopologyStatus
+	_ = json.Unmarshal(raw, &editor)
+	for i := range editor.Nodes {
+		if editor.Nodes[i].ID == "vscode" {
+			editor.Nodes[i].Actions = []string{"open"}
+		}
+	}
+	if !validTopology(&editor, raw) {
+		t.Fatal("one-shot editor open action rejected")
+	}
 	for _, change := range []func(*TopologyStatus){
 		func(v *TopologyStatus) { v.Version = 99 },
 		func(v *TopologyStatus) { v.Nodes = append(v.Nodes, v.Nodes[0]) },

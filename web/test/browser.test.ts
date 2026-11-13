@@ -11,7 +11,7 @@ import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import type { SetupStatus } from "../src/lib/setup.js"
 import { isTopology, type RecoveryRun } from "../src/lib/topology.js"
-import { mapNodes, nodeHeight, nodeWidth } from "../src/lib/topology-layout.js"
+import { mapLayerSegments, mapNodes, nodeHeight, nodeWidth } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
@@ -178,7 +178,7 @@ test("all operational components use the same cards, with filtering and stable a
   await app.refresh()
   const doc = page.document
   const cards = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
-  assert.equal(cards.length, 9)
+  assert.equal(cards.length, 11)
   for (const id of ["dashboard", "supervisor", "remote_provider"]) {
     const card = doc.querySelector<HTMLElement>(`[data-component-id="${id}"]`)!
     assert.equal(card.parentElement?.className, "resource-grid")
@@ -247,11 +247,11 @@ test("component inventory filters by category and sorts inside each group", asyn
   const applications = chips.find((chip) => chip.dataset.componentCategory === "Applications")!
   applications.click()
   assert.equal(applications.getAttribute("aria-pressed"), "true")
-  assert.equal(cards.filter((card) => !card.hidden).length, 2)
+  assert.equal(cards.filter((card) => !card.hidden).length, 3)
   assert.deepEqual(groupHeaders.filter((group) => !group.hidden).map((group) => group.dataset.componentGroup), ["Applications"])
-  assert.equal(groupHeaders.find((group) => group.dataset.componentGroup === "Applications")?.querySelector("[data-group-count]")?.textContent, "02")
-  assert.equal(total.textContent, "2")
-  assert.match(summary.textContent ?? "", /2 of 9 components in Applications · default order/)
+  assert.equal(groupHeaders.find((group) => group.dataset.componentGroup === "Applications")?.querySelector("[data-group-count]")?.textContent, "03")
+  assert.equal(total.textContent, "3")
+  assert.match(summary.textContent ?? "", /3 of 11 components in Applications · default order/)
 
   filter.value = "OpenCode"
   page.fire(filter, "input")
@@ -266,10 +266,10 @@ test("component inventory filters by category and sorts inside each group", asyn
   page.fire(filter, "input")
   const connection = chips.find((chip) => chip.dataset.componentCategory === "Connection")!
   connection.click()
-  assert.equal(cards.filter((card) => !card.hidden).length, 4)
-  assert.match(summary.textContent ?? "", /4 of 9 components in Connection/)
+  assert.equal(cards.filter((card) => !card.hidden).length, 5)
+  assert.match(summary.textContent ?? "", /5 of 11 components in Connection/)
   chips[0]!.click()
-  assert.equal(cards.filter((card) => !card.hidden).length, 9)
+  assert.equal(cards.filter((card) => !card.hidden).length, 11)
 
   const componentHeader = doc.querySelector<HTMLElement>('th[data-sort-key="component"]')!
   const componentButton = componentHeader.querySelector<HTMLButtonElement>("button")!
@@ -279,7 +279,7 @@ test("component inventory filters by category and sorts inside each group", asyn
   const ascendingLabels = labelsByGroup()
   ascendingLabels.forEach((labels, index) => assert.deepEqual(labels, [...defaultLabels[index]!].sort((a, b) => a.localeCompare(b))))
   assert.deepEqual(groupHeaders.map((group) => group.dataset.componentGroup), ["Applications", "Connection", "Background services"], "groups stay in their original order")
-  assert.equal(groupHeaders[0]?.querySelector("[data-group-count]")?.textContent, "02")
+  assert.equal(groupHeaders[0]?.querySelector("[data-group-count]")?.textContent, "03")
 
   componentButton.click()
   assert.equal(componentHeader.getAttribute("aria-sort"), "descending")
@@ -317,13 +317,13 @@ test("architecture retains its complete legend and highlights management arrows 
   assert.equal(tab.getAttribute("aria-selected"), "true")
   const legend = view.querySelector(".topology-legend")!.textContent ?? ""
   for (const text of ["Model request flow", "Checks / recovery / management"]) assert.ok(legend.includes(text), text)
-  for (const text of ["Process boundary", "Host / location / resource"]) assert.ok(view.querySelector(".map-boundary-key")!.textContent!.includes(text), text)
+  for (const text of ["Frontend process", "Backend process", "Host / location / resource"]) assert.ok(view.querySelector(".map-boundary-key")!.textContent!.includes(text), text)
   assert.doesNotMatch(legend, /Verified|Working|Not ready|Unknown \/ stopped/)
   assert.equal(view.querySelector("#map-management"), null)
    assert.equal(view.querySelectorAll('.legend-toggle[aria-pressed="true"]').length, 3)
    assert.equal(view.querySelectorAll(".map-edge:not(.response)").length, status.topology!.edges.length, "all connections start visible")
-   assert.equal(view.querySelectorAll(".map-edge.response").length, 6)
-   assert.ok(view.querySelector(".map-layer-separation line"))
+   assert.equal(view.querySelectorAll(".map-edge.response").length, 8)
+   assert.equal(view.querySelectorAll(".map-layer-separation line").length, mapLayerSegments.length)
    assert.equal(view.querySelector('[data-edge-id="relay_storage_response"]'), null, "storage is not a return hop")
    assert.match(view.querySelector('[data-edge-id="relay_provider_response"] title')?.textContent ?? "", /provider → relay/)
    assert.notEqual(view.querySelector('[data-edge-id="relay_provider_response"]')?.getAttribute("d"), view.querySelector('[data-edge-id="relay_provider"]')?.getAttribute("d"))
@@ -1317,24 +1317,30 @@ test("map prominently encloses every process, its modules and owned files, witho
   const page = openPage("controls")
   const doc = page.document
   const role = (id: string) => doc.querySelector(`[data-node-id="${id}"] .map-node-role`)?.textContent
+  assert.equal(role("vscode"), "Editor")
   assert.equal(role("opencode"), "Process")
   assert.equal(role("plugin"), "Module")
+  assert.equal(role("gate"), "Process")
   assert.equal(role("relay"), "Process")
   assert.equal(role("storage"), "Files")
   assert.equal(role("provider"), "External API")
-  assert.match(doc.querySelector(".map-boundary-key")?.textContent ?? "", /Process boundary.*Encloses a process.*Host \/ location \/ resource.*not a process/)
+  assert.match(doc.querySelector(".map-boundary-key")?.textContent ?? "", /Frontend process.*Encloses an interface.*Backend process.*Encloses a local service.*Host \/ location \/ resource.*not a process/)
   const contains = (groupID: string, nodeID: string) => {
     const group = doc.querySelector(`[data-map-group="${groupID}"]`)!
     const node = mapNodes.find((item) => item.id === nodeID)!
     const x = Number(group.getAttribute("x")), y = Number(group.getAttribute("y"))
     return node.x >= x && node.y >= y && node.x + nodeWidth <= x + Number(group.getAttribute("width")) && node.y + nodeHeight <= y + Number(group.getAttribute("height"))
   }
-  for (const [id, members] of Object.entries({ desktop: ["desktop"], opencode: ["opencode", "plugin"], gateway: ["gateway"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
+  for (const [id, members] of Object.entries({ vscode: ["vscode"], desktop: ["desktop"], opencode: ["opencode", "plugin"], gateway: ["gateway"], gate: ["gate"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
     const outline = doc.querySelector(`[data-map-group="${id}"]`)!
     assert.equal(outline.getAttribute("data-boundary-kind"), "process", id)
     assert.ok(outline.classList.contains("map-process"), `${id}: prominent process outline`)
     assert.match(doc.querySelector(`#map-boundary-${id} [data-boundary-label]`)?.textContent ?? "", /PROCESS/, id)
     assert.deepEqual(mapNodes.filter((node) => contains(id, node.id)).map((node) => node.id), members, id)
+  }
+  for (const [id, side] of Object.entries({ vscode: "frontend", desktop: "frontend", dashboard_ui: "frontend", opencode: "backend", gateway: "backend", gate: "backend", relay: "backend", dashboard: "backend", supervisor: "backend", remote_provider: "backend" })) {
+    assert.ok(doc.querySelector(`[data-map-group="${id}"]`)!.classList.contains(`map-${side}`), `${id}: ${side} outline`)
+    assert.ok(doc.querySelector(`#map-boundary-${id}`)!.classList.contains(`map-${side}`), `${id}: ${side} heading`)
   }
   for (const id of ["remote", "network", "provider", "tunnel"]) {
     assert.notEqual(doc.querySelector(`[data-map-group="${id}"]`)?.getAttribute("data-boundary-kind"), "process", `${id}: no invented process`)
@@ -1420,15 +1426,22 @@ test("controls show component cards separately from the read-only map and poll o
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.equal(doc.querySelectorAll("[data-node-id]").length, 14)
+  assert.equal(doc.querySelectorAll("[data-node-id]").length, 16)
   assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Cache \/ saved responses \(Files\).*Highlight connections/)
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
   assert.equal(doc.querySelector("#auth-countdown"), null)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup"])
-  assert.equal(doc.querySelectorAll("[data-component-id]").length, 9)
+  assert.equal(doc.querySelectorAll("[data-component-id]").length, 11)
   assert.ok(doc.querySelector('[data-component-id="supervisor"]'))
   assert.ok(doc.querySelector('[data-component-id="dashboard"]'))
+  assert.ok(doc.querySelector('[data-component-id="gate"]'), "gate lifecycle controls are present")
+  const editor = doc.querySelector<HTMLElement>('[data-component-id="vscode"]')!
+  assert.equal(editor.querySelector(".resource-category")?.textContent, "Applications")
+  assert.equal(editor.querySelector("[data-component-status]")?.textContent, "Not observed")
+  assert.equal(editor.querySelector("[data-component-lifecycle]")?.textContent, "Unmanaged")
+  assert.equal(editor.querySelector("[data-primary-action]")?.textContent, "Open not configured")
+  assert.equal(editor.querySelectorAll("[data-component-action]").length, 0, "the user-launched editor has no start, restart or stop controls")
   doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
   assert.equal(doc.querySelector<HTMLElement>("#system-controls-view")!.hidden, true)
   assert.equal(doc.querySelector<HTMLElement>("#system-architecture-view")!.hidden, false)
@@ -1451,10 +1464,14 @@ test("architecture roles stay independent of live health, which remains availabl
   const doc = page.document
   assert.match(doc.querySelector(".topology-legend")?.textContent ?? "", /Model request flow.*Checks \/ recovery \/ management/)
   const edge = (id: string) => doc.querySelector(`[data-edge-id="${id}"]`)
+  assert.ok(edge("vscode_gate")?.classList.contains("request"))
+  assert.ok(edge("gate_opencode")?.classList.contains("request"))
   assert.ok(edge("desktop_opencode")?.classList.contains("request"))
   assert.ok(edge("opencode_plugin")?.classList.contains("request"))
   assert.ok(edge("relay_storage")?.classList.contains("request"))
   assert.ok(edge("relay_provider")?.classList.contains("request"))
+  assert.ok(edge("gate_gateway")?.classList.contains("control"))
+  assert.ok(edge("supervisor_gate")?.classList.contains("control"))
   assert.ok(edge("network_tunnel")?.classList.contains("control"))
   assert.ok(edge("remote_relay")?.classList.contains("control"))
   assert.ok(edge("dashboard_ui_dashboard")?.classList.contains("control"), "dashboard traffic is not model traffic")
@@ -1471,6 +1488,29 @@ test("architecture roles stay independent of live health, which remains availabl
   assert.equal(edge("gateway_tunnel")?.classList.contains("blocked"), false)
   doc.querySelector<HTMLButtonElement>('[data-component-detail="gateway"]')!.click()
   assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Blocked/, "operational connection health is shown in card diagnostics")
+  system.destroy()
+  await page.close()
+})
+
+test("a healthy gate listener with an unavailable backend stays running while its request edge is not ready", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  const gate = status.topology!.nodes.find((node) => node.id === "gate")!
+  gate.lifecycle = "running"
+  gate.readiness = "ready"
+  gate.detail = "Listener ready. Backend unavailable: gateway_down. Varro will receive 503; the gate is not restarted."
+  status.topology!.edges.find((edge) => edge.id === "gate_opencode")!.state = "not_ready"
+  page.setFetch(() => json(status))
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  const card = doc.querySelector<HTMLElement>('[data-component-id="gate"]')!
+  assert.equal(card.querySelector("[data-component-status]")?.textContent, "Ready")
+  assert.equal(card.querySelector("[data-component-lifecycle]")?.textContent, "Running")
+  doc.querySelector<HTMLButtonElement>('[data-component-detail="gate"]')!.click()
+  assert.match(doc.querySelector("#node-inspector-detail")?.textContent ?? "", /Backend unavailable: gateway_down/)
+  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Varro health gate → OpenCode server.*Not ready/s)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "backend failure never triggers a gate action")
   system.destroy()
   await page.close()
 })
@@ -1684,6 +1724,45 @@ test("Desktop launch sends one protected same-origin action and blocks duplicate
   release(json({ accepted: true }, 202))
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(page.document.querySelector("#activity-console"), null)
+  system.destroy()
+  await page.close()
+})
+
+test("Varro in VS Code opens only from its card with one protected request and no service action", async () => {
+  const page = openPage("controls")
+  const status = systemStatus()
+  status.topology!.nodes.find((node) => node.id === "vscode")!.actions = ["open"]
+  status.topology!.intent.system = "stopped"
+  const actions: Record<string, unknown>[] = []
+  let release: (response: Response) => void = () => undefined
+  const held = new Promise<Response>((resolve) => { release = resolve })
+  page.setFetch((url, init) => {
+    if (url === "/api/system") return json(status)
+    if (url === "/api/system/action") {
+      actions.push(JSON.parse(String(init.body)))
+      return held
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  })
+  page.setConfirm(() => { throw new Error("opening the editor must not ask for confirmation") })
+  const system = startSystemStatus(page.document, { autoStart: false })
+  await system.refresh()
+  const doc = page.document
+  const button = doc.querySelector<HTMLButtonElement>('[data-component-id="vscode"] [data-component-action="open"]')!
+  assert.equal(button.textContent, "Open")
+  assert.equal(button.disabled, false, "an intentionally stopped stack does not block opening the editor")
+  button.click()
+  button.click()
+  assert.equal(actions.length, 1, "a second click while the request is pending is ignored")
+  const action = actions[0]!
+  assert.match(String(action.request_id), /^[a-f0-9]{32}$/)
+  delete action.request_id
+  assert.deepEqual(action, { component: "vscode", action: "open", confirmed: false })
+  assert.equal(doc.querySelector<HTMLButtonElement>('[data-component-id="vscode"] [data-component-action="open"]')!.disabled, true)
+  release(json({ accepted: true }, 202))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.match(doc.querySelector("#control-notice")?.textContent ?? "", /Open request sent\. The supervisor does not observe the editor window/)
+  assert.equal(page.fetchCalls.filter((call) => call.url === "/api/system/action").length, 1)
   system.destroy()
   await page.close()
 })

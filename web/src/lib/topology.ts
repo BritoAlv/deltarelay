@@ -1,8 +1,8 @@
 import { nullableTimestamp, object, timestamp } from "./validation.js"
 
-export const nodeIDs = ["desktop", "opencode", "plugin", "gateway", "tunnel", "network", "remote", "relay", "storage", "provider", "dashboard_ui", "dashboard", "supervisor", "remote_provider"] as const
+export const nodeIDs = ["vscode", "desktop", "opencode", "plugin", "gate", "gateway", "tunnel", "network", "remote", "relay", "storage", "provider", "dashboard_ui", "dashboard", "supervisor", "remote_provider"] as const
 export type NodeID = typeof nodeIDs[number]
-export type ComponentAction = "start" | "recover" | "restart" | "wake" | "stop"
+export type ComponentAction = "start" | "recover" | "restart" | "wake" | "stop" | "open"
 export type Readiness = "ready" | "not_ready" | "unknown" | "blocked"
 
 export interface TopologyNode {
@@ -35,8 +35,8 @@ export interface TopologyEdge {
 // separate HTTP hops. Classify the actual request path explicitly; route/host
 // prerequisites and control-plane edges describe checks or management instead.
 const requestPathEdges = new Set([
-  "desktop_opencode", "opencode_plugin", "plugin_gateway", "gateway_tunnel",
-  "tunnel_relay", "relay_storage", "relay_provider",
+  "vscode_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
+  "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_storage", "relay_provider",
 ])
 
 export function edgeChannel(edge: TopologyEdge): "request" | "control" {
@@ -92,7 +92,7 @@ export function isTopology(v: unknown): v is TopologyStatus {
   if (!object(v.network) || !Number.isSafeInteger(v.network.generation) || (v.network.generation as number) < 0 || !nullableTimestamp(v.network.changed_at)) return false
   const seen = new Set<string>()
   for (const n of v.nodes) {
-    if (!object(n) || !id(n.id) || seen.has(n.id) || !safe(n.label, 80) || !n.label.length || !safe(n.detail, 400) || !code(n.kind) || !includes(n.group, ["local", "network", "remote", "external", "control"]) || !(id(n.owner) || includes(n.owner, ["external", "user", "launcher"])) || typeof n.managed !== "boolean" || !includes(n.desired, ["running", "stopped", "external", "unmanaged"]) || !includes(n.lifecycle, ["running", "stopped", "starting", "stopping", "started", "unknown", "unmanaged"]) || !readiness(n.readiness) || !(n.activity === "idle" || action(n.activity)) || !nullableTimestamp(n.checked_at) || !Array.isArray(n.actions) || n.actions.length > 5 || new Set(n.actions).size !== n.actions.length || !n.actions.every((a) => includes(a, ["start", "recover", "restart", "wake", "stop"]))) return false
+    if (!object(n) || !id(n.id) || seen.has(n.id) || !safe(n.label, 80) || !n.label.length || !safe(n.detail, 400) || !code(n.kind) || !includes(n.group, ["local", "network", "remote", "external", "control"]) || !(id(n.owner) || includes(n.owner, ["external", "user", "launcher"])) || typeof n.managed !== "boolean" || !includes(n.desired, ["running", "stopped", "external", "unmanaged"]) || !includes(n.lifecycle, ["running", "stopped", "starting", "stopping", "started", "unknown", "unmanaged"]) || !readiness(n.readiness) || !(n.activity === "idle" || action(n.activity)) || !nullableTimestamp(n.checked_at) || !Array.isArray(n.actions) || n.actions.length > 5 || new Set(n.actions).size !== n.actions.length || !n.actions.every((a) => includes(a, ["start", "recover", "restart", "wake", "stop", "open"]))) return false
     seen.add(n.id)
   }
   const edges = new Set<string>()
@@ -115,6 +115,7 @@ export function nodePresentation(node: TopologyNode, stale: boolean): { label: s
   if (node.readiness === "blocked") return { label: "Needs attention", tone: "bad" }
   if (node.readiness === "not_ready") return { label: node.lifecycle === "stopped" ? "Stopped" : "Not ready", tone: "warning" }
   if (node.lifecycle === "running" || node.lifecycle === "started") return { label: "Running · unverified", tone: "neutral" }
+  if (node.owner === "user" && node.lifecycle === "unmanaged") return { label: "Not observed", tone: "neutral" }
   return { label: node.lifecycle === "unmanaged" ? "Not configured" : "Not verified", tone: "neutral" }
 }
 

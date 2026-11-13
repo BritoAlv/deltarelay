@@ -7,6 +7,7 @@ import shlex
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 
 from remote_provider import ProviderError as ControlError, environment, plugin_environment
@@ -154,6 +155,39 @@ class ProcessManager:
             finally:
                 temporary.unlink(missing_ok=True)
         self.state.set_component(name, 'starting')
+
+    def open_editor(self, spec):
+        """Run the configured editor command once; the result is never tracked or restarted."""
+        if self.cancel.is_set():
+            raise ControlError('operation_cancelled')
+        overrides = spec.get('env', {})
+        # An integrated-terminal IPC hook would route this request to another
+        # editor instance, so only explicitly configured variables may keep it.
+        env = {key: value for key, value in environment(overrides).items()
+               if key in overrides or not key.startswith(('VSCODE_', 'ELECTRON_'))}
+        if not (env.get('DISPLAY') or env.get('WAYLAND_DISPLAY')):
+            raise ControlError('editor_launch_failed')
+        log = self.directory / 'vscode.log'
+        if self.journal:
+            self.journal.follow('vscode', log)
+        fd = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'ab') as output:
+            if os.fstat(output.fileno()).st_mode & 0o077:
+                raise ControlError('unsafe_log_file')
+            self.log('vscode', 'command', f'$ {shlex.join(spec["open_command"])}\nstdout/stderr -> {log}')
+            try:
+                child = self.popen(spec['open_command'], stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                                   start_new_session=True, cwd=self.root, env=env)
+            except OSError as error:
+                raise ControlError('editor_launch_failed') from error
+        threading.Thread(target=self._wait_editor, args=(child,), daemon=True).start()
+
+    def _wait_editor(self, child):
+        status = child.wait()
+        if status > 0:
+            self.log('vscode', 'exit', f'pid={child.pid} exit_code={status}')
+        elif status < 0:
+            self.log('vscode', 'exit', f'pid={child.pid} signal={-status}')
 
     def stop(self, name):
         spec = self.config['components'].get(name, {})

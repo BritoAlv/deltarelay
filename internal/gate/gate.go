@@ -4,6 +4,8 @@ package gate
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -123,6 +125,9 @@ func (g *Gate) readRegistration() (registration, error) {
 
 func (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
+	if g.handleLiveness(w, r) {
+		return
+	}
 	if g.config.Password != "" && !g.authorized(r) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="deltarelay-gate"`)
 		http.Error(w, "authentication required", http.StatusUnauthorized)
@@ -145,6 +150,32 @@ func (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.proxy(w, r, identity, started)
+}
+
+// handleLiveness answers the supervisor's local-only probe without consulting
+// the backend or the health cache. It is checked before optional client Basic
+// auth so Varro credentials never gate supervisor liveness.
+func (g *Gate) handleLiveness(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/livez" || r.Method != http.MethodGet {
+		return false
+	}
+	if r.URL.RawQuery != "" || r.ContentLength != 0 {
+		http.Error(w, "invalid liveness request", http.StatusBadRequest)
+		return true
+	}
+	want := sha256.Sum256([]byte(g.config.LocalToken))
+	got := sha256.Sum256([]byte(r.Header.Get("X-DeltaRelay-Local-Token")))
+	if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
+		http.Error(w, "invalid local token", http.StatusUnauthorized)
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(struct {
+		Alive   bool `json:"alive"`
+		Version int  `json:"version"`
+	}{Alive: true, Version: 1})
+	return true
 }
 
 func writeStatus(w http.ResponseWriter, status Status) {

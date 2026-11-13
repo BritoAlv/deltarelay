@@ -1,6 +1,6 @@
 ---
 import Icon from "./Icon.astro"
-import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
+import { mapBoundaries, mapLayerSegments, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
 ---
 <article class="panel topology-panel" aria-labelledby="topology-title">
   <div class="control-heading"><div><h3 id="topology-title">System architecture</h3><p class="control-detail">How components connect across processes and hosts.</p></div></div>
@@ -10,9 +10,10 @@ import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, no
     <button type="button" class="legend-toggle" data-map-channel="control" aria-pressed="true" aria-controls="map-edges" title="Hide checks, recovery and management arrows"><svg class="legend-arrow control" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Checks / recovery / management<span class="legend-toggle-state">Shown</span></button>
   </div>
   <dl class="map-boundary-key" aria-label="Map boundaries">
-    <div><dt><span class="legend-boundary process" aria-hidden="true"></span>Process boundary</dt><dd>Encloses a process and its components</dd></div>
+    <div><dt><span class="legend-boundary process frontend" aria-hidden="true"></span>Frontend process</dt><dd>Encloses an interface process</dd></div>
+    <div><dt><span class="legend-boundary process backend" aria-hidden="true"></span>Backend process</dt><dd>Encloses a local service</dd></div>
     <div><dt><span class="legend-boundary location" aria-hidden="true"></span>Host / location / resource</dt><dd>Groups context, not a process</dd></div>
-    <div><dt><span class="legend-separator" aria-hidden="true"></span>Frontend / backend</dt><dd>Interfaces on the left, services on the right</dd></div>
+    <div><dt><span class="legend-separator" aria-hidden="true"></span>Frontend / backend</dt><dd>Divider only between paired rows</dd></div>
   </dl>
   <div class="topology-workspace">
     <div class="map-navigation" role="group" aria-label="Map navigation">
@@ -22,7 +23,7 @@ import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, no
       <button id="map-fit" type="button">Fit all</button>
     </div>
     <div class="topology-viewport" tabindex="0" aria-label="System connection map" aria-describedby="map-help">
-      <div class="topology-canvas" style={`aspect-ratio:${mapWidth}/${mapHeight}`}>
+      <div class="topology-canvas" style={`width:${mapWidth}px;height:${mapHeight}px`}>
         <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Process boundaries, owned components, and observed connections. Dashed boundaries are not processes.">
           <defs><marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
           {mapRegions.map((region) => <g>
@@ -31,17 +32,16 @@ import { mapBoundaries, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, no
             <text class="map-region-label" x={region.x + 20} y={region.y + 28}>{region.label}</text>
           </g>)}
           <g class="map-layer-separation" aria-label="Frontend on the left; backend on the right">
-            <text x="55" y="13">Frontend</text><text x="305" y="13">Backend</text>
-            <line x1="275" y1="4" x2="275" y2={mapHeight - 10} />
+            {mapLayerSegments.map((segment) => <line x1="275" y1={segment.y1} x2="275" y2={segment.y2} />)}
           </g>
-          {mapBoundaries.map((boundary) => <rect class={`map-boundary-outline map-${boundary.kind}`} data-map-group={boundary.id} data-boundary-kind={boundary.kind} x={boundary.x} y={boundary.y} width={boundary.width} height={boundary.height} rx="8" />)}
+          {mapBoundaries.map((boundary) => <rect class={`map-boundary-outline map-${boundary.kind}${boundary.side ? ` map-${boundary.side}` : ""}`} data-map-group={boundary.id} data-boundary-kind={boundary.kind} x={boundary.x} y={boundary.y} width={boundary.width} height={boundary.height} rx="8" />)}
           <g id="map-edges"></g>
-          {mapBoundaries.map((boundary) => <g id={`map-boundary-${boundary.id}`} class={`map-boundary-heading map-${boundary.kind}`} data-boundary-kind={boundary.kind} aria-label={`${boundary.label} · ${boundary.title}`}>
+          {mapBoundaries.map((boundary) => <g id={`map-boundary-${boundary.id}`} class={`map-boundary-heading map-${boundary.kind}${boundary.side ? ` map-${boundary.side}` : ""}`} data-boundary-kind={boundary.kind} aria-label={`${boundary.label} · ${boundary.title}`}>
             <desc id={`map-boundary-${boundary.id}-description`}>{boundary.label} · {boundary.title}. {boundary.detail}</desc>
             <rect x={boundary.x + 2} y={boundary.y + 2} width={boundary.width - 4} height="53" rx="6" />
             <text class="map-boundary-kind" data-boundary-label x={boundary.x + 16} y={boundary.y + 22}>{boundary.label}</text>
             <text class="map-boundary-title" data-boundary-title x={boundary.x + 16} y={boundary.y + 44}>{boundary.title}</text>
-            {boundary.note && <text class="map-boundary-note" x={boundary.x + 16} y={boundary.y + boundary.height - 16}>{boundary.note}</text>}
+            {boundary.note && <text class="map-boundary-note" x={boundary.x + 16} y={boundary.y + 71}>{boundary.note}</text>}
           </g>)}
         </svg>
         {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" aria-describedby={`map-boundary-${mapBoundaries.find((boundary) => boundary.members.includes(node.id))?.id ?? "remote"}-description`} style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>

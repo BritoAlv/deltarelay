@@ -40,6 +40,7 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
 | `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, and shutdown. |
 | `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
+| `internal/gate` | Attach-only Varro/VS Code health gate: local `/livez` supervisor proof, backend readiness checks, fail-closed 503 responses, and authenticated HTTP/SSE/WebSocket forwarding to the shared OpenCode service. It is a health/authorization shim, never a provider proxy or service owner. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
@@ -58,6 +59,7 @@ cmd/deltarelay
   ├── internal/server ──> store, mailbox, journal, upstream, protocol
   ├── internal/gateway ─> client, inspection, telemetry, upstream, transfer, protocol
   ├── internal/client ──> chunker, fsx, inspection, upstream, transfer, protocol
+  ├── internal/gate ─> (standard library only)
   └── internal/dashboard ─> inspection
 
 internal/inspection ────> fsx, protocol, transfer
@@ -121,10 +123,19 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   Unix socket. They do not depend on gateway availability. Controls remain
   disabled when the supervisor is absent, stale, unmanaged, or does not support
   the action.
+- Varro/VS Code attaches through the supervised loopback gate to the **same**
+  shared OpenCode service Desktop/TUI use. The gate's `/livez` endpoint is a
+  local token check only; backend checks run on `/healthz` and actual requests
+  and cover gateway forwarding, OpenCode v2 API, and the optional workspace
+  plugin. The gate forwards HTTP/SSE/WebSocket with the service password and
+  fails closed with 503. It never starts or restarts the service, gateway, relay,
+  tunnel, or provider, and it is not a provider proxy.
 - The supervisor composes configuration, process ownership, probes, recovery
   policy, provider plugins, and the control API in `deploy/supervision`.
-  Startup requires an explicit executable-provider configuration, supplied by
-  `--config` or the XDG configuration file. No profile adaptation is performed.
+  Startup requires an explicit executable-provider configuration or the
+  first-run setup flow, supplied by `--config` or the XDG configuration file.
+  No profile adaptation is performed. The gate and dashboard start independently
+  of provider discovery.
 - Component adapters own one resource and are never allowed to recursively repair
   a peer. `coordinator` observes, executes one permitted step, re-observes, and
   verifies. One service-changing action runs at a time; read-only probes and
@@ -147,6 +158,7 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
 | `server.Server` / `jobService` | Refuses new admission after shutdown, cancels running jobs, closes the mailbox, waits for terminal job records, and releases all provider slots. |
 | `client.Client` | Stops the cancellation-outbox worker and closes idle HTTP connections. Persisted pending cancellations remain for the next start. |
 | `gateway.Gateway` | Closes the telemetry recorder and capture store after HTTP shutdown so their bounded final flushes can run. |
+| `gate.Gate` | Closes idle transport connections. The supervisor owns only the gate process; no backend lifecycle is attached to it. |
 | `telemetry.Recorder` | One worker per persistent recorder. In-memory `Begin`/`Finish` update synchronously; dirty snapshots are coalesced and written at most about once per second. |
 | `inspection.Store` | Owns one exclusive, private capture directory. Running captures expose in-memory evidence, are checkpointed about once per second, flush on shutdown, and resume interrupted captures from the last checkpoint only. |
 | `dashboard.Handler` | Closes idle gateway and supervisor-connection clients. It owns no background polling. |

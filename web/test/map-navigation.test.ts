@@ -2,6 +2,7 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import { openPage } from "./browser.js"
 import { mountMapNavigation } from "../src/scripts/features/map-navigation.js"
+import { mapHeight, mapWidth } from "../src/lib/topology-layout.js"
 
 function setup() {
   const page = openPage("controls")
@@ -26,8 +27,8 @@ test("map fits all components without a toolbar row or component picker", async 
   const camera = page.camera()
   assert.ok(camera.scale < 1)
   assert.ok(camera.x >= 0 && camera.y >= 60)
-  assert.ok(camera.x + 1330 * camera.scale <= 760)
-  assert.ok(camera.y + 1040 * camera.scale <= 500)
+  assert.ok(camera.x + mapWidth * camera.scale <= 760)
+  assert.ok(camera.y + mapHeight * camera.scale <= 500)
   assert.equal(page.root.querySelector(".map-navigation")?.parentElement, page.root.querySelector(".topology-workspace"))
   assert.equal(page.root.querySelector(".topology-workspace select"), null)
   assert.equal(page.root.querySelector(".topology-workspace #node-inspector"), null)
@@ -84,7 +85,7 @@ test("touch pinch zooms around its midpoint and transitions to one-finger pan", 
   page.pointer(page.viewport, "pointerdown", 200, 100, 2, true)
   page.pointer(page.window, "pointermove", 300, 100, 2, true)
   const pinched = page.camera()
-  assert.equal(pinched.scale, before.scale * 2)
+  assert.ok(Math.abs(pinched.scale - before.scale * 2) < 1e-12)
   assert.ok(Math.abs((200 - pinched.x) / pinched.scale - (150 - before.x) / before.scale) < 1e-8)
   page.pointer(page.window, "pointerup", 300, 100, 2, true)
   page.pointer(page.window, "pointermove", 120, 130, 1, true)

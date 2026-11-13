@@ -54,7 +54,7 @@ class SharedContractTest(unittest.TestCase):
                 observed = subject.snapshot()
                 self.assertEqual(observed, read('supervisor-v2.json'))
                 self.assertEqual(observed['topology']['version'], 1)
-                self.assertEqual(len(observed['topology']['nodes']), 14)
+                self.assertEqual(len(observed['topology']['nodes']), 16)
                 self.assertFalse(any(node['actions'] for node in observed['topology']['nodes']))
             self.assertEqual(subject.processes.children, {})
 

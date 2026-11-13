@@ -202,7 +202,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     if (destroyed || !system || stale || pending || !system.managed || system.recovery.busy || !system.topology || system.topology.run?.status === "running") return
     if (component !== "all") {
       const node = system.topology.nodes.find((node) => node.id === component)
-      const stoppedIntent = system.topology.intent.system === "stopped" && !(component === "remote" && action === "stop")
+      const stoppedIntent = system.topology.intent.system === "stopped" && action !== "open" && !(component === "remote" && action === "stop")
       if (!node?.actions.includes(action) || stoppedIntent || action === "start" && ["running", "starting", "started"].includes(node.lifecycle)) return
       if (component === "remote" && (action === "stop" || action === "wake") && !supportsRemote(system, action === "stop" ? "host.stop" : "host.wake")) return
     }
@@ -218,7 +218,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     try {
       const requestID = [...crypto.getRandomValues(new Uint8Array(16))].map((byte) => byte.toString(16).padStart(2, "0")).join("")
       await sendControl("action", { component, action, confirmed: needsConfirmation, request_id: requestID }, system.csrf_token)
-      message = "Operation accepted. Current status is shown in Controls; no model generation was submitted."
+      message = action === "open" ? "Open request sent. The supervisor does not observe the editor window; no model request was submitted." : "Operation accepted. Current status is shown in Controls; no model generation was submitted."
       onAction?.()
     } catch (error) {
       message = error instanceof Error ? error.message : "The outcome is uncertain. Refresh status before submitting another operation."

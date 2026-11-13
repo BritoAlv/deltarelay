@@ -240,8 +240,9 @@
   .resource-facts dt { color: var(--subtle); font-size: 10px; margin-bottom: 3px; }
   .resource-facts dd { display: inline-block; max-width: 100%; margin: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-raised); color: var(--text); font: 500 10px/1.7 var(--mono); overflow-wrap: anywhere; }
   .resource-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 53px; border-top: 1px solid var(--border); padding: 11px 17px; }
+  .resource-footer [data-primary-action] { display: flex; align-items: center; min-width: 0; }
   .resource-footer .button { font-size: 11px; padding: 5px 10px; }
-  .resource-managed { color: var(--subtle); font-size: 10px; }
+  .resource-managed { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--subtle); font-size: 10px; }
   .resource-details-link { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--accent); border: 0; background: transparent; padding: 5px 0; }
   .recovery-settings { max-width: 760px; }
   .component-dialog { width: min(600px, calc(100vw - 32px)); max-height: 82dvh; padding: 0; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; overflow: auto; box-shadow: 0 20px 80px #0005; }
@@ -270,14 +271,15 @@
   .map-boundary-key dt { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
   .map-boundary-key dd { margin: 0; color: var(--muted); }
   .legend-boundary { display: inline-block; flex-shrink: 0; width: 24px; height: 16px; border: 2px solid var(--muted); border-radius: 3px; }
-  .legend-boundary.location { border-style: dashed; border-width: 1px; }
+  .legend-boundary.process.frontend { border-color: var(--map-frontend); }
+  .legend-boundary.process.backend { border-color: var(--map-backend); }
+  .legend-boundary.location { border-color: var(--map-context); border-style: dashed; border-width: 1px; }
   .legend-arrow { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .legend-arrow.request { stroke: var(--accent); }
-  .legend-arrow.response { stroke: var(--success); }
-  .legend-arrow.control { stroke: var(--chart-reuse); }
+  .legend-arrow.request { stroke: var(--map-request); }
+  .legend-arrow.response { stroke: var(--map-response); }
+  .legend-arrow.control { stroke: var(--map-control); }
   .legend-separator { width: 24px; border-top: 1.5px solid var(--muted); }
   .map-layer-separation line { stroke: var(--muted); stroke-width: 1.5; }
-  .map-layer-separation text { fill: var(--text); font-size: 13px; font-weight: 600; }
   .map-footer { padding-top: 16px; }
   .map-help { display: flex; flex-wrap: wrap; gap: 10px 24px; list-style: none; margin: 0; padding: 0; font-size: 11px; line-height: 1.8; }
   .map-help li { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -302,25 +304,30 @@
   .topology-viewport { position: absolute; inset: 0; min-width: 0; overflow: hidden; background: var(--bg); touch-action: none; user-select: none; cursor: grab; overscroll-behavior: contain; }
   .topology-viewport.is-dragging { cursor: grabbing; }
   .topology-viewport:focus-visible { outline-offset: -3px; }
-  .topology-canvas { position: absolute; left: 0; top: 0; width: 1330px; height: 1040px; transform-origin: 0 0; }
+  .topology-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .map-navigation { position: absolute; left: 12px; top: 12px; z-index: 2; display: flex; gap: 2px; padding: 4px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface); box-shadow: 0 3px 12px #0002; }
   .map-navigation button { border: 0; border-radius: 5px; background: transparent; color: var(--text); padding: 8px 10px; font-size: 12px; cursor: pointer; }
   .map-navigation button:hover { background: var(--surface-raised); }
   #map-zoom-reset { min-width: 54px; font-family: var(--mono); }
   .topology-links { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .map-region { fill: var(--surface-raised); fill-opacity: .35; stroke: var(--border); stroke-dasharray: 5 4; }
+  .map-region { fill: var(--surface-raised); fill-opacity: .35; stroke: var(--map-context); stroke-opacity: .45; stroke-dasharray: 5 4; }
   .map-region-label { fill: var(--muted); font: 11px var(--mono); letter-spacing: .8px; }
-  .map-boundary-outline { fill: var(--surface-raised); fill-opacity: .2; stroke: var(--border-strong); stroke-width: 1.2; stroke-dasharray: 6 5; }
-  .map-boundary-outline.map-process { fill: var(--accent); fill-opacity: .045; stroke: var(--muted); stroke-width: 2.5; stroke-dasharray: none; }
+  .map-boundary-outline { fill: var(--map-context); fill-opacity: .035; stroke: var(--map-context); stroke-width: 2; stroke-dasharray: 6 5; }
+  .map-boundary-outline.map-process { fill: var(--map-frontend); fill-opacity: .045; stroke: var(--muted); stroke-width: 2.5; stroke-dasharray: none; }
+  .map-boundary-outline.map-process.map-frontend { fill: var(--map-frontend); stroke: var(--map-frontend); }
+  .map-boundary-outline.map-process.map-backend { fill: var(--map-backend); stroke: var(--map-backend); }
   .map-boundary-heading > rect { fill: var(--surface-raised); }
   .map-boundary-kind { fill: var(--muted); font: 10px var(--mono); letter-spacing: .3px; }
+  .map-boundary-heading:not(.map-process) .map-boundary-kind { fill: var(--map-context); }
   .map-process .map-boundary-kind { fill: var(--text); font-weight: 700; letter-spacing: .7px; }
+  .map-process.map-frontend .map-boundary-kind { fill: var(--map-frontend); }
+  .map-process.map-backend .map-boundary-kind { fill: var(--map-backend); }
   .map-boundary-title { fill: var(--text); font-size: 14px; font-weight: 600; }
   .map-boundary-note { fill: var(--muted); font-size: 11px; }
   .map-edge { fill: none; stroke-width: 2; opacity: .55; }
-  .map-edge.request { stroke: var(--accent); }
-  .map-edge.response { stroke: var(--success); }
-  .map-edge.control { stroke: var(--chart-reuse); }
+  .map-edge.request { stroke: var(--map-request); }
+  .map-edge.response { stroke: var(--map-response); }
+  .map-edge.control { stroke: var(--map-control); }
   .map-edge.manages { stroke-dasharray: 5 6; stroke-width: 1.3; opacity: .35; }
   .map-edge.requires, .map-edge.contains { stroke-dasharray: 3 4; }
   .map-edge.selected { stroke-width: 2.5; opacity: 1; }
@@ -1488,6 +1495,27 @@
     border-radius: 0;
     background: transparent;
   }
+  .system-grid > .system-card > .system-card-top { display: contents; }
+  .system-grid > .system-card > .system-card-top > .system-icon {
+    grid-area: icon;
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    background: var(--surface-raised);
+  }
+  .system-grid > .system-card > .system-card-top > .system-icon svg { width: 16px; height: 16px; }
+  .system-grid > .system-card > h3 {
+    grid-area: title;
+    align-self: center;
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 550;
+  }
+  .system-grid > .system-card > .system-card-top > .status-pill {
+    grid-area: status;
+    align-self: start;
+    justify-self: end;
+  }
   .system-grid > .system-card:nth-child(-n + 3) {
     grid-column: 1;
     display: grid;
@@ -1502,27 +1530,6 @@
     border-top: 1px solid var(--border);
   }
   .system-grid > .system-card:first-child { border-top: 0; }
-  .system-grid > .system-card:nth-child(-n + 3) .system-card-top { display: contents; }
-  .system-grid > .system-card:nth-child(-n + 3) .system-icon {
-    grid-area: icon;
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
-    background: var(--surface-raised);
-  }
-  .system-grid > .system-card:nth-child(-n + 3) .system-icon svg { width: 16px; height: 16px; }
-  .system-grid > .system-card:nth-child(-n + 3) h3 {
-    grid-area: title;
-    align-self: center;
-    margin: 0;
-    font-size: 12.5px;
-    font-weight: 550;
-  }
-  .system-grid > .system-card:nth-child(-n + 3) .status-pill {
-    grid-area: status;
-    align-self: start;
-    justify-self: end;
-  }
   .system-grid > .system-card:nth-child(-n + 3) .data-facts {
     grid-area: facts;
     display: flex;
@@ -1571,29 +1578,20 @@
   .system-grid > .system-card:nth-child(4) {
     grid-column: 2;
     grid-row: 1 / span 3;
-    display: flex;
-    flex-direction: column;
-    padding: 15px 18px 18px;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-areas:
+      "icon title status"
+      ". desc desc"
+      ". providers providers"
+      ". auth auth";
+    gap: 0 12px;
     border-left: 1px solid var(--border);
     background: var(--surface);
   }
-  .system-grid > .system-card:nth-child(4) .system-card-top {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-  .system-grid > .system-card:nth-child(4) .system-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 6px;
-    background: var(--surface-raised);
-  }
-  .system-grid > .system-card:nth-child(4) .system-icon svg { width: 16px; height: 16px; }
-  .system-grid > .system-card:nth-child(4) .system-card-top .status-pill { margin-left: auto; }
-  .system-grid > .system-card:nth-child(4) h3 { margin: 0; font-size: 13.5px; }
-  .system-grid > .system-card:nth-child(4) > p { margin: 3px 0 0; color: var(--subtle); font-size: 10px; }
-  .system-grid > .system-card:nth-child(4) .provider-list { margin-top: 7px; }
+  .system-grid > .system-card:nth-child(4) > p { grid-area: desc; margin: 6px 0 0; color: var(--subtle); font-size: 10.5px; line-height: 1.5; }
+  .system-grid > .system-card:nth-child(4) .provider-list { grid-area: providers; align-self: start; margin-top: 7px; }
   .system-grid > .system-card:nth-child(4) .provider-item {
     padding: 9px 0;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
@@ -1602,7 +1600,8 @@
   .system-grid > .system-card:nth-child(4) .provider-item:last-child { border-bottom: 0; }
   .system-grid > .system-card:nth-child(4) .provider-item .status-pill { font-size: 9px; }
   .system-grid > .system-card:nth-child(4) .provider-auth {
-    margin: auto 0 0;
+    grid-area: auth;
+    margin: 0;
     padding: 12px;
     border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
     border-radius: 7px;
@@ -1818,10 +1817,11 @@
   }
   .resource-card .resource-details-link {
     height: 27px;
-    padding: 0 6px;
+    padding: 0;
     border: 0;
     color: var(--muted);
     font-size: 10px;
+    white-space: nowrap;
   }
   .resource-card .resource-details-link:hover { color: var(--accent); }
   .resource-card .resource-managed { font-size: 9px; color: var(--subtle); }
@@ -2023,25 +2023,6 @@
     .pagination .text-button { height: 36px; padding-inline: 9px; }
     #page-label { display: none; }
 
-    .resource-heading { padding: 13px 14px; }
-    .resource-grid > .resource-card {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      grid-template-areas:
-        "head status"
-        "desc desc"
-        "facts actions";
-      gap: 7px 12px;
-      padding: 12px 14px;
-    }
-    .resource-card .resource-description { white-space: normal; }
-    .resource-card .resource-facts { grid-template-columns: 1fr 1fr; }
-    .component-columns { display: none; }
-    .component-group { display: flex; }
-    .resource-card .resource-footer .button,
-    .resource-card .resource-details-link { height: 40px; padding-inline: 10px; }
-    .resource-card .resource-footer { flex-wrap: wrap; }
-    .resource-heading .resource-search input { width: 100%; }
   }
 
   @media (max-width: 760px) {
@@ -2100,7 +2081,6 @@
     .sessions-section { margin-top: 14px; }
     .health-row { padding: 13px 14px; }
     .system-grid > .system-card { padding: 13px 14px; }
-    .system-grid > .system-card:nth-child(4) { padding: 14px; }
     .system-section .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 2px 12px; }
     .system-section .section-meta { flex-basis: 100%; max-width: 100%; text-align: left; }
     .system-tabs { gap: 16px; }
@@ -2267,7 +2247,7 @@
 
   @media (max-width: 1180px) {
     .resource-grid > .resource-card,
-    .component-columns { grid-template-columns: minmax(240px, 1.5fr) 135px 90px 90px 160px; }
+    .component-columns { grid-template-columns: minmax(220px, 1.35fr) 135px 90px 90px 172px; }
   }
 
   @media (max-width: 940px) {
@@ -2279,20 +2259,49 @@
     .component-sort { width: 100%; }
     .component-sort .compact-sort-field { flex: 1 1 auto; }
     .component-sort .compact-sort-field select { width: 100%; max-width: none; }
+    .resource-heading { padding: 13px 14px; }
     .resource-heading .resource-search { flex: 1 1 100%; }
     .resource-heading .resource-search input { width: 100%; }
+    .component-columns { display: none; }
+    .component-group { display: flex; }
     .resource-grid > .resource-card {
-      grid-template-columns: 1fr auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 200px;
       grid-template-areas:
         "head status"
         "desc desc"
         "facts actions";
       gap: 7px 12px;
+      padding: 12px 14px;
     }
+    .resource-card .resource-description { white-space: normal; }
     .resource-card .resource-facts { display: grid; grid-area: facts; grid-template-columns: 1fr 1fr; gap: 10px; }
     .resource-card .resource-facts > div { grid-area: auto; align-self: stretch; }
     .resource-card .resource-facts > div:first-child,
     .resource-card .resource-facts > div:last-child { grid-area: auto; }
+    .resource-card .resource-observation { justify-self: end; text-align: right; }
+    .resource-card .resource-footer .button,
+    .resource-card .resource-details-link { height: 40px; padding-inline: 10px; }
+    .resource-card .resource-details-link { margin-right: -10px; }
+    .resource-card .resource-footer { flex-wrap: nowrap; justify-content: flex-end; }
+    .resource-card .resource-footer [data-primary-action] { justify-content: flex-end; }
+    .resource-card .resource-managed { overflow: hidden; text-overflow: ellipsis; }
+    .resource-card .resource-more { margin-left: auto; }
+  }
+
+  @media (max-width: 560px) {
+    .resource-grid > .resource-card {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "head"
+        "status"
+        "desc"
+        "facts"
+        "actions";
+    }
+    .resource-card .resource-observation { justify-self: start; text-align: left; }
+    .resource-card .resource-footer { justify-content: space-between; }
+    .resource-card .resource-footer [data-primary-action] { justify-content: flex-start; }
   }
 
   @media (max-width: 700px) {
@@ -2358,6 +2367,7 @@
         "desc desc"
         "providers providers"
         "auth auth";
+      grid-template-rows: none;
       gap: 0 10px;
       align-content: start;
     }

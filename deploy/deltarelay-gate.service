@@ -1,5 +1,9 @@
+# MANUAL / NON-SUPERVISOR DEPLOYMENT ONLY.
+# The DeltaRelay supervisor starts and owns the gate by default. Do not run this
+# unit alongside the supervised gate on the same port (default 18789); stop one
+# before starting the other. This unit never starts or stops the backend.
 [Unit]
-Description=DeltaRelay OpenCode health gate (attach-only)
+Description=DeltaRelay OpenCode health gate (manual, attach-only)
 After=network.target
 
 [Service]

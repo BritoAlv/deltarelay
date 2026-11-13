@@ -29,7 +29,13 @@ class LocalComponent:
                 lifecycle = 'unknown'
         readiness = 'not_ready' if lifecycle == 'stopped' else 'unknown'
         detail = 'Verified process only; application readiness is not confirmed.'
-        if name == 'gateway':
+        if name == 'gate':
+            if name in s.config['components']:
+                readiness = s.probes.gate()
+                detail = 'Local listener and supervisor token verified; backend readiness is shown separately.'
+            else:
+                detail = 'Not configured. Add components.gate to run Varro attach-only through the supervisor.'
+        elif name == 'gateway':
             readiness = s.probes.gateway()
             detail = 'Local authenticated readiness; independent of the remote host.'
         elif name == 'opencode':
@@ -56,6 +62,12 @@ class LocalComponent:
             s.restart_component(self.name)
         elif s.state.component_value(self.name) not in ('running', 'starting', 'started'):
             self.start()
+        elif self.name == 'gate':
+            observation = self.observe()
+            # Backend 503 is a healthy gate; only a failed local listener/token
+            # proof justifies restarting this process.
+            if observation.readiness == 'not_ready':
+                s.restart_component(self.name)
         elif self.name in ('gateway', 'opencode'):
             observation = self.observe()
             if observation.readiness == 'not_ready':
@@ -145,6 +157,6 @@ class RemoteProvider:
 
 def registry(supervisor):
     return {**{name: LocalComponent(supervisor, name)
-               for name in ('dashboard', 'gateway', 'opencode', 'desktop', 'tunnel')},
+               for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'tunnel')},
             'remote': RemoteHost(supervisor), 'relay': RemoteRelay(supervisor),
             'remote_provider': RemoteProvider(supervisor)}

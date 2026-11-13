@@ -55,6 +55,9 @@ class SetupTest(unittest.TestCase):
 
     def test_first_run_is_local_only_and_preserves_existing_configuration(self):
         self.assertNotIn('remote', self.config)
+        self.assertEqual(self.config['gate_url'], 'http://127.0.0.1:18789')
+        self.assertIn('gate', self.config['components'])
+        self.assertIn('--workspace-directory', self.config['components']['gate']['command'])
         self.assertFalse(Path(self.config['relay_state_file']).exists())
         self.assertFalse(Path(self.config['relay_token_file']).exists())
         token = Path(self.config['local_token_file']).read_bytes()
@@ -68,10 +71,13 @@ class SetupTest(unittest.TestCase):
     def test_onboarding_never_probes_or_recovers_before_confirmation(self):
         subject = self.supervisor()
         subject.state.set_dashboard_enabled(False)
-        with patch.object(subject, 'observe_relay') as probe, patch.object(subject, 'recover') as recover:
+        with patch.object(subject, 'observe_relay') as probe, patch.object(subject, 'recover') as recover, \
+                patch.object(subject, 'start_component') as start, \
+                patch.object(subject.probes, 'gate', return_value='unknown'):
             subject.tick()
         probe.assert_not_called()
         recover.assert_not_called()
+        start.assert_called_once_with('gate')
         self.assertEqual(subject.snapshot()['recovery']['last_error'], 'setup_required')
         self.assertTrue(subject.setup_status()['available'])
         with self.assertRaisesRegex(ProviderError, '^setup_required$'):

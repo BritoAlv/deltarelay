@@ -32,6 +32,13 @@
       "can_restart": false
     },
     {
+      "id": "gate",
+      "label": "Varro health gate",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
+    },
+    {
       "id": "gateway",
       "label": "Local gateway",
       "state": "unmanaged",
@@ -70,6 +77,21 @@
   "topology": {
     "version": 1,
     "nodes": [
+      {
+        "id": "vscode",
+        "label": "Varro in VS Code",
+        "kind": "editor",
+        "group": "local",
+        "owner": "user",
+        "managed": false,
+        "desired": "external",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Not opened by DeltaRelay. Set vscode.open_command to open it from this dashboard; the supervisor never starts it automatically, restarts it, or observes it.",
+        "actions": []
+      },
       {
         "id": "desktop",
         "label": "OpenCode Desktop",
@@ -113,6 +135,21 @@
         "activity": "idle",
         "checked_at": null,
         "detail": "Requires an explicit OpenCode location for read-only runtime verification. Configuration alone is not proof.",
+        "actions": []
+      },
+      {
+        "id": "gate",
+        "label": "Varro health gate",
+        "kind": "gate",
+        "group": "local",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "unmanaged",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Not configured. Add components.gate to run Varro attach-only through the supervisor.",
         "actions": []
       },
       {
@@ -283,6 +320,30 @@
     ],
     "edges": [
       {
+        "id": "vscode_gate",
+        "source": "vscode",
+        "target": "gate",
+        "relation": "traffic",
+        "protocol": "Attach-only local HTTP",
+        "state": "unknown"
+      },
+      {
+        "id": "gate_opencode",
+        "source": "gate",
+        "target": "opencode",
+        "relation": "traffic",
+        "protocol": "Authenticated local HTTP",
+        "state": "unknown"
+      },
+      {
+        "id": "gate_gateway",
+        "source": "gate",
+        "target": "gateway",
+        "relation": "requires",
+        "protocol": "Backend readiness probe",
+        "state": "unknown"
+      },
+      {
         "id": "desktop_opencode",
         "source": "desktop",
         "target": "opencode",
@@ -368,6 +429,14 @@
         "target": "supervisor",
         "relation": "manages",
         "protocol": "Private control socket",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_gate",
+        "source": "supervisor",
+        "target": "gate",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
         "state": "unknown"
       },
       {

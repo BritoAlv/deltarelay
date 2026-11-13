@@ -18,6 +18,13 @@ test("the registry supplies at least five complete, uniquely identified light/da
   }
 })
 
+test("every palette keeps the architecture map roles visually distinct", () => {
+  const roles = ["map-frontend", "map-backend", "map-context", "map-request", "map-response", "map-control"] as const
+  for (const theme of themes) {
+    assert.equal(new Set(roles.map((role) => theme.colors[role])).size, roles.length, `${theme.id}: map roles reuse a color`)
+  }
+})
+
 test("invalid, removed, or unavailable preferences fall back safely", () => {
   for (const value of [null, undefined, "", "removed-theme", "__proto__", {}, "<script>"]) {
     assert.equal(resolveTheme(value), defaultTheme)

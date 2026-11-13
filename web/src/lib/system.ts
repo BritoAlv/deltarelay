@@ -30,7 +30,7 @@ export interface SystemStatus {
   topology?: TopologyStatus
 }
 
-const componentIDs = ["dashboard", "gateway", "tunnel", "relay", "opencode", "desktop"]
+const componentIDs = ["dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop"]
 export type RemoteCapability = "relay.ensure" | "relay.restart" | "host.wake" | "host.stop"
 const remoteCapabilities = ["relay.ensure", "relay.restart", "host.wake", "host.stop"]
 
@@ -48,7 +48,7 @@ export function isSystemStatus(v: unknown): v is SystemStatus {
   const remote = v.remote
   if (!object(remote) || typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(remote.id) || typeof remote.label !== "string" || !remote.label.length || [...remote.label].length > 80 || /[\x00-\x1f\x7f-\x9f]/.test(remote.label)) return false
   if (typeof remote.host_state !== "string" || !["running", "stopped", "starting", "stopping", "unknown"].includes(remote.host_state) || !Array.isArray(remote.capabilities) || remote.capabilities.length > 4 || new Set(remote.capabilities).size !== remote.capabilities.length || !remote.capabilities.every((c) => typeof c === "string" && remoteCapabilities.includes(c))) return false
-  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 6 && v.components.every((c) => object(c) && typeof c.id === "string" && componentIDs.includes(c.id) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
+  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 7 && v.components.every((c) => object(c) && typeof c.id === "string" && componentIDs.includes(c.id) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
 }
 
 export type ConnectionState = "connected" | "remote_stopped" | "no_internet" | "vps_unreachable" | "unknown"
@@ -152,6 +152,7 @@ export function controlError(code: string): string {
     protocol_mismatch: "The remote relay API/protocol is incompatible. Deploy matching relay, gateway, OpenCode plugin, and dashboard revisions. No automatic restart was attempted.",
     forwarding_disabled: "The remote relay has forwarding disabled. Check its upstream allowlist.",
     graphical_session_required: "Desktop needs a graphical session. Start the supervisor from your desktop terminal.",
+    editor_launch_failed: "VS Code did not open. Check that vscode.open_command is an absolute editor command and that the supervisor runs in a graphical session; details are in the supervisor log.",
     graceful_stop_timeout: "The service did not stop gracefully. No forced kill or state reset was performed.",
     unreachable: "The relay is unreachable. Check the network, VPN, tunnel, and remote host.",
     no_internet: "This computer has no internet connection. Check Wi-Fi, Ethernet, VPN, or the default route.",

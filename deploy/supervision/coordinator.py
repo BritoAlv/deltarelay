@@ -37,16 +37,16 @@ class Coordinator:
                 value.get('status') not in ('running', 'completed', 'failed', 'interrupted') or
                 value.get('trigger') not in ('manual', 'automatic', 'startup') or
                 not all(isinstance(value.get(key), str) for key in ('target', 'action', 'current_component', 'current_action', 'started_at', 'error')) or
-                value['target'] not in ('dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider', 'all', 'connection') or
+                value['target'] not in ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider', 'all', 'connection') or
                 value['action'] not in ('start', 'restart', 'recover', 'stop', 'wake', 'observe', 'verify') or
-                value['current_component'] not in ('', 'dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider') or
+                value['current_component'] not in ('', 'dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider') or
                 value['current_action'] not in ('', 'start', 'restart', 'recover', 'stop', 'wake', 'observe', 'verify') or
                 not re.fullmatch('[a-z_]{0,64}', value['error']) or
                 not (value['finished_at'] is None or isinstance(value['finished_at'], str)) or
                 not isinstance(value.get('steps'), list) or len(value['steps']) > 64 or
                 any(not isinstance(step, dict) or
                     set(step) != {'component', 'action', 'status', 'started_at', 'finished_at', 'error'} or
-                    step.get('component') not in ('dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider') or
+                    step.get('component') not in ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider') or
                     step.get('action') not in ('start', 'restart', 'recover', 'stop', 'wake', 'observe', 'verify') or
                     step.get('status') not in ('running', 'completed', 'failed', 'interrupted') or
                     not all(isinstance(step.get(key), str) for key in ('component', 'action', 'started_at', 'error')) or
@@ -213,7 +213,7 @@ class Coordinator:
             # Separate evidence from command completion. API-bearing services
             # get a cold-start window; a Desktop has no independent readiness API.
             observation = self.execute(Step(name, 'verify'))
-            if observation.readiness == 'not_ready' and name in ('gateway', 'opencode') and action != 'stop':
+            if observation.readiness == 'not_ready' and name in ('gate', 'gateway', 'opencode') and action != 'stop':
                 deadline = s.clock() + 15
                 for _ in range(15):
                     if s.stop.wait(1):
@@ -238,8 +238,9 @@ class Coordinator:
         intent.update(system='running', remote='running')
         # Preserve per-component choices such as --no-desktop. Global shutdown is
         # the resumable pause, not a destructive rewrite of those preferences.
-        if 'gateway' in s.config['components']:
-            intent['components']['gateway'] = True
+        for name in ('gate', 'gateway'):
+            if name in s.config['components']:
+                intent['components'][name] = True
         s.persist_intent(intent)
         s.update_settings({'auto_reconnect': True, 'auto_wake': s.state.settings_copy()['auto_wake']})
         local_error = self.start_locals()
@@ -258,14 +259,17 @@ class Coordinator:
     def start_locals(self):
         s = self.supervisor
         error = None
-        for name in ('dashboard', 'gateway', 'opencode', 'desktop'):
+        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop'):
             spec = s.config['components'].get(name, {})
             if s.state.wanted(name) and (spec.get('command') or spec.get('start_command')):
                 try:
                     self.execute(Step(name, 'start'))
                 except ControlError as cause:
                     s.state.set_component(name, str(cause))
-                    error = cause
+                    if name == 'gate':
+                        s.journal.write('error', f'Start system gate failed: {cause}')
+                    else:
+                        error = cause
         return error
 
     def stop_system(self):
@@ -280,7 +284,7 @@ class Coordinator:
         s.persist_intent(intent)
         s.update_settings({'auto_reconnect': False, 'auto_wake': False})
         error = None
-        for name in ('desktop', 'opencode', 'gateway', 'tunnel'):
+        for name in ('gate', 'desktop', 'opencode', 'gateway', 'tunnel'):
             spec = s.config['components'].get(name, {})
             if spec.get('command') or spec.get('stop_command'):
                 try:

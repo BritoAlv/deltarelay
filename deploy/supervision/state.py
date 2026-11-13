@@ -54,6 +54,9 @@ class SupervisorState:
         self.settings_lock = threading.Lock()
         self.settings = dict(settings)
         self.metadata = dict(metadata)
+        self.opencode_directory = bool(config.get('opencode_directory'))
+        self.editor_open = bool(config.get('vscode', {}).get('open_command'))
+        self.configured_components = set(config['components'])
         self.states = {name: 'unknown' if name in config['components'] else 'unmanaged' for name in COMPONENTS}
         self.recovery = dict(INITIAL_RECOVERY)
         self.relay_state = 'unknown'
@@ -85,6 +88,10 @@ class SupervisorState:
         with self.lock:
             previous = self.states.get(name)
             self._managed[name] = bool(spec) if managed is None else managed
+            if self._managed[name]:
+                self.configured_components.add(name)
+            else:
+                self.configured_components.discard(name)
             self._specs[name] = dict(spec)
             self._can_start[name] = bool(spec.get('command') or spec.get('start_command') or
                                            name == 'relay' and 'relay.ensure' in capabilities)

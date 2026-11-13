@@ -1,3 +1,4 @@
+import copy
 import http.client
 import http.server
 import json
@@ -14,9 +15,9 @@ import unittest
 import urllib.error
 import urllib.request
 import uuid
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from supervision.control import Handler, Server, controller_status
+from supervision.control import Handler, Server, controller_status, startup_components
 from test_support import configure_provider
 import supervision.supervisor as control
 import supervision.supervisor as supervisor_impl
@@ -606,6 +607,7 @@ class SupervisorTest(unittest.TestCase):
                       {'component': 'all', 'action': 'wake'}, {'component': 'codespace', 'action': 'start'},
                       {'component': 'codespace', 'action': 'stop', 'confirmed': True},
                       {'component': 'codespace', 'action': 'wake', 'confirmed': True},
+                      {'component': 'vscode', 'action': 'start'}, {'component': 'vscode', 'action': 'stop', 'confirmed': True},
                       {'component': 'gateway', 'action': 'start', 'command': ['evil']}, []):
             with self.assertRaises(control.ControlError): subject.submit(value)
         subject.operation.acquire()
@@ -654,6 +656,60 @@ class SupervisorTest(unittest.TestCase):
             self.wait_job(subject)
         self.assertEqual(subject.state.recovery_copy()['last_error'], 'graphical_session_required')
         self.assertFalse(subject.processes.children)
+
+    def test_vscode_open_runs_only_the_configured_editor_once_outside_service_operations(self):
+        self.config['vscode'] = {'open_command': ['/usr/bin/code', '--profile', 'DeltaRelay', str(self.root)],
+                                 'env': {'XDG_CONFIG_HOME': str(self.root / 'config')}}
+        subject = self.supervisor()
+        child = Mock(pid=4242)
+        child.wait.return_value = 0
+        with patch.dict(os.environ, {'DISPLAY': ':test', 'OPENCODE_SERVER_PASSWORD': 'secret',
+                                     'VSCODE_IPC_HOOK_CLI': '/run/user/1000/other-editor.sock'}), \
+                patch.object(subject.processes, 'popen', return_value=child) as popen, \
+                patch.object(subject, 'start_component') as start, patch.object(subject, 'restart_component') as restart, \
+                patch.object(subject, 'recover') as recover:
+            subject.submit({'component': 'vscode', 'action': 'open'})
+        self.assertEqual(popen.call_args.args[0], ['/usr/bin/code', '--profile', 'DeltaRelay', str(self.root)])
+        env = popen.call_args.kwargs['env']
+        self.assertTrue(popen.call_args.kwargs['start_new_session'])
+        self.assertEqual(env['XDG_CONFIG_HOME'], str(self.root / 'config'))
+        self.assertEqual(env['DISPLAY'], ':test')
+        self.assertNotIn('OPENCODE_SERVER_PASSWORD', env)
+        self.assertNotIn('VSCODE_IPC_HOOK_CLI', env)
+        start.assert_not_called()
+        restart.assert_not_called()
+        recover.assert_not_called()
+        self.assertEqual(subject.processes.children, {})
+        self.assertTrue(subject.operation.acquire(blocking=False), 'opening the editor must not hold the service operation lane')
+        subject.operation.release()
+
+    def test_vscode_open_is_offered_and_accepted_only_when_configured(self):
+        subject = self.supervisor()
+        self.assertEqual(next(node for node in subject.snapshot()['topology']['nodes'] if node['id'] == 'vscode')['actions'], [])
+        with self.assertRaisesRegex(control.ControlError, 'invalid_action'):
+            subject.submit({'component': 'vscode', 'action': 'open'})
+        self.config['vscode'] = {'open_command': ['/usr/bin/code', str(self.root)]}
+        configured = self.supervisor()
+        self.assertEqual(next(node for node in configured.snapshot()['topology']['nodes'] if node['id'] == 'vscode')['actions'], ['open'])
+        for value in ({'component': 'vscode', 'action': 'start'}, {'component': 'vscode', 'action': 'stop', 'confirmed': True},
+                      {'component': 'desktop', 'action': 'open'}, {'component': 'all', 'action': 'open'}):
+            with self.assertRaisesRegex(control.ControlError, 'invalid_action'):
+                configured.submit(value)
+
+    def test_vscode_is_never_a_lifecycle_or_system_start_target_even_when_configured(self):
+        self.config['vscode'] = {'open_command': ['/usr/bin/code', str(self.root)]}
+        subject = self.supervisor()
+        self.assertNotIn('vscode', startup_components(subject))
+        self.assertNotIn('vscode', subject.coordinator.adapters)
+        self.assertNotIn('vscode', subject.state.configured_components)
+
+    def test_vscode_configuration_requires_an_absolute_command_and_plain_environment(self):
+        for value in ({'open_command': ['code']}, {'open_command': []}, {'open_command': ['/usr/bin/code', '']},
+                      {'open_command': ['/usr/bin/code', 'bad\0arg']}, {'open_command': ['/usr/bin/code'], 'shell': True},
+                      {'open_command': ['/usr/bin/code'], 'env': {'DISPLAY': 1}}, {'env': {}}, 'code'):
+            self.config['vscode'] = value
+            with self.assertRaises(control.ControlError):
+                control.validate(self.config)
 
     def test_real_owned_process_is_adopted_and_restarted_without_signaling_unrelated_process(self):
         self.component('tunnel')
@@ -710,6 +766,254 @@ class SupervisorTest(unittest.TestCase):
             connection.close()
             self.assertEqual(subject.state.settings_copy(), {'auto_reconnect': False, 'auto_wake': True})
             server.shutdown()
+
+    def test_gate_configuration_requires_a_loopback_gate_url_and_boolean_opt_out(self):
+        config = copy.deepcopy(self.config)
+        config['gate_url'] = 'http://127.0.0.1:18889'
+        config['components']['gate'] = {'command': ['/opt/bin/deltarelay', 'gate'],
+                                        'pid_file': str(self.root / 'gate.pid')}
+        control.validate(config)
+        for url in ('http://example.com:18889', 'https://127.0.0.1:18889', 'http://127.0.0.1:18889/path',
+                    'http://user@127.0.0.1:18889', 'http://127.0.0.1:18889?query=1', 'http://127.0.0.1'):
+            with self.subTest(url=url), self.assertRaises(control.ControlError):
+                control.validate({**config, 'gate_url': url})
+        missing = copy.deepcopy(config)
+        missing.pop('gate_url')
+        with self.assertRaises(control.ControlError):
+            control.validate(missing)
+        with self.assertRaises(control.ControlError):
+            control.validate({**config, 'gate_default': 'false'})
+        control.validate({**config, 'gate_default': False})
+
+    def test_default_gate_is_synthesized_in_memory_without_guessing(self):
+        config = copy.deepcopy(self.config)
+        config['opencode_service_file'] = str(self.root / 'service.json')
+        config['opencode_directory'] = str(self.root / 'workspace')
+        config['gate_url'] = 'http://127.0.0.1:18889'
+        config['components']['dashboard'] = {
+            'command': ['/opt/deltarelay/bin/deltarelay', 'dashboard'],
+            'pid_file': str(self.root / 'dashboard.pid'),
+        }
+        path = self.root / 'private-supervisor.json'
+        path.write_text(json.dumps(config))
+        path.chmod(0o600)
+        subject = control.Supervisor(config, config_file=path)
+        self.addCleanup(subject.close)
+        gate = subject.config['components']['gate']
+        self.assertEqual(gate['command'], [
+            '/opt/deltarelay/bin/deltarelay', 'gate', '--listen', '127.0.0.1:18889',
+            '--service-file', config['opencode_service_file'], '--gateway', config['gateway_url'],
+            '--local-token-file', config['local_token_file'],
+            '--workspace-directory', config['opencode_directory'], '--health-cache', '2s',
+        ])
+        self.assertEqual(gate['pid_file'], str(self.root / 'gate.pid'))
+        self.assertEqual(gate['port'], 18889)
+        self.assertNotIn('gate', config['components'], 'the caller configuration was mutated')
+        self.assertEqual(json.loads(path.read_text()), config, 'the private config file was rewritten')
+        self.assertTrue(any('Gate enabled by default; add components.gate to persist custom settings.' == entry['text']
+                            for entry in subject.journal.entries))
+        self.assertIn('gate', subject.state.configured_components)
+        # Omitting the synthesized component from a reload keeps existing ownership.
+        subject.apply_managed({'dashboard': config['components']['dashboard']})
+        self.assertIn('gate', subject.config['components'])
+
+    def test_default_gate_opt_out_explicit_override_and_unsafe_synthesis_skips(self):
+        base = copy.deepcopy(self.config)
+        base['opencode_service_file'] = str(self.root / 'service.json')
+        base['gate_url'] = 'http://127.0.0.1:18889'
+        base['components']['dashboard'] = {'command': ['/opt/bin/deltarelay', 'dashboard'],
+                                           'pid_file': str(self.root / 'dashboard.pid')}
+        disabled = control.Supervisor({**base, 'gate_default': False})
+        self.addCleanup(disabled.close)
+        self.assertNotIn('gate', disabled.config['components'])
+        explicit = control.Supervisor({
+            **base, 'gate_default': False,
+            'components': {**base['components'], 'gate': {
+                'command': ['/opt/bin/deltarelay', 'gate', '--listen', '127.0.0.1:18889'],
+                'pid_file': str(self.root / 'explicit-gate.pid'), 'port': 18889}},
+        })
+        self.addCleanup(explicit.close)
+        self.assertEqual(explicit.config['components']['gate']['pid_file'], str(self.root / 'explicit-gate.pid'))
+        no_registration = copy.deepcopy(base)
+        del no_registration['opencode_service_file']
+        skipped = control.Supervisor(no_registration)
+        self.addCleanup(skipped.close)
+        self.assertNotIn('gate', skipped.config['components'])
+        self.assertTrue(any('gate not activated; configure opencode_service_file and components.gate.' == entry['text']
+                            for entry in skipped.journal.entries))
+        unsafe_binary = copy.deepcopy(base)
+        unsafe_binary['components']['dashboard']['command'] = ['deltarelay', 'dashboard']
+        skipped = control.Supervisor(unsafe_binary)
+        self.addCleanup(skipped.close)
+        self.assertNotIn('gate', skipped.config['components'])
+        no_workspace = control.Supervisor({
+            **base, 'components': {'dashboard': base['components']['dashboard']}})
+        self.addCleanup(no_workspace.close)
+        self.assertNotIn('--workspace-directory', no_workspace.config['components']['gate']['command'])
+        defaulted = copy.deepcopy(base)
+        del defaulted['gate_url']
+        defaulted['components'] = {'dashboard': base['components']['dashboard']}
+        defaulted = control.Supervisor(defaulted)
+        self.addCleanup(defaulted.close)
+        self.assertEqual(defaulted.config['gate_url'], 'http://127.0.0.1:18789')
+        command = defaulted.config['components']['gate']['command']
+        self.assertEqual(command[command.index('--listen') + 1], '127.0.0.1:18789')
+        self.assertEqual(defaulted.config['components']['gate']['port'], 18789)
+
+    def test_startup_lane_keeps_gate_independent_of_provider_and_desktop_flags(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop'):
+            self.component(name)
+        subject = self.supervisor()
+        self.assertEqual(startup_components(subject),
+                         ['dashboard', 'gate', 'gateway', 'opencode', 'desktop'])
+        subject.provider = None
+        self.assertEqual(startup_components(subject), ['dashboard', 'gate', 'opencode', 'desktop'])
+        self.assertEqual(startup_components(subject, no_desktop=True), ['dashboard', 'gate'])
+        self.assertEqual(startup_components(subject, no_dashboard=True), ['gate', 'opencode', 'desktop'])
+
+    def test_gate_starts_without_a_provider_and_only_restarts_on_liveness_failure(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        self.component('gate')
+        subject = self.supervisor()
+        subject.provider = None
+        with patch.object(subject.processes, 'start') as start:
+            subject.start_component('gate')
+            start.assert_called_once_with('gate')
+        adapter = subject.coordinator.adapters['gate']
+        subject.state.set_component('gate', 'running')
+        with patch.object(adapter, 'observe', return_value=control.Observation('running', 'ready', '')), \
+                patch.object(subject, 'restart_component') as restart:
+            adapter.recover()
+            restart.assert_not_called()
+        with patch.object(adapter, 'observe', return_value=control.Observation('running', 'not_ready', '')), \
+                patch.object(subject, 'restart_component') as restart:
+            adapter.recover()
+            restart.assert_called_once_with('gate')
+        subject.state.set_component('gate', 'stopped')
+        with patch.object(subject, 'start_component') as start, patch.object(subject, 'restart_component') as restart:
+            adapter.recover()
+            start.assert_called_once_with('gate')
+            restart.assert_not_called()
+
+    def test_scheduled_repair_starts_a_stopped_gate_without_a_provider(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        self.component('gate')
+        subject = self.supervisor()
+        subject.provider = None
+        subject.state.set_component('gate', 'stopped')
+        with patch.object(subject.coordinator, 'local') as local:
+            subject._tick()
+        local.assert_called_once_with('gate', 'recover')
+
+    def test_scheduled_repair_restarts_a_running_gate_with_a_dead_listener(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        self.component('gate')
+        subject = self.supervisor()
+        subject.provider = None
+        subject.state.set_component('gate', 'running')
+        subject.state.observe('gate', control.Observation('running', 'not_ready', 'listener failed'))
+        with patch.object(subject.coordinator, 'local') as local:
+            subject._tick()
+        local.assert_called_once_with('gate', 'recover')
+
+    def test_start_system_gate_failure_is_reported_without_aborting_other_locals(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        for name in ('dashboard', 'gate'):
+            self.component(name)
+        subject = self.supervisor()
+        started = []
+
+        def start(name):
+            started.append(name)
+            if name == 'gate':
+                raise control.ControlError('unreachable')
+
+        with patch.object(subject, 'start_component', side_effect=start):
+            self.assertIsNone(subject.coordinator.start_locals())
+        self.assertEqual(started, ['dashboard', 'gate'])
+        self.assertEqual(subject.state.component_value('gate'), 'unreachable')
+
+    def test_system_shutdown_stops_gate_before_backend_components(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        for name in ('gate', 'desktop', 'opencode', 'gateway', 'tunnel'):
+            self.component(name)
+        subject = self.supervisor()
+        calls = []
+        with patch.object(subject.coordinator, 'execute',
+                          side_effect=lambda step, callback=None: calls.append((step.component, step.action)) or
+                          control.Observation('stopped', 'not_ready', '')):
+            subject.coordinator.stop_system()
+        stops = [name for name, action in calls if action == 'stop']
+        self.assertEqual(stops[:5], ['gate', 'desktop', 'opencode', 'gateway', 'tunnel'])
+
+    def test_gate_stop_is_a_confirmed_supported_action(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        self.component('gate')
+        subject = self.supervisor()
+        with patch.object(subject.probes, 'gate', return_value='not_ready'), \
+                patch.object(subject, 'stop_component') as stop:
+            with self.assertRaisesRegex(control.ControlError, '^confirmation_required$'):
+                subject.submit({'component': 'gate', 'action': 'stop'})
+            subject.submit({'component': 'gate', 'action': 'stop', 'confirmed': True})
+            self.wait_job(subject)
+        stop.assert_called_once_with('gate')
+
+    def test_gate_topology_separates_listener_from_backend_readiness(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        self.config['opencode_directory'] = str(self.root / 'workspace')
+        self.component('gate')
+        subject = self.supervisor()
+        gate = lambda: next(node for node in subject.snapshot()['topology']['nodes'] if node['id'] == 'gate')
+        edge = lambda name: next(edge for edge in subject.snapshot()['topology']['edges'] if edge['id'] == name)
+        subject.state.observe('gate', control.Observation('running', 'ready', ''))
+        subject.state.observe('gateway', control.Observation('running', 'ready', ''))
+        subject.state.observe('opencode', control.Observation('running', 'ready', ''))
+        subject.state.observe('plugin', control.Observation('unknown', 'ready', ''))
+        subject.state.record_relay('connected')
+        self.assertEqual(gate()['detail'], 'Listener ready. Backend ready: gateway forwarding, OpenCode service, and plugin verified.')
+        self.assertEqual((edge('vscode_gate')['state'], edge('gate_opencode')['state'],
+                          edge('gate_gateway')['state'], edge('supervisor_gate')['state']),
+                         ('ready', 'ready', 'ready', 'ready'))
+        for node, state, reason in (('gateway', 'not_ready', 'gateway_down'),
+                                    ('opencode', 'not_ready', 'service_down'),
+                                    ('plugin', 'not_ready', 'plugin_unavailable')):
+            with self.subTest(reason=reason):
+                subject.state.observe('gateway', control.Observation('running', 'ready', ''))
+                subject.state.observe('opencode', control.Observation('running', 'ready', ''))
+                subject.state.observe('plugin', control.Observation('unknown', 'ready', ''))
+                subject.state.record_relay('connected')
+                subject.state.observe(node, control.Observation('running', state, ''))
+                self.assertIn(f'Backend unavailable: {reason}.', gate()['detail'])
+                self.assertEqual(gate()['readiness'], 'ready')
+                self.assertEqual(edge('gate_opencode')['state'], 'not_ready')
+                self.assertEqual(edge('vscode_gate')['state'], 'ready')
+                self.assertEqual(edge('supervisor_gate')['state'], 'ready')
+                self.assertEqual(edge('gate_gateway')['state'],
+                                 'not_ready' if reason == 'gateway_down' else 'ready')
+        subject.state.observations = {}
+        subject.state.observe('gate', control.Observation('running', 'ready', ''))
+        self.assertEqual(gate()['detail'], 'Listener ready. Backend readiness not yet verified by independent probes.')
+        self.assertEqual(edge('gate_opencode')['state'], 'unknown')
+        subject.state.observe('gate', control.Observation('stopped', 'not_ready', ''))
+        self.assertIn('Stopped. Varro cannot connect.', gate()['detail'])
+        self.assertEqual(edge('vscode_gate')['state'], 'not_ready')
+        unconfigured = control.Supervisor(self.config | {'components': {}})
+        self.addCleanup(unconfigured.close)
+        node = next(node for node in unconfigured.snapshot()['topology']['nodes'] if node['id'] == 'gate')
+        self.assertEqual(node['detail'], 'Not configured. Add components.gate to run Varro attach-only through the supervisor.')
+
+    def test_managed_reload_can_add_gate_without_replacing_a_running_owner(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        subject = self.supervisor()
+        spec = {'command': ['/opt/bin/deltarelay', 'gate', '--listen', '127.0.0.1:18889'],
+                'pid_file': str(self.root / 'gate.pid'), 'port': 18889}
+        self.assertTrue(subject.apply_managed({**subject.config['components'], 'gate': spec}))
+        self.assertEqual(subject.config['components']['gate'], spec)
+        self.assertTrue(subject.state._can_start['gate'])
+        with self.assertRaisesRegex(control.ControlError, '^configuration_error$'):
+            subject.apply_managed({**subject.config['components'],
+                                   'gate': {**spec, 'command': [*spec['command'], '--health-cache', '1s']}})
 
     def test_private_config_validates_origins_and_browser_cannot_configure_commands(self):
         for url in ('http://evil.example', 'http://user@127.0.0.1:8787', 'http://127.0.0.1:8787/path'):

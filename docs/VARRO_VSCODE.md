@@ -1,9 +1,14 @@
 # Varro + DeltaRelay in VS Code
 
 Varro attaches to the **same OpenCode v2 service** as Desktop/TUI through a
-loopback health gate. It does not own, start, stop, restart, or update that service.
-The supervisor, gateway, tunnel/relay, and profile service must be started
-**independently**. The gate never starts them and has no provider fallback.
+loopback health gate. The gate is a default-on supervised local component: start
+`./deltarelay start`/`./startup.sh`, and the supervisor starts the gate for you.
+VS Code/Varro is opened by you, or from the dashboard's **Open** action when
+`vscode.open_command` is configured (see [Open from the dashboard](#open-from-the-dashboard)).
+That action runs the configured command once; the supervisor never starts the
+editor automatically, restarts it, or manages it. The gate does not own, start,
+stop, restart, or update the OpenCode service, gateway, tunnel/relay, or
+provider, and it has no provider fallback.
 
 ```text
 VS Code / Varro -> gate 127.0.0.1:18789 -> profile OpenCode shared service
@@ -47,7 +52,68 @@ file diff/open-file actions. No new OpenCode server should appear. Never print
 the password, enable shell tracing, or put credentials in workspace settings.
 If direct attach fails, diagnose it before relying on the gate.
 
-## Build and run the gate
+## Supervised gate (default)
+
+Generate/configure the supervisor as described in [supervision](SUPERVISION.md),
+then start it normally:
+
+```sh
+uv run ./deltarelay start --config /private/supervisor.json
+```
+
+The supervisor starts the gate on `gate_url` (default `127.0.0.1:18789`) without
+starting or restarting OpenCode, Desktop, the relay, or the tunnel. Gate
+liveness is checked locally by `GET /livez` with the private local token; the
+gate's backend checks still run on Varro requests and `/healthz`. The map shows
+`Varro in VS Code → Varro health gate → OpenCode server` alongside the existing
+Desktop path. The gate card supports start, stop, restart, and recover.
+
+New configurations and onboarding include `components.gate`. Existing
+configurations with `opencode_service_file` get an in-memory default gate when
+they omit it; add `components.gate` to persist custom settings, or
+`"gate_default": false` to opt out. An explicit `components.gate` always wins.
+Restart the supervisor after adding or changing an explicit gate command; live
+managed children are not silently replaced. A synthesized gate is kept owned if
+a reload omits it.
+
+To verify the listener without printing the token:
+
+```sh
+curl -fsS -H "X-DeltaRelay-Local-Token: $(cat /private/local.token)" \
+  http://127.0.0.1:18789/livez
+```
+
+`/livez` returns `{"alive":true,"version":1}` and never proxies or probes the
+backend. It remains available when `--password-file` protects Varro traffic.
+
+### Failure cases and controls
+
+- **Gate stopped/recover:** Varro cannot connect; Desktop/TUI and the shared
+  OpenCode service are unaffected. Start/recover the gate from the dashboard or
+  map. This never starts or stops the backend.
+- **Listener failed, backend healthy:** the supervisor may restart the gate
+  process. This is the only automatic gate restart policy.
+- **Backend unavailable with a healthy listener:** the gate returns 503 with
+  `gateway_down`, `service_down`, or `plugin_unavailable`. The gate stays
+  running and is **not** restarted; fix the relay/plugin/OpenCode service
+  independently. The map keeps the gate Ready and marks `gate → OpenCode` not
+  ready.
+- **Unknown `/livez`** (401/403/404 or version mismatch): shown as unknown, not
+  as proof that a restart helps.
+- **Port occupied by an unknown owner:** reported, never killed or replaced.
+
+### Rollback
+
+Stop only the gate from the dashboard, or set `"gate_default": false` and restart
+the supervisor (or remove the explicit `components.gate`). Varro loses its
+connection; Desktop/TUI and the backend remain untouched. Do not stop or restart
+the relay or OpenCode service as part of gate rollback.
+
+## Manual, non-supervisor gate
+
+The following is an alternative for deployments that do not run the DeltaRelay
+supervisor. It is mutually exclusive with the supervised gate on the same port:
+stop one before starting the other, or choose a different listen port/`gate_url`.
 
 ```sh
 go build -o bin/deltarelay ./cmd/deltarelay
@@ -72,7 +138,8 @@ requires the `deltarelay` plugin to be active at that exact location. The token
 loader follows existing CLI conventions: an explicit private token file takes
 precedence over `DELTARELAY_LOCAL_TOKEN`, without fallback on invalid files.
 
-For systemd, adjust all paths in `deploy/deltarelay-gate.service`, install the
+For a manual systemd deployment, adjust all paths in
+`deploy/deltarelay-gate.service` (it is a non-supervisor option), install the
 binary at the unit's `ExecStart` path, then:
 
 ```sh
@@ -145,6 +212,30 @@ OPENCODE_SERVER_PASSWORD="$(cat /private/gate-password)" \
 With this flag, `/healthz` also requires Basic auth. The default unprotected
 loopback endpoint is accessible to other local processes, just like the local
 editor; use gate authentication on shared machines.
+
+## Open from the dashboard
+
+The Applications card **Varro in VS Code** can open the editor. Add this block to
+the private supervisor configuration, then restart the supervisor:
+
+```json
+"vscode": {
+  "open_command": ["/usr/bin/code", "--profile", "DeltaRelay", "/home/alvaro/proyectos/deltarelay"],
+  "env": {"XDG_CONFIG_HOME": "/home/alvaro/proyectos/deltarelay/.runtime/codespace-test/profile/config"}
+}
+```
+
+Use the same `XDG_CONFIG_HOME` that you used to install Varro in the DeltaRelay
+profile, and omit `env` if the profile lives in the default location. The command
+is an absolute argv with no shell and no `PATH` lookup. Each **Open** click runs it
+once with the supervisor's environment minus OpenCode, token, password, and secret
+variables, and minus VS Code IPC variables inherited from an integrated terminal,
+so the request reaches the DeltaRelay profile rather than another editor instance.
+Open does not start the gate, OpenCode, Desktop, the relay, or the tunnel, and it
+works while the system is intentionally stopped. The supervisor does not track,
+restart, stop, or observe the editor afterwards: the card keeps showing **Not
+observed**. Editor output and launch failures go to `<profile>/control/vscode.log`
+and the supervisor journal.
 
 ## Health and failure semantics
 
@@ -249,10 +340,14 @@ does not change which traffic the existing DeltaRelay plugin relays.
 
 ## Rollback
 
-Stop only the gate (`systemctl --user disable --now deltarelay-gate` if used).
-Disable/uninstall Varro in its profile, or remove the three Varro workspace
-settings **after disabling Varro** (removing them alone restores auto-start
-defaults). Remove the example unit if installed. No backend/session/token/cache
-state is modified by the gate. If you deliberately pinned the upstream port,
-restore its prior setting during a maintenance window with `service set port`
-and `service restart`; do not do this during active work.
+Stop only the gate: use the dashboard gate controls for a supervised deployment,
+or `systemctl --user disable --now deltarelay-gate` for the manual unit. To keep
+it from returning, set `"gate_default": false` and restart only the supervisor
+(or remove an explicit `components.gate`). Disable/uninstall Varro in its profile,
+or remove the three Varro workspace settings **after disabling Varro** (removing
+them alone restores auto-start defaults). Remove the example manual unit if
+installed. No backend/session/token/cache state is modified by the gate. If you
+deliberately pinned the upstream port, restore its prior setting during a
+maintenance window with `service set port` and `service restart`; do not do this
+during active work. To remove the dashboard Open action, delete the `vscode` block
+and restart the supervisor.

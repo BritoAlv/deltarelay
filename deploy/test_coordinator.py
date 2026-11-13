@@ -211,6 +211,14 @@ class CoordinationTest(unittest.TestCase):
         self.assertEqual(subject.state.intent_copy()['system'], 'running')
         self.assertFalse((subject.directory / 'intent.json').exists())
 
+    def test_gate_without_a_stop_capability_blocks_system_shutdown(self):
+        self.config['gate_url'] = 'http://127.0.0.1:18889'
+        self.config['components']['gate'] = {'start_command': ['deltarelay-gate', 'start']}
+        subject = self.supervisor()
+        with self.assertRaisesRegex(ProviderError, '^shutdown_not_configured$'):
+            subject.coordinator.stop_system()
+        self.assertIn('gate', subject.snapshot()['topology']['shutdown_blockers'])
+
     def test_duplicate_request_id_does_not_start_a_second_operation(self):
         self.add_component('desktop')
         with patch.dict(os.environ, {'DISPLAY': ':test'}):
@@ -224,6 +232,35 @@ class CoordinationTest(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertIs(subject.processes.children['desktop'], child)
             self.assertIsNone(child.poll())
+
+
+class GateProbeTest(unittest.TestCase):
+    def test_gate_liveness_probe_uses_the_local_token_and_never_healthz(self):
+        from supervision.probes import RelayProbe
+        import urllib.error
+        config = {'local_token_file': '/private/local.token', 'gate_url': 'http://127.0.0.1:18789'}
+        probe = RelayProbe(config, opener=None)
+        with patch('supervision.probes.private_text', return_value='token'), \
+                patch.object(probe, 'read_json', return_value={'alive': True, 'version': 1}) as read:
+            self.assertEqual(probe.gate(), 'ready')
+            self.assertEqual(read.call_args.args[0], 'http://127.0.0.1:18789/livez')
+            self.assertEqual(read.call_args.args[1], {'X-DeltaRelay-Local-Token': 'token'})
+        for value, wanted in (({'alive': True, 'version': 2}, 'unknown'),
+                              ({'alive': False, 'version': 1}, 'unknown'),
+                              ([], 'unknown')):
+            with patch('supervision.probes.private_text', return_value='token'), \
+                    patch.object(probe, 'read_json', return_value=value):
+                self.assertEqual(probe.gate(), wanted)
+        for code, wanted in ((401, 'unknown'), (403, 'unknown'), (404, 'unknown'), (503, 'not_ready')):
+            with patch('supervision.probes.private_text', return_value='token'), \
+                    patch.object(probe, 'read_json', side_effect=urllib.error.HTTPError('http://localhost', code, '', {}, None)):
+                self.assertEqual(probe.gate(), wanted)
+        for error in (OSError('down'), ValueError('bad json')):
+            with patch('supervision.probes.private_text', return_value='token'), \
+                    patch.object(probe, 'read_json', side_effect=error):
+                self.assertEqual(probe.gate(), 'not_ready')
+        with patch('supervision.probes.private_text', side_effect=OSError('unsafe')):
+            self.assertEqual(probe.gate(), 'not_ready')
 
 
 class GatewayProbeTest(unittest.TestCase):

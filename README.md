@@ -160,6 +160,12 @@ every connection is verified. The map distinguishes the model-request path from
 checks, recovery, and management. Request content and forwarding credentials still
 pass through the trusted relay. See [architecture](docs/ARCHITECTURE.md).
 
+On PCs that use VS Code, Varro attaches through the supervisor-managed loopback
+health gate to the **same** shared OpenCode service as Desktop/TUI:
+`VS Code/Varro → gate → OpenCode service`, alongside
+`Desktop/TUI → OpenCode service`. The gate is default-on and never starts,
+restarts, or replaces the backend. See [Varro + VS Code](docs/VARRO_VSCODE.md).
+
 ### Security and limitations
 
 - Trust the remote host with request content and forwarded provider credentials.

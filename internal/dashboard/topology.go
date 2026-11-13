@@ -79,10 +79,10 @@ type RecoveryStep struct {
 }
 
 var topologyIDs = map[string]bool{
-	"desktop": true, "opencode": true, "plugin": true, "gateway": true,
-	"tunnel": true, "network": true, "remote": true, "relay": true,
-	"storage": true, "provider": true, "dashboard_ui": true, "dashboard": true,
-	"supervisor": true, "remote_provider": true,
+	"vscode": true, "desktop": true, "opencode": true, "plugin": true,
+	"gate": true, "gateway": true, "tunnel": true, "network": true,
+	"remote": true, "relay": true, "storage": true, "provider": true,
+	"dashboard_ui": true, "dashboard": true, "supervisor": true, "remote_provider": true,
 }
 var recoveryOperationID = regexp.MustCompile(`^[a-f0-9]{16}$`)
 var requestID = regexp.MustCompile(`^(?:[a-f0-9]{32})?$`)
@@ -146,7 +146,7 @@ func validTopology(t *TopologyStatus, raw json.RawMessage) bool {
 		seen[n.ID] = true
 		actions := map[string]bool{}
 		for _, action := range n.Actions {
-			if !oneOf(action, "start", "restart", "recover", "stop", "wake") || actions[action] {
+			if !oneOf(action, "start", "restart", "recover", "stop", "wake", "open") || actions[action] {
 				return false
 			}
 			actions[action] = true

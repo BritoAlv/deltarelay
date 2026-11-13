@@ -23,7 +23,8 @@ from remote_provider import (PERMANENT, RETRYABLE, ExecutableProvider, ProviderE
                              private_json, run_command)
 from activity import ActivityJournal, operation_id
 
-from .config import COMPONENTS, INTERNET_CHECK_INTERVAL, validate
+from .components import registry
+from .config import COMPONENTS, INTERNET_CHECK_INTERVAL, default_gate_decision, enable_default_gate, validate
 from .process import ProcessManager, process
 from .probes import RelayProbe
 from .recovery import RecoveryPolicy
@@ -57,6 +58,9 @@ class Supervisor:
     def __init__(self, config, *, clock=None, probes=None, processes=None, policy=None,
                  command_runner=None, config_file=None):
         validate(config)
+        gate_decision = default_gate_decision(config)
+        config = enable_default_gate(config)
+        validate(config)
         self.config = copy.deepcopy(config)
         self.config_file = Path(config_file) if config_file else None
         self.root = Path(config['profile'])
@@ -76,6 +80,10 @@ class Supervisor:
         self.stop = threading.Event()
         self.journal = ActivityJournal(self.directory, self.config, self.stop)
         self.journal.write('event', f'Supervisor starting pid={os.getpid()} profile={self.root}; settings={settings}')
+        if gate_decision == 'enabled':
+            self.journal.write('event', 'Gate enabled by default; add components.gate to persist custom settings.')
+        elif gate_decision in ('no_registration', 'no_binary'):
+            self.journal.write('error', 'gate not activated; configure opencode_service_file and components.gate.')
         self.clock = clock or (lambda: time.monotonic())
         self.command_runner = command_runner
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
@@ -149,7 +157,7 @@ class Supervisor:
         # in-progress lifecycle transition or duplicating network traffic.
         if self.operation.locked():
             return
-        for name in ('dashboard', 'gateway', 'opencode', 'desktop', 'tunnel'):
+        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'tunnel'):
             try:
                 self.coordinator.adapters[name].observe()
             except (OSError, ValueError, ControlError):
@@ -435,13 +443,16 @@ class Supervisor:
         if self.stop.is_set():
             raise ControlError('operation_cancelled')
         name, action = value.get('component'), value.get('action')
+        if name == 'vscode' or action == 'open':
+            # Opening the editor changes no service state, so it bypasses the operation lane.
+            return self.open_editor(name, action)
         if name not in (*COMPONENTS, 'all', 'remote') or action not in ('start', 'restart', 'recover', 'wake', 'stop'):
             raise ControlError('invalid_action')
         if (action in ('restart', 'stop', 'wake') or name == 'all' and action == 'start') and value.get('confirmed') is not True:
             raise ControlError('confirmation_required')
         if action == 'wake' and (name != 'remote' or not self.supports('host.wake')):
             raise ControlError('invalid_action')
-        if action == 'stop' and name not in ('gateway', 'tunnel', 'opencode', 'desktop', 'remote', 'all'):
+        if action == 'stop' and name not in ('gate', 'gateway', 'tunnel', 'opencode', 'desktop', 'remote', 'all'):
             raise ControlError('invalid_action')
         if action == 'stop' and name == 'remote' and not self.supports('host.stop'):
             raise ControlError('invalid_action')
@@ -509,6 +520,14 @@ class Supervisor:
 
         threading.Thread(target=work, daemon=True).start()
         return operation
+
+    def open_editor(self, name, action):
+        """Open the configured editor on request; the editor is not supervised after launch."""
+        if name != 'vscode' or action != 'open' or not self.state.editor_open:
+            raise ControlError('invalid_action')
+        self.processes.open_editor(self.config['vscode'])
+        with self.journal.context(trigger='manual', component='vscode'):
+            self.journal.write('event', 'Editor open requested from the dashboard; the supervisor does not restart or observe it.')
 
     def reload_managed(self):
         """Apply operator edits to managed component commands without stopping anything."""
@@ -618,9 +637,14 @@ class Supervisor:
             # Local service repair is independent of remote management failures.
             # Desktop exit is not automatically undone (the user may close it).
             if self.state.settings_copy()['auto_reconnect']:
-                for name in ('gateway', 'opencode'):
+                for name in ('gate', 'gateway', 'opencode'):
+                    lifecycle = self.state.component_value(name)
+                    # A running gate can still have a dead listener. Its livez
+                    # observation, not process existence, decides repair.
+                    gate_unready = (name == 'gate' and lifecycle == 'running' and
+                                    self.state.observations.get('gate', {}).get('readiness') == 'not_ready')
                     if (name in self.config['components'] and self.state.wanted(name) and
-                            self.state.component_value(name) == 'stopped' and self.policy.component_due(name) and
+                            (lifecycle == 'stopped' or gate_unready) and self.policy.component_due(name) and
                             (name != 'gateway' or self.provider is not None)):
                         try:
                             self.coordinator.local(name, 'recover')

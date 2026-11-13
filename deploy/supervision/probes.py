@@ -59,6 +59,26 @@ class RelayProbe:
         except (OSError, ValueError, ControlError, RecoveryError, http.client.HTTPException):
             return 'not_ready'
 
+    def gate(self):
+        if not self.config.get('gate_url'):
+            return 'unknown'
+        try:
+            token = private_text(Path(self.config['local_token_file']))
+            result = self.read_json(self.config['gate_url'].rstrip('/') + '/livez',
+                                    {'X-DeltaRelay-Local-Token': token})
+            if (isinstance(result, dict) and result.get('alive') is True and
+                    type(result.get('version')) is int and result['version'] == 1):
+                return 'ready'
+            return 'unknown'
+        except urllib.error.HTTPError as error:
+            # A version/configuration mismatch is not proof that a restart helps.
+            # This probe never calls the gate's backend /healthz route.
+            result = 'unknown' if error.code in (401, 403, 404) else 'not_ready'
+            error.close()
+            return result
+        except (OSError, ValueError, AttributeError, ControlError, RecoveryError, http.client.HTTPException):
+            return 'not_ready'
+
     def opencode_registration(self):
         registration = private_json(Path(self.config['opencode_service_file']))
         url = registration.get('url', '')

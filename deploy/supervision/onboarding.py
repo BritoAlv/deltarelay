@@ -79,11 +79,15 @@ def create_config(project, path):
         create_file(upstreams, (project / 'configs/upstreams.json').read_bytes())
     private_json(upstreams)
     binary = str(project / 'bin/deltarelay')
+    service_file = (Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) /
+                    'opencode/service.json').absolute()
     config = {
         'version': 1, 'profile': str(profile),
         'relay_url': 'http://127.0.0.1:8787', 'gateway_url': 'http://127.0.0.1:8788',
+        'gate_url': 'http://127.0.0.1:18789',
         'relay_token_file': str(path.parent / 'relay.token'), 'local_token_file': str(local),
         'relay_state_file': str(profile / 'relay-state.json'),
+        'opencode_service_file': str(service_file), 'opencode_directory': str(project),
         'setup': {'project': str(project), 'config_file': str(path)},
         'components': {
             'dashboard': {
@@ -91,6 +95,13 @@ def create_config(project, path):
                             '--local-token-file', str(local), '--assets', str(project / 'web/dist'),
                             '--control-socket', str(profile / 'control/supervisor.sock')],
                 'pid_file': str(profile / 'dashboard.pid'), 'port': 8790,
+            },
+            'gate': {
+                'command': [binary, 'gate', '--listen', '127.0.0.1:18789',
+                            '--service-file', str(service_file), '--gateway', 'http://127.0.0.1:8788',
+                            '--local-token-file', str(local), '--workspace-directory', str(project),
+                            '--health-cache', '2s'],
+                'pid_file': str(profile / 'gate.pid'), 'port': 18789,
             },
             'gateway': {
                 'command': [binary, 'gateway', '--server', 'http://127.0.0.1:8787',

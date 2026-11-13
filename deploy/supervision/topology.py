@@ -8,9 +8,11 @@ from . import state as supervisor_state
 
 
 NODES = (
+    ('vscode', 'Varro in VS Code', 'editor', 'local', 'user'),
     ('desktop', 'OpenCode Desktop', 'desktop', 'local', 'opencode'),
     ('opencode', 'OpenCode server', 'server', 'local', 'supervisor'),
     ('plugin', 'DeltaRelay plugin', 'plugin', 'local', 'opencode'),
+    ('gate', 'Varro health gate', 'gate', 'local', 'supervisor'),
     ('gateway', 'Local gateway', 'gateway', 'local', 'supervisor'),
     ('tunnel', 'Connection transport', 'link', 'network', 'supervisor'),
     ('network', 'Internet / interfaces', 'network', 'network', 'external'),
@@ -25,6 +27,9 @@ NODES = (
 )
 NODE_IDS = frozenset(row[0] for row in NODES)
 EDGES = (
+    ('vscode', 'gate', 'traffic', 'Attach-only local HTTP'),
+    ('gate', 'opencode', 'traffic', 'Authenticated local HTTP'),
+    ('gate', 'gateway', 'requires', 'Backend readiness probe'),
     ('desktop', 'opencode', 'traffic', 'Local API'),
     ('opencode', 'plugin', 'contains', 'Provider hooks'),
     ('plugin', 'gateway', 'traffic', 'Authenticated local HTTP'),
@@ -36,6 +41,7 @@ EDGES = (
     ('relay', 'provider', 'traffic', 'Allowlisted HTTPS'),
     ('dashboard_ui', 'dashboard', 'traffic', 'Same-origin controls'),
     ('dashboard', 'supervisor', 'manages', 'Private control socket'),
+    ('supervisor', 'gate', 'manages', 'Configured lifecycle'),
     ('supervisor', 'desktop', 'manages', 'Configured lifecycle'),
     ('supervisor', 'opencode', 'manages', 'Configured lifecycle'),
     ('supervisor', 'gateway', 'manages', 'Configured lifecycle'),
@@ -48,9 +54,34 @@ EDGES = (
 
 def shutdown_blockers(state):
     return [name for name, spec in state._specs.items()
-            if name in ('desktop', 'opencode', 'gateway', 'tunnel') and
+            if name in ('desktop', 'opencode', 'gateway', 'gate', 'tunnel') and
             (spec.get('command') or spec.get('start_command')) and
             not (spec.get('command') or spec.get('stop_command'))]
+
+
+def gate_backend(state, by_id):
+    """Derive gate backend readiness from existing supervisor observations.
+
+    Returns (ready, reason): ready is True/False, or None when an independent
+    observation is still unknown. This never probes the gateway or OpenCode.
+    """
+    gateway = by_id['gateway']['readiness']
+    opencode = by_id['opencode']['readiness']
+    plugin = by_id['plugin']['readiness']
+    if gateway in ('not_ready', 'blocked') or state.relay_state not in ('connected', 'unknown'):
+        return False, 'gateway_down'
+    if gateway != 'ready' or state.relay_state != 'connected':
+        return None, ''
+    if opencode in ('not_ready', 'blocked'):
+        return False, 'service_down'
+    if opencode != 'ready':
+        return None, ''
+    if state.opencode_directory:
+        if plugin in ('not_ready', 'blocked'):
+            return False, 'plugin_unavailable'
+        if plugin != 'ready':
+            return None, ''
+    return True, ''
 
 
 def snapshot(state):
@@ -131,6 +162,13 @@ def snapshot(state):
             # The browser supplies its own observation, not the supervisor.
             detail = 'Browser connection is checked by this page, not inferred by the supervisor.'
             desired = 'external'
+        elif name == 'vscode':
+            lifecycle, readiness = 'unmanaged', 'unknown'
+            desired = 'external'
+            actions = ['open'] if state.editor_open else []
+            detail = ('Opened on request from this dashboard. The supervisor never starts it automatically, restarts it, or observes it.'
+                      if state.editor_open else
+                      'Not opened by DeltaRelay. Set vscode.open_command to open it from this dashboard; the supervisor never starts it automatically, restarts it, or observes it.')
         elif name in ('plugin', 'storage', 'provider'):
             desired = 'external' if name == 'provider' else 'running'
             if name == 'plugin' and not observation:
@@ -152,11 +190,48 @@ def snapshot(state):
                       'readiness': readiness, 'activity': activity, 'checked_at': checked,
                       'detail': detail, 'actions': actions})
     by_id = {node['id']: node for node in nodes}
+    gate_configured = bool(state._managed.get('gate', False))
+    backend_ready, backend_reason = gate_backend(state, by_id)
+    gate = by_id['gate']
+    if not gate_configured:
+        gate.update(lifecycle='unmanaged', readiness='unknown', managed=False,
+                    desired='unmanaged', actions=[],
+                    detail='Not configured. Add components.gate to run Varro attach-only through the supervisor.')
+    elif gate['lifecycle'] == 'stopped':
+        gate['detail'] = 'Stopped. Varro cannot connect. Desktop/TUI and the shared OpenCode service are unaffected.'
+    elif gate['readiness'] == 'ready':
+        if backend_ready is True:
+            gate['detail'] = 'Listener ready. Backend ready: gateway forwarding, OpenCode service, and plugin verified.'
+        elif backend_ready is False:
+            gate['detail'] = (f'Listener ready. Backend unavailable: {backend_reason}. '
+                              'Varro will receive 503; the gate is not restarted.')
+        else:
+            gate['detail'] = 'Listener ready. Backend readiness not yet verified by independent probes.'
+    else:
+        gate['detail'] = 'Process state is not listener proof; gate liveness is not verified.'
     edges = []
     for source, target, relation, protocol in EDGES:
         status = 'unknown'
         evidence = state.observations.get(source + '_' + target, {})
-        if evidence:
+        if (source, target) == ('gate', 'gateway'):
+            status = by_id['gateway']['readiness']
+        elif (source, target) == ('vscode', 'gate'):
+            if not gate_configured or gate['readiness'] == 'unknown' or gate['lifecycle'] in ('unknown', 'unmanaged'):
+                status = 'unknown'
+            elif gate['readiness'] == 'ready':
+                status = 'ready'
+            else:
+                status = 'not_ready'
+        elif (source, target) == ('gate', 'opencode'):
+            if not gate_configured or gate['readiness'] == 'unknown' or backend_ready is None:
+                status = 'unknown'
+            elif gate['readiness'] == 'ready' and backend_ready:
+                status = 'ready'
+            else:
+                status = 'not_ready'
+        elif (source, target) == ('supervisor', 'gate'):
+            status = 'ready' if gate['managed'] else 'unknown'
+        elif evidence:
             status = evidence['readiness']
         elif (source, target) == ('tunnel', 'relay'):
             status = by_id['relay']['readiness']

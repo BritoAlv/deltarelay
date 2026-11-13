@@ -1,19 +1,110 @@
 """Configuration validation for the executable-provider supervisor."""
 
+import copy
+import ipaddress
 from pathlib import Path
+import urllib.parse
 
 from remote_provider import ProviderError as ControlError, origin, validate_spec
 
 
-COMPONENTS = ('dashboard', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop')
-LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Local gateway', 'Remote host connection', 'Remote relay',
-                               'OpenCode service', 'Isolated Desktop')))
+COMPONENTS = ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop')
+LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Varro health gate', 'Local gateway', 'Remote host connection',
+                               'Remote relay', 'OpenCode service', 'Isolated Desktop')))
 DEFAULT_INTERNET_CHECK_URL = 'https://example.com/'
+DEFAULT_GATE_URL = 'http://127.0.0.1:18789'
 INTERNET_CHECK_INTERVAL = 15
 
 
 def loopback_origin(value, https=False):
     return origin(value) and (https or value.startswith('http://'))
+
+
+def gate_origin(value):
+    """Return the literal loopback host and explicit port of a gate origin."""
+    try:
+        if not isinstance(value, str) or any(ord(c) <= 32 or 127 <= ord(c) <= 159 for c in value):
+            return None
+        parsed = urllib.parse.urlsplit(value)
+        address = ipaddress.ip_address(parsed.hostname or '')
+        if (parsed.scheme != 'http' or not address.is_loopback or parsed.username or parsed.password or
+                parsed.path or parsed.query or parsed.fragment or parsed.port is None or
+                not 0 < parsed.port < 65536):
+            return None
+        return str(address), parsed.port
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def local_cli(config):
+    """Find an existing absolute DeltaRelay command; never guess or use PATH."""
+    for name in ('dashboard', 'gateway'):
+        spec = config.get('components', {}).get(name, {})
+        command = spec.get('command') if isinstance(spec, dict) else None
+        if isinstance(command, list) and command and isinstance(command[0], str):
+            path = Path(command[0])
+            if path.is_absolute() and path.name == 'deltarelay':
+                return command[0]
+    return None
+
+
+def default_gate_decision(config):
+    """Classify default gate activation without mutating the configuration."""
+    if 'gate' in config.get('components', {}):
+        return 'explicit'
+    if config.get('gate_default') is False:
+        return 'disabled'
+    service_file = config.get('opencode_service_file')
+    if not isinstance(service_file, str) or not Path(service_file).is_absolute():
+        return 'no_registration'
+    if not local_cli(config):
+        return 'no_binary'
+    if gate_origin(config.get('gate_url', DEFAULT_GATE_URL)) is None:
+        return 'invalid_origin'
+    return 'enabled'
+
+
+def enable_default_gate(config):
+    """Return a config with an in-memory default gate component when safe.
+
+    Explicit ``components.gate`` always wins, ``gate_default: false`` opts out,
+    and synthesis never guesses an executable, service-manager command, or shell.
+    """
+    if default_gate_decision(config) != 'enabled':
+        return config
+    gate_url = config.get('gate_url', DEFAULT_GATE_URL)
+    host, port = gate_origin(gate_url)
+    listen = f'[{host}]:{port}' if ':' in host else f'{host}:{port}'
+    command = [local_cli(config), 'gate', '--listen', listen,
+               '--service-file', config['opencode_service_file'],
+               '--gateway', config['gateway_url'],
+               '--local-token-file', config['local_token_file']]
+    if config.get('opencode_directory'):
+        command.extend(('--workspace-directory', config['opencode_directory']))
+    command.extend(('--health-cache', '2s'))
+    result = copy.deepcopy(config)
+    result['gate_url'] = gate_url
+    result['components']['gate'] = {
+        'command': command,
+        'pid_file': str(Path(config['profile']) / 'gate.pid'),
+        'port': port,
+    }
+    return result
+
+
+def validate_vscode(value):
+    """Validate the one-shot command behind the dashboard's Open action."""
+    if not isinstance(value, dict) or 'open_command' not in value or set(value) - {'open_command', 'env'}:
+        raise ControlError('invalid_configuration')
+    command = value['open_command']
+    if (not isinstance(command, list) or not command or
+            any(not isinstance(arg, str) or not arg or '\0' in arg for arg in command) or
+            not Path(command[0]).is_absolute()):
+        raise ControlError('invalid_command')
+    env = value.get('env', {})
+    if not isinstance(env, dict) or any(not isinstance(key, str) or not key or '=' in key or '\0' in key or
+                                        not isinstance(item, str) or '\0' in item for key, item in env.items()):
+        raise ControlError('invalid_configuration')
 
 
 def internet_check_origin(value):
@@ -29,6 +120,14 @@ def validate(config):
     if 'opencode_directory' in config and (not isinstance(config['opencode_directory'], str) or
                                            not Path(config['opencode_directory']).is_absolute()):
         raise ControlError('absolute_private_paths_required')
+    if 'gate_default' in config and type(config['gate_default']) is not bool:
+        raise ControlError('invalid_configuration')
+    if 'gate_url' in config and gate_origin(config['gate_url']) is None:
+        raise ControlError('unsafe_endpoint')
+    if 'gate' in config['components'] and 'gate_url' not in config:
+        raise ControlError('invalid_configuration')
+    if 'vscode' in config:
+        validate_vscode(config['vscode'])
     if not loopback_origin(config.get('relay_url', ''), https=True) or not loopback_origin(config.get('gateway_url', '')):
         raise ControlError('unsafe_endpoint')
     if not isinstance(config.get('internet_check_url', DEFAULT_INTERNET_CHECK_URL), str) or \

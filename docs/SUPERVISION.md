@@ -1,9 +1,19 @@
 # Network recovery and dashboard controls
 
-`uv run ./deltarelay start` starts an independent Python 3 supervisor and the local Go dashboard
-**before** attempting remote recovery. Closing the browser or terminal does not
-stop supervision. Nothing is installed at login, no VPN settings are changed,
-and no inference or automatic direct-provider fallback is introduced.
+`uv run ./deltarelay start` starts an independent Python 3 supervisor, the local Go dashboard,
+and the Varro/VS Code health gate **before** attempting remote recovery. Closing
+the browser or terminal does not stop supervision. Nothing is installed at login,
+no VPN settings are changed, and no inference or automatic direct-provider
+fallback is introduced.
+
+The gate is a supervised **local** component, not a remote-provider plugin. It is
+default-on: a new configuration includes `components.gate`, and an existing
+configuration with `opencode_service_file` gets a safe gate component synthesized
+in memory when it omits one. The private configuration file is not rewritten.
+Add `"gate_default": false` to opt out; an explicit `components.gate` always wins.
+The supervisor only starts from an existing absolute `deltarelay` dashboard or
+gateway command; it never guesses an executable, service-manager command, shell,
+or `PATH` lookup. See [Varro + VS Code](VARRO_VSCODE.md) for the attach-only path.
 
 Remote hosting is extensible through the versioned, language-independent
 [remote-host provider contract](REMOTE_PROVIDERS.md). The bundled SSH, direct
@@ -83,6 +93,22 @@ the same identity/state directory as the gateway. Each component can use:
   OpenCode plugin-status check for that exact location. Without it, the map shows
   plugin loading as unknown. Configuration alone is not proof that the plugin
   loaded, and plugin status is not proof that provider access works.
+- Optional top-level `gate_url` (default `http://127.0.0.1:18789`): a literal
+  loopback `http://` origin with an explicit port, no credentials, path, query,
+  or fragment. Required when `components.gate` is present. Optional top-level
+  `gate_default` defaults to `true`; only `false` opts out of in-memory gate
+  synthesis. An explicit `components.gate` always wins.
+- Optional top-level `vscode` object for the dashboard's **Open** action on
+  Varro in VS Code: `open_command` is an absolute argv (no shell, no PATH lookup),
+  and optional `env` adds string variables. Each click runs the command once; the
+  editor is never tracked, restarted, or stopped afterwards. Restart the supervisor
+  after changing it.
+
+The synthesized gate exists only for the running supervisor's lifetime. To
+customize its command later, add an explicit `components.gate` and restart the
+supervisor; a live managed child is never silently replaced. Until then, omitting
+`components.gate` from a reload keeps the synthesized gate owned, consistent with
+other managed components.
 
 Commands are trusted local configuration, **not browser inputs**. Never put
 tokens/passwords in command arguments. The SSH provider's example remote commands
@@ -113,9 +139,10 @@ reports an unrecognized occupied port rather than replacing its owner.
 
 ## Component topology and recovery contract
 
-System controls renders the whole deployment as a live map. The request path is
+System controls renders the whole deployment as a live map. The request paths are
 Desktop → OpenCode server (loaded DeltaRelay plugin) → local gateway → transport
-→ relay → external model provider. The map also shows network/host prerequisites
+→ relay → external model provider, and, for Varro, VS Code → health gate →
+the same shared OpenCode server. The map also shows network/host prerequisites
 and relay-owned storage. A separate control path shows the dashboard browser,
 dashboard service, supervisor, and remote-host adapter. Nodes and their connections
 are reported independently:
@@ -165,6 +192,41 @@ continues when safe, and the map shows the active component with a spinner and
 the exact action in progress. Conflicting operations are serialized serially;
 duplicate browser submissions with the same request ID are ignored. Components
 that are not part of the repair stay running.
+
+## Varro health gate
+
+The gate listens on `gate_url` and is the only DeltaRelay component Varro attaches
+to. It is not a provider proxy and never owns the OpenCode service. Lifecycle
+ownership is deliberately split:
+
+- **Listener/process readiness** comes from the gate's local `/livez` endpoint,
+  authenticated with the supervisor's local token. It performs no backend probe.
+- **Backend readiness** is derived from the supervisor's existing observations:
+  gateway readiness and relay forwarding, the OpenCode `/api/info` check, and,
+  when `opencode_directory` is configured, the DeltaRelay plugin check. Gate
+  backend reasons are ordered `gateway_down`, then `service_down`, then
+  `plugin_unavailable`.
+
+Supervisor repair policy is gate-only: start a stopped gate; restart a running
+gate whose `/livez` check fails; never restart a healthy listener merely because
+the backend returns 503. Backend failure is shown on the gate card and on the
+`gate → OpenCode` edge, while the listener remains **Ready**. An unknown
+`/livez` response (401/403/404 or a version mismatch) is reported as unknown, not
+used as proof that a restart would help. An unrecognized port owner is reported
+and never killed.
+
+`Start system` starts the gate after the dashboard and before the backend
+components. `Shut down system` stops the gate first, then the existing
+Desktop/OpenCode/gateway/tunnel order, so Varro loses access immediately and the
+backend is left untouched. `--no-desktop` and `--no-dashboard` do not disable the
+gate. The map exposes gate-only start, stop, restart, and recover controls.
+Stopping the gate affects only Varro: Desktop/TUI and the shared OpenCode service
+continue. VS Code has no lifecycle controls: its **Open** action only launches the
+configured editor once.
+
+Manual `deltarelay gate` or the example systemd unit remains available for a
+non-supervisor deployment. It is mutually exclusive with the supervised gate on
+the same port; stop one before starting the other. Do not run both.
 
 ## Automatic network recovery
 
@@ -220,10 +282,21 @@ are invalid, the map reports the actual blocker instead of bypassing it.
   auto-wake asks for billing confirmation; it can resume compute with the browser
   closed.
 - **Start system** resumes an intentionally stopped stack or performs a complete
-  manual repair. It starts configured local applications, respects per-component
-  desired state and `--no-desktop`, resumes automatic recovery, and then repairs
-  the connection. It asks for confirmation because starting/waking remote compute
-  may incur charges. Enabling automatic wake is not implied.
+  manual repair. It starts configured local applications, including the gate,
+  respects per-component desired state and `--no-desktop`, resumes automatic
+  recovery, and then repairs the connection. It asks for confirmation because
+  starting/waking remote compute may incur charges. Enabling automatic wake is
+  not implied. A gate start failure is shown on the gate card but does not turn
+  the rest of `Start system` into a failure; scheduled repair and the card retry
+  remain available.
+- **Gate controls** are on the Connection card and map; lifecycle actions are
+  enabled only when the gate is configured. An unconfigured gate is shown as
+  **Not configured** rather than a stopped process. Restart/recover repair the
+  listener, not the backend. Gate stop and
+  restart never signal OpenCode, Desktop, the relay, the tunnel, or the provider.
+  The `Varro in VS Code` map node is external and read-only. Its Applications
+  card shows **Not observed**, offers **Open** only when `vscode.open_command` is
+  configured, and has no start, restart, or stop controls.
 - **Recover** on a node repairs that resource and its necessary prerequisites.
   Starting one node does not silently start the whole stopped stack. **Restart**
   always requires explicit confirmation; **Start** is idempotent. Restarting a
@@ -234,8 +307,8 @@ are invalid, the map reports the actual blocker instead of bypassing it.
   before stopping the managed local tunnel and requesting shutdown. A network
   change or supervisor restart cannot immediately wake it again. Saved files,
   tokens, relay cache, and responses are preserved.
-- **Shut down system…** stops managed Desktop, OpenCode service, gateway, and
-  tunnel, then the VPS when supported. It always keeps the dashboard and
+- **Shut down system…** stops the gate first, then managed Desktop, OpenCode
+  service, gateway, and tunnel, then the VPS when supported. It always keeps the dashboard and
   supervisor running, so **Start system** is available afterwards; it never
   powers off your PC. Stopped intent is persisted before the first stop command
   and survives partial failures, timeouts, network changes, and supervisor

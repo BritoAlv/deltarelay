@@ -3,7 +3,7 @@ import { nodePresentation, observationStale, type ComponentAction, type NodeID }
 import type { SortDirection } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 
-export const actionLabels: Record<ComponentAction, string> = { start: "Start", recover: "Recover", restart: "Restart…", wake: "Wake…", stop: "Shut down…" }
+export const actionLabels: Record<ComponentAction, string> = { start: "Start", recover: "Recover", restart: "Restart…", wake: "Wake…", stop: "Shut down…", open: "Open" }
 const readable = (value: string) => value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())
 const componentSortKeys = ["default", "component", "status", "lifecycle", "location"] as const
 type ComponentSortKey = (typeof componentSortKeys)[number]
@@ -199,7 +199,7 @@ export function mountComponentCards(root: HTMLElement, onAction: (id: NodeID, ac
         details.setAttribute("aria-label", `Details for ${label.textContent}`)
         const actions = (node?.actions ?? []).filter((action) => Object.hasOwn(actionLabels, action) && (id !== "remote" || action !== "stop" && action !== "wake" || supportsRemote(system, action === "stop" ? "host.stop" : "host.wake")))
         const started = node && ["running", "starting", "started"].includes(node.lifecycle)
-        const primary = actions.includes("start") && !started ? "start" : actions.includes("recover") ? "recover" : actions.includes("wake") && node?.lifecycle === "stopped" ? "wake" : null
+        const primary = actions.includes("start") && !started ? "start" : actions.includes("recover") ? "recover" : actions.includes("wake") && node?.lifecycle === "stopped" ? "wake" : actions.includes("open") ? "open" : null
         const signature = JSON.stringify([actions, primary, disabled, stopped, started, node?.label])
         if (signatures.get(id) === signature) continue
         signatures.set(id, signature)
@@ -212,7 +212,7 @@ export function mountComponentCards(root: HTMLElement, onAction: (id: NodeID, ac
           button.dataset.componentAction = action
           button.textContent = actionLabels[action]
           button.setAttribute("aria-label", `${action} ${node!.label}`)
-          const stoppedIntent = Boolean(stopped) && !(id === "remote" && action === "stop")
+          const stoppedIntent = Boolean(stopped) && action !== "open" && !(id === "remote" && action === "stop")
           button.disabled = disabled || stoppedIntent || action === "start" && Boolean(started)
           if (stoppedIntent) button.title = "Use Start / recover system to resume the intentionally stopped stack."
           if (id === "remote" && action === "stop") button.id = "stop-remote"
@@ -226,7 +226,7 @@ export function mountComponentCards(root: HTMLElement, onAction: (id: NodeID, ac
         else {
           const note = doc.createElement("span")
           note.className = "resource-managed"
-          note.textContent = !node ? "Waiting for supervisor" : id === "supervisor" ? "Managed by startup.sh" : actions.length ? "Host actions in ⋯" : "No advertised actions"
+          note.textContent = !node ? "Waiting for supervisor" : id === "supervisor" ? "Managed by startup.sh" : node.owner === "user" ? "Open not configured" : actions.length ? "Host actions in ⋯" : "No advertised actions"
           main.append(note)
         }
         for (const action of actions.filter((action) => action !== primary).sort((a, b) => Number(a === "stop") - Number(b === "stop"))) secondary.append(button(action))

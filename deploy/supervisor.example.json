@@ -3,6 +3,8 @@
   "profile": "/home/YOU/.local/state/deltarelay",
   "relay_url": "http://127.0.0.1:8787",
   "gateway_url": "http://127.0.0.1:8788",
+  "gate_url": "http://127.0.0.1:18789",
+  "gate_default": true,
   "relay_token_file": "/home/YOU/.config/deltarelay/relay.token",
   "local_token_file": "/home/YOU/.config/deltarelay/local.token",
   "relay_state_file": "/home/YOU/.local/state/deltarelay/relay-state.json",
@@ -12,11 +14,20 @@
     "config_file": "/home/YOU/.config/deltarelay/ssh.json"
   },
   "opencode_service_file": "/home/YOU/.local/state/opencode/service.json",
+  "opencode_directory": "/absolute/path/to/deltarelay",
+  "vscode": {
+    "open_command": ["/usr/bin/code", "--profile", "DeltaRelay", "/absolute/path/to/deltarelay"]
+  },
   "components": {
     "dashboard": {
       "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "dashboard", "--gateway", "http://127.0.0.1:8788", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--assets", "/absolute/path/to/deltarelay/web/dist", "--control-socket", "/home/YOU/.local/state/deltarelay/control/supervisor.sock", "--opencode-service-file", "/home/YOU/.local/state/opencode/service.json"],
       "pid_file": "/home/YOU/.local/state/deltarelay/dashboard.pid",
       "port": 8790
+    },
+    "gate": {
+      "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "gate", "--listen", "127.0.0.1:18789", "--service-file", "/home/YOU/.local/state/opencode/service.json", "--gateway", "http://127.0.0.1:8788", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--workspace-directory", "/absolute/path/to/deltarelay", "--health-cache", "2s"],
+      "pid_file": "/home/YOU/.local/state/deltarelay/gate.pid",
+      "port": 18789
     },
     "gateway": {
       "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "gateway", "--server", "http://127.0.0.1:8787", "--token-file", "/home/YOU/.config/deltarelay/relay.token", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--upstreams", "/home/YOU/.config/deltarelay/upstreams.json", "--state-dir", "/home/YOU/.local/state/deltarelay", "--stats-file", "/home/YOU/.local/state/deltarelay/dashboard-stats.json"],

@@ -47,6 +47,22 @@ def controller_status(path):
     return value if status == 200 and isinstance(value, dict) and type(value.get('version')) is int and value['version'] == 2 else None
 
 
+def startup_components(supervisor, no_dashboard=False, no_desktop=False):
+    """Select the independent startup lane; gate never depends on the provider."""
+    selected = []
+    for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop'):
+        if name not in supervisor.config['components']:
+            continue
+        if name == 'dashboard' and no_dashboard or name in ('desktop', 'opencode') and no_desktop:
+            continue
+        if name != 'dashboard' and not supervisor.state.wanted(name):
+            continue
+        if name == 'gateway' and supervisor.provider is None:
+            continue
+        selected.append(name)
+    return selected
+
+
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
@@ -143,13 +159,8 @@ def main(argv=None):
         signal.signal(signal.SIGINT, lambda *_: supervisor.stop.set())
         supervisor.state.set_dashboard_enabled(not args.no_dashboard)
         # The independent dashboard comes first, even with no remote network.
-        for name in ('dashboard', 'gateway', 'opencode', 'desktop'):
-            if name not in supervisor.config['components'] or name == 'dashboard' and args.no_dashboard or name in ('desktop', 'opencode') and args.no_desktop:
-                continue
-            if name != 'dashboard' and not supervisor.state.wanted(name):
-                continue
-            if name == 'gateway' and supervisor.provider is None:
-                continue
+        # The gate follows independently of provider discovery.
+        for name in startup_components(supervisor, no_dashboard=args.no_dashboard, no_desktop=args.no_desktop):
             try:
                 supervisor.start_component(name)
             except Exception as error:

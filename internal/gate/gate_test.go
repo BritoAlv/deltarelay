@@ -29,6 +29,7 @@ type fixture struct {
 	plugin       atomic.Bool
 	calls        atomic.Int32
 	infoCalls    atomic.Int32
+	healthCalls  atomic.Int32
 	logs         bytes.Buffer
 }
 
@@ -39,6 +40,7 @@ func setup(t *testing.T, handler http.HandlerFunc) *fixture {
 	f.gatewayReady.Store(true)
 	f.plugin.Store(true)
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.healthCalls.Add(1)
 		if r.URL.Path != "/healthz" || r.Header.Get("X-DeltaRelay-Local-Token") != "local-secret" {
 			t.Error("invalid gateway probe")
 		}
@@ -206,6 +208,71 @@ func TestOptionalPlugin(t *testing.T) {
 	f.plugin.Store(false)
 	if w := request(f.g, "/healthz"); w.Code != 200 || strings.Contains(w.Body.String(), `"plugin"`) {
 		t.Fatalf("plugin not skipped: %s", w.Body)
+	}
+}
+
+func TestLivenessIsLocalOnlyAndIgnoresClientAuth(t *testing.T) {
+	f := setup(t, nil)
+	f.g.config.Password = "gate-secret"
+	f.g.config.HealthCache = time.Hour
+	r := httptest.NewRequest("GET", "/livez", nil)
+	r.Header.Set("X-DeltaRelay-Local-Token", "local-secret")
+	w := httptest.NewRecorder()
+	f.g.ServeHTTP(w, r)
+	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || w.Body.String() != "{\"alive\":true,\"version\":1}\n" {
+		t.Fatalf("unexpected liveness response: %d %s", w.Code, w.Body)
+	}
+	if f.calls.Load() != 0 || f.infoCalls.Load() != 0 || f.healthCalls.Load() != 0 {
+		t.Fatal("liveness touched the backend")
+	}
+	if !f.g.checked.IsZero() || f.g.cached.Ready {
+		t.Fatal("liveness populated the health cache")
+	}
+	if w := request(f.g, "/healthz"); w.Code != 401 {
+		t.Fatal("liveness disabled client authentication")
+	}
+	// A real health request still caches and probes normally afterward.
+	health := httptest.NewRequest("GET", "/healthz", nil)
+	health.SetBasicAuth("opencode", "gate-secret")
+	w = httptest.NewRecorder()
+	f.g.ServeHTTP(w, health)
+	if w.Code != 200 || f.healthCalls.Load() != 1 || f.g.checked.IsZero() {
+		t.Fatalf("health behavior changed: %d %s probes=%d", w.Code, w.Body, f.healthCalls.Load())
+	}
+	for _, secret := range []string{"local-secret", "gate-secret", "service-secret"} {
+		if strings.Contains(f.logs.String(), secret) {
+			t.Fatal("liveness logs leaked a secret")
+		}
+	}
+}
+
+func TestLivenessRejectsMissingOrWrongTokenAndInvalidRequestShape(t *testing.T) {
+	f := setup(t, nil)
+	for name, setupRequest := range map[string]func(*http.Request){
+		"missing": func(*http.Request) {},
+		"wrong":   func(r *http.Request) { r.Header.Set("X-DeltaRelay-Local-Token", "wrong") },
+		"query": func(r *http.Request) {
+			r.URL.RawQuery = "token=local-secret"
+			r.Header.Set("X-DeltaRelay-Local-Token", "local-secret")
+		},
+		"body": func(r *http.Request) {
+			r.Body = io.NopCloser(strings.NewReader("secret"))
+			r.ContentLength = 6
+			r.Header.Set("X-DeltaRelay-Local-Token", "local-secret")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/livez", nil)
+			setupRequest(r)
+			w := httptest.NewRecorder()
+			f.g.ServeHTTP(w, r)
+			if w.Code != http.StatusUnauthorized && w.Code != http.StatusBadRequest {
+				t.Fatalf("invalid liveness request accepted: %d %s", w.Code, w.Body)
+			}
+		})
+	}
+	if f.calls.Load() != 0 || f.infoCalls.Load() != 0 || f.healthCalls.Load() != 0 {
+		t.Fatal("invalid liveness request reached the backend")
 	}
 }
 
