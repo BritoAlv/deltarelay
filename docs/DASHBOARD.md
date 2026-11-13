@@ -28,10 +28,12 @@ infer a working connection merely because two processes are running.
   you select a node. The current automatic recovery step is highlighted in the
   Controls view.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
-  upload reduction, including failed and cancelled attempts and negative savings.
-  Failed and cancelled requests are counted separately; a client that closes
-  after the terminal stream event is reconciled against the relay and recorded
-  as completed when the full response was delivered.
+  upload reduction, including failed, cancelled, and legacy attempts, plus
+  negative savings. Failures and cancellations are counted separately; a client
+  that closes after the terminal stream event is reconciled against the relay
+  and recorded as completed when the full response was delivered. Requests
+  recorded before final-state reconciliation are kept in a separate **legacy**
+  bucket because their outcome is unknown.
 - A **Host** selector in the page header filters the overview totals, traffic
   chart, session table, and measurement browser by the remote host that carried
   the requests. “All hosts” merges retained session rows with the same OpenCode
@@ -293,7 +295,13 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
   per-host statistics and capture files into the shared history; unreadable or
   malformed files fail the start instead of being discarded. A history file
   written before separate cancellation counters cannot distinguish old
-  cancellations from failures; new observations use the separate counters.
+  cancellations from failures. On first load, the gateway moves whole sessions
+  that are entirely failed and end at `499 request_cancelled` into the separate
+  **legacy** outcome. Their final state is unknown, so they are not counted as
+  failures or cancellations; mixed legacy sessions keep their failure count.
+  This normalization is one-time, idempotent, and does not rewrite traffic
+  aggregates. The overview note shows the legacy count and separates failures
+  on the active host from failures on historical hosts.
 - Byte totals appear after a request finishes; active requests still show their
   IDs, kinds, upstreams, and elapsed time. They are local gateway states, not a
   list of all saved VPS jobs or OpenCode's current agent/tool states.
@@ -472,9 +480,10 @@ pnpm build
 ```
 
 The tests cover session grouping, concurrency, savings, streaming active state,
-failure accounting, unlimited retention, restart interruption, private persistence,
-file locking, write failures, authentication, credential/header isolation,
-read-only routes, origin/Host checks, redirects, and frontend measurement logic.
+failure accounting, legacy outcome reclassification, unlimited retention, restart
+interruption, private persistence, file locking, write failures, authentication,
+credential/header isolation, read-only routes, origin/Host checks, redirects, and
+frontend measurement logic.
 The browser smoke tests render the built static pages into a lightweight DOM with
 mocked same-origin APIs; they cover loading, successful and stale refreshes,
 filtering/pagination, session details, the standalone measurement page and its

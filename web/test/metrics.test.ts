@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { bytes, duration, filterSessions, percentage, relativeTime, savings, sessionState } from "../src/lib/metrics.js"
+import { addTotals, bytes, duration, emptyTotals, filterSessions, percentage, relativeTime, savings, sessionState } from "../src/lib/metrics.js"
 import { makeOpenCodeSessions, makeSnapshot } from "./fixture.js"
 import { fetchOpenCodeSessions, fetchSnapshot, isOpenCodeSessions, isSnapshot } from "../src/lib/api.js"
 
@@ -32,6 +32,29 @@ test("session filtering is case insensitive and active has priority", () => {
 test("relative time is clamped for future timestamps", () => {
   const now = Date.parse("2026-10-28T12:15:00Z")
   assert.equal(relativeTime(new Date(now + 1000).toISOString(), now), "just now")
+})
+
+test("legacy outcomes are optional and counted separately from failures", () => {
+  const data = makeSnapshot()
+  const legacy = structuredClone(data)
+  legacy.history.totals.legacy = 1
+  assert.equal(isSnapshot(legacy), true)
+
+  const negative = structuredClone(data)
+  negative.history.totals.legacy = -1
+  assert.equal(isSnapshot(negative), false)
+
+  const fractional = structuredClone(data)
+  fractional.history.totals.legacy = 0.5
+  assert.equal(isSnapshot(fractional), false)
+
+  const excessive = structuredClone(data)
+  excessive.history.totals.legacy = data.history.totals.requests
+  assert.equal(isSnapshot(excessive), false)
+
+  const totals = emptyTotals()
+  addTotals(totals, { ...emptyTotals(), legacy: 2 })
+  assert.equal(totals.legacy, 2)
 })
 
 test("API validation refuses incomplete, invalid, and incompatible diagnostics", () => {

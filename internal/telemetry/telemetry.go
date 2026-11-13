@@ -44,13 +44,22 @@ const (
 	// shutdownFlushTimeout bounds how long Close waits for the worker's final
 	// flush. A hung filesystem must not stall gateway shutdown indefinitely.
 	shutdownFlushTimeout = 5 * time.Second
+
+	// currentAccountingVersion identifies histories whose request outcomes use
+	// separate failure, cancellation, and legacy buckets. Version zero is the
+	// old accounting that counted every client-closed 499 stream as a failure.
+	currentAccountingVersion = 1
 )
 
 type Totals struct {
-	Requests           int64 `json:"requests"`
-	Active             int64 `json:"active"`
-	Failed             int64 `json:"failed"`
-	Cancelled          int64 `json:"cancelled"`
+	Requests  int64 `json:"requests"`
+	Active    int64 `json:"active"`
+	Failed    int64 `json:"failed"`
+	Cancelled int64 `json:"cancelled"`
+	// Legacy counts retained requests recorded before final-state
+	// reconciliation, so their outcome is unknown. They are neither failures
+	// nor cancellations and remain part of the byte totals.
+	Legacy             int64 `json:"legacy,omitempty"`
 	BodyBytes          int64 `json:"body_bytes"`
 	UploadedChunkBytes int64 `json:"uploaded_chunk_bytes"`
 	EncodedUploadBytes int64 `json:"encoded_upload_bytes"`
@@ -120,20 +129,21 @@ type Traffic struct {
 }
 
 type Snapshot struct {
-	Version          int               `json:"version"`
-	Host             string            `json:"host,omitempty"`
-	Since            time.Time         `json:"since"`
-	Totals           Totals            `json:"totals"`
-	HostTotals       map[string]Totals `json:"host_totals,omitempty"`
-	Sessions         []Session         `json:"sessions"`
-	RecentRequests   []Request         `json:"recent_requests"`
-	Traffic          Traffic           `json:"traffic"`
-	SessionLimit     int               `json:"session_limit"`
-	RequestLimit     int               `json:"request_limit"`
-	EvictedSessions  int64             `json:"evicted_sessions"`
-	DroppedRequests  int64             `json:"dropped_requests"`
-	Persistent       bool              `json:"persistent"`
-	PersistenceError bool              `json:"persistence_error"`
+	Version           int               `json:"version"`
+	Host              string            `json:"host,omitempty"`
+	Since             time.Time         `json:"since"`
+	AccountingVersion int               `json:"accounting_version,omitempty"`
+	Totals            Totals            `json:"totals"`
+	HostTotals        map[string]Totals `json:"host_totals,omitempty"`
+	Sessions          []Session         `json:"sessions"`
+	RecentRequests    []Request         `json:"recent_requests"`
+	Traffic           Traffic           `json:"traffic"`
+	SessionLimit      int               `json:"session_limit"`
+	RequestLimit      int               `json:"request_limit"`
+	EvictedSessions   int64             `json:"evicted_sessions"`
+	DroppedRequests   int64             `json:"dropped_requests"`
+	Persistent        bool              `json:"persistent"`
+	PersistenceError  bool              `json:"persistence_error"`
 }
 
 // Recorder owns one in-memory history and, optionally, one background writer
@@ -189,7 +199,7 @@ func openRecorder(path, host string, write func(string, any) error, flushAfter, 
 	r := &Recorder{
 		path:       path,
 		host:       host,
-		data:       Snapshot{Version: 1, Host: host, Since: started, HostTotals: map[string]Totals{}, Sessions: []Session{}, RecentRequests: []Request{}, Traffic: newTraffic(started)},
+		data:       Snapshot{Version: 1, Host: host, Since: started, AccountingVersion: currentAccountingVersion, HostTotals: map[string]Totals{}, Sessions: []Session{}, RecentRequests: []Request{}, Traffic: newTraffic(started)},
 		write:      write,
 		flushAfter: flushAfter,
 		shutdown:   shutdown,
@@ -245,6 +255,9 @@ func openRecorder(path, host string, write func(string, any) error, flushAfter, 
 	var extra any
 	if decoder.Decode(&extra) != io.EOF || r.data.Version != 1 || r.data.Since.IsZero() {
 		return nil, errors.New("unsupported statistics history")
+	}
+	if r.data.AccountingVersion < 0 || r.data.AccountingVersion > currentAccountingVersion {
+		return nil, errors.New("unsupported statistics accounting version")
 	}
 	seen := map[string]bool{}
 	hosts := map[string]bool{}
@@ -303,6 +316,9 @@ func openRecorder(path, host string, write func(string, any) error, flushAfter, 
 	r.data.Totals.Active = 0
 	if !sumTotals(r.data.HostTotals, r.data.Totals) {
 		return nil, errors.New("inconsistent statistics host totals")
+	}
+	if err := r.normalizeLegacyOutcomesLocked(); err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	sequences := map[uint64]bool{}
@@ -376,7 +392,42 @@ func openRecorder(path, host string, write func(string, any) error, flushAfter, 
 }
 
 func validTotals(t Totals) bool {
-	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Cancelled >= 0 && t.Active+t.Failed+t.Cancelled <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
+	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Cancelled >= 0 && t.Legacy >= 0 && t.Active+t.Failed+t.Cancelled+t.Legacy <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
+}
+
+// normalizeLegacyOutcomesLocked separates requests recorded by the old
+// accounting, which counted every client-closed 499 stream as a failure. The
+// relay's final state was never checked for those requests, so moving them to
+// failures or cancellations would invent an outcome. A whole-session failure
+// ending in request_cancelled is the only reliable legacy pattern; ambiguous
+// sessions keep their failure count.
+func (r *Recorder) normalizeLegacyOutcomesLocked() error {
+	if r.data.AccountingVersion >= currentAccountingVersion {
+		return nil
+	}
+	for i := range r.data.Sessions {
+		s := &r.data.Sessions[i]
+		if s.Failed == 0 || s.Failed != s.Requests || s.LastStatus != 499 || s.LastError != "request_cancelled" {
+			continue
+		}
+		amount := s.Failed
+		hostTotals, ok := r.data.HostTotals[s.Host]
+		if !ok || amount > hostTotals.Failed || amount > r.data.Totals.Failed {
+			return errors.New("inconsistent legacy statistics totals")
+		}
+		s.Failed -= amount
+		s.Legacy += amount
+		hostTotals.Failed -= amount
+		hostTotals.Legacy += amount
+		r.data.HostTotals[s.Host] = hostTotals
+		r.data.Totals.Failed -= amount
+		r.data.Totals.Legacy += amount
+	}
+	r.data.AccountingVersion = currentAccountingVersion
+	if !validTotals(r.data.Totals) || !sumTotals(r.data.HostTotals, r.data.Totals) {
+		return errors.New("inconsistent legacy statistics totals")
+	}
+	return nil
 }
 
 func sessionKey(host, id string) string {
@@ -388,6 +439,7 @@ func addTotals(target *Totals, value Totals) {
 	target.Active += value.Active
 	target.Failed += value.Failed
 	target.Cancelled += value.Cancelled
+	target.Legacy += value.Legacy
 	target.BodyBytes += value.BodyBytes
 	target.UploadedChunkBytes += value.UploadedChunkBytes
 	target.EncodedUploadBytes += value.EncodedUploadBytes

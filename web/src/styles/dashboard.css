@@ -1166,6 +1166,13 @@
   .stat-meter .saved { background: var(--success); }
   .stat-meter .sent { background: var(--accent); }
 
+  .stats-note {
+    margin: -8px 0 18px;
+    color: var(--subtle);
+    font-size: 10.5px;
+    line-height: 1.55;
+  }
+
   .overview-grid {
     grid-template-columns: minmax(0, 1fr) 310px;
     gap: 18px;

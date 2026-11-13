@@ -52,7 +52,7 @@ export function filterSessions<T extends Session>(sessions: T[], query: string, 
 }
 
 export function emptyTotals(): Totals {
-  return { requests: 0, active: 0, failed: 0, cancelled: 0, body_bytes: 0, uploaded_chunk_bytes: 0, encoded_upload_bytes: 0, reused_body_bytes: 0, response_bytes: 0, duration_ms: 0 }
+  return { requests: 0, active: 0, failed: 0, cancelled: 0, legacy: 0, body_bytes: 0, uploaded_chunk_bytes: 0, encoded_upload_bytes: 0, reused_body_bytes: 0, response_bytes: 0, duration_ms: 0 }
 }
 
 export function addTotals(target: Totals, value: Totals): void {
@@ -60,6 +60,7 @@ export function addTotals(target: Totals, value: Totals): void {
   target.active += value.active
   target.failed += value.failed
   target.cancelled += value.cancelled
+  target.legacy = (target.legacy ?? 0) + (value.legacy ?? 0)
   target.body_bytes += value.body_bytes
   target.uploaded_chunk_bytes += value.uploaded_chunk_bytes
   target.encoded_upload_bytes += value.encoded_upload_bytes

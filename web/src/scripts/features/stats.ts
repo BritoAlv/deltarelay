@@ -14,6 +14,7 @@ export function mountStats(root: HTMLElement): StatsFeature {
   const setText = (id: string, value: string | number) => { requiredById(root, id).textContent = String(value) }
   const meterSaved = requiredById<HTMLElement>(root, "stat-meter-saved")
   const meterSent = requiredById<HTMLElement>(root, "stat-meter-sent")
+  const statsNote = requiredById<HTMLElement>(root.ownerDocument, "stats-note")
   const setMeter = (reduction: number | null) => {
     const saved = reduction === null ? 0 : Math.max(0, Math.min(100, reduction))
     meterSaved.style.width = `${saved}%`
@@ -30,6 +31,8 @@ export function mountStats(root: HTMLElement): StatsFeature {
       setText("stat-saved-foot", "No data")
       setText("stat-sessions-foot", "No data")
       setText("stat-requests-foot", "No data")
+      statsNote.hidden = true
+      statsNote.textContent = ""
       setMeter(null)
       return
     }
@@ -48,7 +51,21 @@ export function mountStats(root: HTMLElement): StatsFeature {
     requiredById(root, "stat-sessions-foot").innerHTML = `${dataValue(activeSessions)} active · ${snapshot.history.evicted_sessions ? `${dataValue(integer(snapshot.history.evicted_sessions))} older evicted` : scope}`
     requiredById<HTMLElement>(root, "active-session-dot").style.opacity = activeSessions ? "1" : ".3"
     setText("stat-requests", integer(totals.requests))
-    requiredById(root, "stat-requests-foot").innerHTML = `${dataValue(totals.active)} running · <span class="kpi-warn">${dataValue(integer(totals.failed))} failed</span> · ${dataValue(integer(totals.cancelled))} cancelled`
+    const legacy = totals.legacy ?? 0
+    const legacyText = legacy ? ` · ${dataValue(integer(legacy))} legacy` : ""
+    requiredById(root, "stat-requests-foot").innerHTML = `${dataValue(totals.active)} running · <span class="kpi-warn">${dataValue(integer(totals.failed))} failed</span>${legacyText} · ${dataValue(integer(totals.cancelled))} cancelled`
+    if (legacy) {
+      const currentHost = snapshot.history.host ?? ""
+      const currentFailed = currentHost ? historyTotals(snapshot, currentHost).failed : totals.failed
+      const historicalFailed = Math.max(0, totals.failed - currentFailed)
+      const hostNote = currentHost ? ` Current host ${currentHost}: ${integer(currentFailed)} failed.` : ""
+      const historicalNote = historicalFailed ? ` Historical hosts: ${integer(historicalFailed)} failed.` : ""
+      statsNote.hidden = false
+      statsNote.textContent = `${integer(legacy)} legacy requests predate final-state reconciliation; their outcome is unknown, so they are not counted as failures or cancellations.${hostNote}${historicalNote}`
+    } else {
+      statsNote.hidden = true
+      statsNote.textContent = ""
+    }
   }
 
   return { render: renderStats }

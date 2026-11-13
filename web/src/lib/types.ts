@@ -5,6 +5,8 @@ export interface Totals {
   active: number
   failed: number
   cancelled: number
+  /** Retained requests from before final-state reconciliation; their outcome is unknown. */
+  legacy?: number
   body_bytes: number
   uploaded_chunk_bytes: number
   encoded_upload_bytes: number

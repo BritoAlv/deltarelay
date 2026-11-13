@@ -567,6 +567,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       ["State", stateTone === "active" ? `${current.active} active` : stateTone === "attention" ? "Attention" : "Idle"],
       ["Model requests", integer(sessionSummary.totalRequests)],
       ["Failed", integer(current.failed)],
+      ...(current.legacy ? [["Legacy", integer(current.legacy)] as const] : []),
       ["Cancelled", integer(current.cancelled)],
       ["Last activity", relativeTime(current.updated_at)],
     ]

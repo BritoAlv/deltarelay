@@ -920,6 +920,31 @@ test("overview refresh renders stats and an accessible chart without session or 
   await page.close()
 })
 
+test("overview separates legacy outcomes from failures", async () => {
+  const page = openPage()
+  const snapshot = makeSnapshot(now)
+  const legacySession = snapshot.history.sessions.find((session) => session.failed > 0)!
+  const host = legacySession.host ?? "local"
+  legacySession.failed = 0
+  legacySession.legacy = 1
+  const hostTotals = snapshot.history.host_totals![host]!
+  hostTotals.failed -= 1
+  hostTotals.legacy = 1
+  snapshot.history.totals.failed -= 1
+  snapshot.history.totals.legacy = 1
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  assert.match(doc.querySelector("#stat-requests-foot")?.textContent ?? "", /0 failed.*1 legacy.*1 cancelled/)
+  const note = doc.querySelector<HTMLElement>("#stats-note")!
+  assert.equal(note.hidden, false)
+  assert.match(note.textContent ?? "", /1 legacy requests predate final-state reconciliation/)
+  assert.match(note.textContent ?? "", /Current host alpha: 0 failed/)
+  dashboard.destroy()
+  await page.close()
+})
+
 test("overview always shows all hosts and carries no host filter", async () => {
   const page = openPage()
   page.window.history.replaceState(null, "", "/?host=alpha")
@@ -1535,7 +1560,7 @@ test("CSV export protects formulas and uses the filtered sessions", async () => 
     page.document.querySelector<HTMLButtonElement>("#export-button")!.click()
     assert.ok(captured)
     const csv = await captured.text()
-    assert.match(csv, /^"session_id","hosts","upstream","requests","active","failed","cancelled"/)
+    assert.match(csv, /^"session_id","hosts","upstream","requests","active","failed","legacy","cancelled"/)
     assert.match(csv, /"'=SUM\(A1\)","alpha","'@command"/)
     assert.match(download, /^deltarelay-sessions-\d{4}-\d{2}-\d{2}\.csv$/)
     assert.match(sessionCsv(snapshot.history.sessions), /"'=SUM\(A1\)"/)

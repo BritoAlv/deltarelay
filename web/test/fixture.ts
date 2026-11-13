@@ -77,7 +77,7 @@ export function makeSnapshot(now = Date.now()): Snapshot {
   for (const session of sessions) {
     const host = session.host || "local"
     const hostTotal = hostTotals[host] ?? emptyTotals()
-    for (const key of Object.keys(hostTotal) as (keyof ReturnType<typeof emptyTotals>)[]) hostTotal[key] += session[key]
+    for (const key of Object.keys(hostTotal) as (keyof ReturnType<typeof emptyTotals>)[]) hostTotal[key] = (hostTotal[key] ?? 0) + (session[key] ?? 0)
     hostTotals[host] = hostTotal
   }
   const traffic: Traffic = {

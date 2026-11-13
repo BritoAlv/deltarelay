@@ -189,6 +189,101 @@ func TestSharedHistorySeparatesHostsWithoutResettingTotals(t *testing.T) {
 	}
 }
 
+func TestLegacyOutcomesAreSeparatedFromFailuresOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	now := time.Now().UTC()
+	totals := Totals{Requests: 7, Failed: 6, BodyBytes: 70, UploadedChunkBytes: 7, EncodedUploadBytes: 7, ReusedBodyBytes: 7, ResponseBytes: 7, DurationMillis: 7}
+	legacy := Session{
+		Host: "alpha", ID: "ses_legacy", StartedAt: now.Add(-time.Hour), UpdatedAt: now,
+		Upstream: "mock", LastStatus: 499, LastError: "request_cancelled",
+		Totals: Totals{Requests: 3, Failed: 3, BodyBytes: 30, UploadedChunkBytes: 3, EncodedUploadBytes: 3, ReusedBodyBytes: 3, ResponseBytes: 3, DurationMillis: 3},
+	}
+	realFailure := Session{
+		Host: "alpha", ID: "ses_failed", StartedAt: now.Add(-time.Hour), UpdatedAt: now,
+		Upstream: "mock", LastStatus: 507, LastError: "relay_failure",
+		Totals: Totals{Requests: 1, Failed: 1, BodyBytes: 10, UploadedChunkBytes: 1, EncodedUploadBytes: 1, ReusedBodyBytes: 1, ResponseBytes: 1, DurationMillis: 1},
+	}
+	mixed := Session{
+		Host: "alpha", ID: "ses_mixed", StartedAt: now.Add(-time.Hour), UpdatedAt: now,
+		Upstream: "mock", LastStatus: 499, LastError: "request_cancelled",
+		Totals: Totals{Requests: 2, Failed: 1, BodyBytes: 20, UploadedChunkBytes: 2, EncodedUploadBytes: 2, ReusedBodyBytes: 2, ResponseBytes: 2, DurationMillis: 2},
+	}
+	restarted := Session{
+		Host: "alpha", ID: "ses_restarted", StartedAt: now.Add(-time.Hour), UpdatedAt: now,
+		Upstream: "mock", LastStatus: 499, LastError: "gateway_restarted",
+		Totals: Totals{Requests: 1, Failed: 1, BodyBytes: 10, UploadedChunkBytes: 1, EncodedUploadBytes: 1, ReusedBodyBytes: 1, ResponseBytes: 1, DurationMillis: 1},
+	}
+	saved := Snapshot{
+		Version: 1, Host: "alpha", Since: now.Add(-time.Hour), AccountingVersion: 0,
+		Totals: totals, HostTotals: map[string]Totals{"alpha": totals},
+		Sessions: []Session{legacy, realFailure, mixed, restarted},
+		Traffic:  newTraffic(now),
+	}
+	data, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenWithHost(path, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := reopened.Snapshot()
+	if s.AccountingVersion != currentAccountingVersion {
+		t.Fatalf("accounting version was not upgraded: %d", s.AccountingVersion)
+	}
+	if s.Totals.Requests != 7 || s.Totals.Failed != 3 || s.Totals.Cancelled != 0 || s.Totals.Legacy != 3 {
+		t.Fatalf("global totals were not normalized: %+v", s.Totals)
+	}
+	if s.HostTotals["alpha"].Failed != 3 || s.HostTotals["alpha"].Legacy != 3 {
+		t.Fatalf("host totals were not normalized: %+v", s.HostTotals["alpha"])
+	}
+	for _, session := range s.Sessions {
+		switch session.ID {
+		case "ses_legacy":
+			if session.Failed != 0 || session.Legacy != 3 {
+				t.Fatalf("legacy session was not separated: %+v", session.Totals)
+			}
+		case "ses_failed", "ses_mixed", "ses_restarted":
+			if session.Failed != 1 || session.Legacy != 0 {
+				t.Fatalf("non-legacy session changed: %+v", session.Totals)
+			}
+		}
+	}
+	reopened.Close()
+
+	again, err := OpenWithHost(path, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(again.Close)
+	if s := again.Snapshot(); s.Totals.Failed != 3 || s.Totals.Legacy != 3 || s.HostTotals["alpha"].Legacy != 3 {
+		t.Fatalf("normalization was not idempotent: %+v %+v", s.Totals, s.HostTotals["alpha"])
+	}
+}
+
+func TestFutureAccountingVersionIsRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	now := time.Now().UTC()
+	saved := Snapshot{
+		Version: 1, Host: "alpha", Since: now.Add(-time.Hour), AccountingVersion: currentAccountingVersion + 1,
+		Totals: Totals{}, HostTotals: map[string]Totals{"alpha": {}}, Traffic: newTraffic(now),
+	}
+	data, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenWithHost(path, "alpha"); err == nil {
+		t.Fatal("accepted a future accounting version")
+	}
+}
+
 func TestUnlimitedRetentionKeepsEveryObservation(t *testing.T) {
 	const sessionCount = 300
 	const requestCount = 1200

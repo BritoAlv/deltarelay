@@ -1,6 +1,6 @@
 import type { OpenCodeSessions, Snapshot } from "./types.js"
 import { captureID, isCaptureStatus } from "./inspection.js"
-import { counters, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
+import { counters, nonnegativeInteger, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
 
 const totalKeys = ["requests", "active", "failed", "cancelled", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
 const transferKeys = ["body_bytes", "chunks", "unique_chunks", "uploaded_chunks", "uploaded_chunk_bytes", "missing_chunk_bytes", "reused_body_bytes", "request_body_bytes_sent", "requests", "duration_ms"]
@@ -8,9 +8,12 @@ const trafficBucketKeys = ["requests", "failed", "cancelled", "body_bytes", "upl
 const hostLabel = (value: unknown) => value === undefined || typeof value === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(value)
 const clientLabels = (value: unknown) => value === undefined || Array.isArray(value) &&
   value.every((item) => typeof item === "string" && /^[A-Za-z0-9._-]{1,128}$/.test(item)) && new Set(value).size === value.length
+const optionalLegacy = (value: Record<string, unknown>) => value.legacy === undefined || nonnegativeInteger(value.legacy)
+const outcomes = (value: Record<string, unknown>) => (value.active as number) + (value.failed as number) + (value.cancelled as number) + (typeof value.legacy === "number" ? value.legacy : 0)
 
 function session(value: unknown): boolean {
-  return object(value) && hostLabel(value.host) && counters(value, totalKeys) && typeof value.id === "string" && typeof value.upstream === "string" &&
+  return object(value) && hostLabel(value.host) && counters(value, totalKeys) && optionalLegacy(value) && outcomes(value) <= (value.requests as number) &&
+    typeof value.id === "string" && typeof value.upstream === "string" &&
     timestamp(value.started_at) && timestamp(value.updated_at) && counters(value, ["last_status"]) &&
     typeof value.last_request_id === "string" && optionalString(value.last_error) && clientLabels(value.clients)
 }
@@ -59,12 +62,12 @@ export function isSnapshot(value: unknown): value is Snapshot {
   if (!object(gateway) || !counters(gateway, ["active", "concurrency", "pending_cancellations"]) || !timestamp(gateway.started_at) || !optionalString(gateway.control_error)) return false
   if (!object(relay) || typeof relay.reachable !== "boolean" || !counters(relay, ["latency_ms"]) || !object(relay.health)) return false
   if (!counters(relay.health, ["version", "cache_bytes", "max_cache_bytes", "response_storage_bytes", "max_response_storage_bytes", "pending_cancellations"]) || typeof relay.health.forwarding !== "boolean" || typeof relay.health.state_id !== "string" || !optionalString(relay.health.control_error)) return false
-  if (!object(history) || history.version !== 1 || !hostLabel(history.host) || !timestamp(history.since) || !object(history.totals) || !counters(history.totals, totalKeys)) return false
-  if ((history.totals.active as number) + (history.totals.failed as number) + (history.totals.cancelled as number) > (history.totals.requests as number)) return false
+  if (!object(history) || history.version !== 1 || !hostLabel(history.host) || !timestamp(history.since) || !object(history.totals) || !counters(history.totals, totalKeys) || !optionalLegacy(history.totals)) return false
+  if (outcomes(history.totals) > (history.totals.requests as number)) return false
   if (history.host_totals !== undefined) {
     if (!object(history.host_totals) || Object.keys(history.host_totals).length > 1000) return false
     for (const [host, totals] of Object.entries(history.host_totals)) {
-      if (!host || !/^[A-Za-z0-9._-]{1,128}$/.test(host) || !object(totals) || !counters(totals, totalKeys)) return false
+      if (!host || !/^[A-Za-z0-9._-]{1,128}$/.test(host) || !object(totals) || !counters(totals, totalKeys) || !optionalLegacy(totals) || outcomes(totals) > (totals.requests as number)) return false
     }
   }
   if (!counters(history, ["session_limit", "request_limit", "evicted_sessions", "dropped_requests"]) || typeof history.persistent !== "boolean" || typeof history.persistence_error !== "boolean") return false
