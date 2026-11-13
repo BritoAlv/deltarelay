@@ -1270,7 +1270,7 @@
   .rail-legend .dot.sent { background: var(--accent); }
   .rail-composition {
     margin: 0 20px;
-    padding-top: 13px;
+    padding: 13px 0 14px;
     border-top: 1px solid var(--border);
   }
   .rail-label {
