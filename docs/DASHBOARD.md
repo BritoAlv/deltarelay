@@ -72,13 +72,20 @@ infer a working connection merely because two processes are running.
 - Latest retained provider results. These are observations, **not** live provider
   account/authentication checks. An enabled allowlist is not proof of a healthy
   provider. No provider generation is sent by the dashboard.
-- Session search, state filters, pagination, CSV export, manual refresh, and
-  pause/resume. Automatic refresh is every ten seconds while the tab is visible.
-  A failed refresh keeps the last live snapshot and explicitly marks it stale.
+- Session search, state filters, per-column filters, pagination, CSV export,
+  manual refresh, and pause/resume. Each sortable sessions column has its own
+  filter button: option lists for the remote host and state, minimum/maximum
+  bounds for requests, transfer sizes, and reduction, and a from/to date range
+  for last activity. Column filters combine with the search text and state chips;
+  invalid bounds are explained in the popover instead of being applied silently.
+  Automatic refresh is every ten seconds while the tab is visible. A failed
+  refresh keeps the last live snapshot and explicitly marks it stale.
 - Deep-linkable view state: the selected host, chart range and view, session
-  search/state/page, an open session detail, and the measurement session/request
-  plus session-browser search, day, availability, and page are kept in the URL
-  and restored on reload.
+  search/state/column filters/page, an open session detail, and the measurement
+  session/request plus session-browser search, day, availability, and page are
+  kept in the URL and restored on reload. Column filters use `sid`, `req_min`,
+  `req_max`, `orig_min`, `orig_max`, `up_min`, `up_max`, `red_min`, `red_max`,
+  `act_from`, and `act_to` in addition to the existing `q` and `state`.
   Changes use `replaceState`, so filtering does not fill the browser history.
 - A **Theme** picker above Overview offers Graphite + Blue (the default),
   Porcelain + Teal, Midnight + Violet, Sand + Terracotta, and the original

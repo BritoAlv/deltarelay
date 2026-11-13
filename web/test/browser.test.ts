@@ -46,6 +46,15 @@ function parsePercentLabel(text: string | undefined): number {
   return Number(match[0])
 }
 
+function openColumnFilter(doc: Document, key: string): HTMLElement {
+  const trigger = doc.querySelector<HTMLButtonElement>(`button[data-filter-key="${key}"]`)
+  assert.ok(trigger, `missing ${key} filter trigger`)
+  trigger.click()
+  const popover = doc.querySelector<HTMLElement>("#session-filter-popover")
+  assert.ok(popover, "missing session filter popover")
+  return popover
+}
+
 function ascending(values: number[]): boolean {
   return values.every((value, index) => index === 0 || values[index - 1]! <= value)
 }
@@ -952,6 +961,180 @@ test("sessions page filters rows by host and keeps the URL deep-linked", async (
   await page.close()
 })
 
+test("session column filters open from headers and the host filter stays in sync", async () => {
+  const page = openPage("sessions")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const popover = openColumnFilter(doc, "host")
+  assert.equal(popover.hidden, false)
+  assert.match(popover.querySelector("#session-filter-popover-title")?.textContent ?? "", /remote host/i)
+
+  const beta = popover.querySelector<HTMLInputElement>('input[data-filter-option="host"][value="beta"]')!
+  beta.checked = true
+  page.fire(beta, "change")
+  assert.equal(doc.querySelector<HTMLSelectElement>("#host-filter")?.value, "beta")
+  assert.equal(new URL(page.window.location.href).searchParams.get("host"), "beta")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 3)
+  assert.equal(doc.querySelector('button[data-filter-key="host"]')?.getAttribute("data-active"), "true")
+  assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /3/)
+
+  doc.querySelector<HTMLButtonElement>("#clear-session-filters")!.click()
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(new URL(page.window.location.href).searchParams.get("host"), null)
+  assert.equal(doc.querySelector('button[data-filter-key="host"]')?.getAttribute("data-active"), "false")
+  dashboard.destroy()
+  await page.close()
+})
+
+test("state filter popover and chips stay synchronized", async () => {
+  const page = openPage("sessions")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+
+  doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="active"]')!.click()
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
+
+  const popover = openColumnFilter(doc, "state")
+  const active = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="active"]')!
+  assert.equal(active.checked, true)
+  assert.match(popover.textContent ?? "", /Needs attention/)
+
+  const idle = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="idle"]')!
+  idle.checked = true
+  page.fire(idle, "change")
+  assert.equal(doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="idle"]')?.getAttribute("aria-pressed"), "true")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 4)
+  assert.equal(new URL(page.window.location.href).searchParams.get("state"), "idle")
+
+  popover.querySelector<HTMLButtonElement>("#clear-session-filter")!.click()
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(new URL(page.window.location.href).searchParams.get("state"), null)
+  assert.equal(doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="all"]')?.getAttribute("aria-pressed"), "true")
+  dashboard.destroy()
+  await page.close()
+})
+
+test("range filters apply immediately and explain invalid bounds", async () => {
+  const page = openPage("sessions")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const popover = openColumnFilter(doc, "requests")
+  const min = popover.querySelector<HTMLInputElement>('[data-filter-field="requestsMin"]')!
+  min.value = "13"
+  page.fire(min, "input")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
+  assert.equal(new URL(page.window.location.href).searchParams.get("req_min"), "13")
+  assert.equal(doc.querySelector('button[data-filter-key="requests"]')?.getAttribute("data-active"), "true")
+
+  const max = popover.querySelector<HTMLInputElement>('[data-filter-field="requestsMax"]')!
+  max.value = "5"
+  page.fire(max, "input")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 0)
+  assert.equal(popover.querySelector<HTMLElement>("#session-filter-hint")?.hidden, false)
+  assert.match(popover.querySelector("#session-filter-hint")?.textContent ?? "", /Minimum is greater/)
+  assert.equal(min.getAttribute("aria-invalid"), "true")
+  assert.equal(max.getAttribute("aria-invalid"), "true")
+
+  popover.querySelector<HTMLButtonElement>("#clear-session-filter")!.click()
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(new URL(page.window.location.href).searchParams.get("req_min"), null)
+  assert.equal(new URL(page.window.location.href).searchParams.get("req_max"), null)
+  assert.equal(popover.querySelector<HTMLElement>("#session-filter-hint")?.hidden, true)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("size and date filters restore from the URL and clear together", async () => {
+  const page = openPage("sessions")
+  const from = dateInputValue(now - 86_400_000)
+  const to = dateInputValue(now + 86_400_000)
+  page.window.history.replaceState(null, "", `/sessions?orig_min=${encodeURIComponent("1 MiB")}&act_from=${from}&act_to=${to}`)
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(doc.querySelector('button[data-filter-key="original"]')?.getAttribute("data-active"), "true")
+  assert.equal(doc.querySelector('button[data-filter-key="activity"]')?.getAttribute("data-active"), "true")
+  assert.equal(doc.querySelector<HTMLButtonElement>("#clear-session-filters")?.hidden, false)
+
+  let popover = openColumnFilter(doc, "original")
+  assert.equal(popover.querySelector<HTMLInputElement>('[data-filter-field="originalMin"]')?.value, "1 MiB")
+  popover = openColumnFilter(doc, "activity")
+  assert.equal(popover.querySelector<HTMLInputElement>('[data-filter-field="activityFrom"]')?.value, from)
+  assert.equal(popover.querySelector<HTMLInputElement>('[data-filter-field="activityTo"]')?.value, to)
+
+  doc.querySelector<HTMLButtonElement>("#clear-session-filters")!.click()
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(doc.querySelector<HTMLElement>("#session-filter-popover")?.hidden, true)
+  assert.equal(new URL(page.window.location.href).searchParams.get("orig_min"), null)
+  assert.equal(new URL(page.window.location.href).searchParams.get("act_from"), null)
+  assert.equal(doc.querySelector('button[data-filter-key="original"]')?.getAttribute("data-active"), "false")
+  assert.equal(doc.querySelector<HTMLButtonElement>("#clear-session-filters")?.hidden, true)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("session text filter opens from its header and closes with Escape or an outside click", async () => {
+  const page = openPage("sessions")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const trigger = doc.querySelector<HTMLButtonElement>('button[data-filter-key="session"]')!
+  trigger.focus()
+  trigger.click()
+  const popover = doc.querySelector<HTMLElement>("#session-filter-popover")!
+  const input = popover.querySelector<HTMLInputElement>('[data-filter-field="session"]')!
+  assert.equal(doc.activeElement, input)
+
+  input.value = "api-refactor"
+  page.fire(input, "input")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
+  assert.equal(new URL(page.window.location.href).searchParams.get("sid"), "api-refactor")
+  assert.equal(trigger.getAttribute("data-active"), "true")
+
+  doc.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event)
+  assert.equal(popover.hidden, true)
+  assert.equal(doc.activeElement, trigger)
+  assert.equal(trigger.getAttribute("aria-expanded"), "false")
+
+  trigger.click()
+  page.fire(doc.body, "pointerdown")
+  assert.equal(popover.hidden, true)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("empty filtered state offers a clear action", async () => {
+  const page = openPage("sessions")
+  page.window.history.replaceState(null, "", "/sessions?sid=no-such-session")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const empty = doc.querySelector<HTMLElement>("#sessions-empty")!
+  const clear = doc.querySelector<HTMLButtonElement>("#clear-session-filters-empty")!
+  assert.equal(empty.hidden, false)
+  assert.match(empty.textContent ?? "", /No matching sessions/)
+  assert.equal(clear.hidden, false)
+  assert.equal(doc.querySelector<HTMLElement>("#session-table-scroll")?.hidden, false, "the filterable header stays reachable")
+
+  clear.click()
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  assert.equal(empty.hidden, true)
+  assert.equal(clear.hidden, true)
+  assert.equal(new URL(page.window.location.href).searchParams.get("sid"), null)
+  dashboard.destroy()
+  await page.close()
+})
+
 test("traffic ranges, views, and custom dates update the chart", async () => {
   const page = openPage()
   page.setFetch(() => json(makeSnapshot(now)))
@@ -1312,6 +1495,36 @@ test("CSV export protects formulas and uses the filtered sessions", async () => 
     assert.match(csv, /"'=SUM\(A1\)","alpha","'@command"/)
     assert.match(download, /^deltarelay-sessions-\d{4}-\d{2}-\d{2}\.csv$/)
     assert.match(sessionCsv(snapshot.history.sessions), /"'=SUM\(A1\)"/)
+    dashboard.destroy()
+  } finally {
+    page.window.HTMLAnchorElement.prototype.click = click
+  }
+  await page.close()
+})
+
+test("CSV export respects column filters", async () => {
+  const page = openPage("sessions")
+  const snapshot = makeSnapshot(now)
+  page.setFetch(() => json(snapshot))
+  let captured: Blob | undefined
+  Object.defineProperty(page.window.URL, "createObjectURL", { value: (value: Blob) => { captured = value; return "blob:test" }, configurable: true })
+  Object.defineProperty(page.window.URL, "revokeObjectURL", { value: () => undefined, configurable: true })
+  const click = page.window.HTMLAnchorElement.prototype.click
+  page.window.HTMLAnchorElement.prototype.click = function () { /* keep the test inside happy-dom */ }
+  try {
+    const dashboard = startDashboard(page.document, { autoStart: false })
+    await dashboard.refresh()
+    const doc = page.document
+    const trigger = doc.querySelector<HTMLButtonElement>('button[data-filter-key="session"]')!
+    trigger.click()
+    const input = doc.querySelector<HTMLInputElement>('[data-filter-field="session"]')!
+    input.value = "api-refactor"
+    page.fire(input, "input")
+    doc.querySelector<HTMLButtonElement>("#export-button")!.click()
+    assert.ok(captured)
+    const csv = await captured.text()
+    assert.match(csv, /ses_a93f10_api-refactor/)
+    assert.doesNotMatch(csv, /ses_7fd82a_relay-dashboard/)
     dashboard.destroy()
   } finally {
     page.window.HTMLAnchorElement.prototype.click = click

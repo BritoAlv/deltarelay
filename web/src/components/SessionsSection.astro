@@ -1,5 +1,16 @@
 ---
 import Icon from "./Icon.astro"
+
+const columns = [
+  { key: "session", label: "Session", sortLabel: "session", filterLabel: "session", number: false },
+  { key: "host", label: "Remote codespace host", sortLabel: "remote codespace host", filterLabel: "remote host", number: false },
+  { key: "state", label: "State", sortLabel: "state", filterLabel: "state", number: false },
+  { key: "requests", label: "Requests", sortLabel: "requests", filterLabel: "requests", number: true },
+  { key: "original", label: "Original", sortLabel: "original size", filterLabel: "original size", number: true },
+  { key: "uploaded", label: "Uploaded", sortLabel: "uploaded size", filterLabel: "uploaded size", number: true },
+  { key: "reduction", label: "Reduction", sortLabel: "reduction", filterLabel: "reduction", number: true },
+  { key: "activity", label: "Last activity", sortLabel: "last activity", filterLabel: "last activity", number: false },
+] as const
 ---
 <section id="sessions" class="sessions-section" aria-labelledby="sessions-title">
   <h2 id="sessions-title" class="sr-only">Retained sessions</h2>
@@ -16,6 +27,7 @@ import Icon from "./Icon.astro"
         <button type="button" class="filter-chip" data-filter-value="idle" aria-pressed="false">Idle</button>
         <button type="button" class="filter-chip" data-filter-value="attention" aria-pressed="false">Needs attention</button>
       </div>
+      <button class="text-button clear-filters-button" id="clear-session-filters" type="button" hidden><Icon name="close" size={13} />Clear filters</button>
       <span class="count-badge" id="session-count" aria-hidden="true">0</span>
       <div class="compact-sort" id="session-sort-controls">
         <label class="compact-sort-field"><span>Sort</span><select id="session-sort" aria-label="Sort sessions by">
@@ -34,17 +46,20 @@ import Icon from "./Icon.astro"
     </div>
     <div class="table-scroll" id="session-table-scroll">
       <table>
-        <caption class="sr-only">Retained sessions with the remote codespace host, request counts, transfer sizes, upload reduction, and last activity. Sortable column headers are available on wide screens; a sort control is available on narrow screens.</caption>
+        <caption class="sr-only">Retained sessions with the remote codespace host, request counts, transfer sizes, upload reduction, and last activity. Sortable column headers are available on wide screens; each sortable header also has a column filter. A sort control is available on narrow screens.</caption>
         <thead>
           <tr>
-            <th scope="col" data-sort-key="session" aria-sort="none"><button class="table-sort" type="button" data-sort-key="session" data-sort-label="session"><span>Session</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" data-sort-key="host" aria-sort="none"><button class="table-sort" type="button" data-sort-key="host" data-sort-label="remote codespace host"><span>Remote codespace host</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" data-sort-key="state" aria-sort="none"><button class="table-sort" type="button" data-sort-key="state" data-sort-label="state"><span>State</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" class="number" data-sort-key="requests" aria-sort="none"><button class="table-sort" type="button" data-sort-key="requests" data-sort-label="requests"><span>Requests</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" class="number" data-sort-key="original" aria-sort="none"><button class="table-sort" type="button" data-sort-key="original" data-sort-label="original size"><span>Original</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" class="number" data-sort-key="uploaded" aria-sort="none"><button class="table-sort" type="button" data-sort-key="uploaded" data-sort-label="uploaded size"><span>Uploaded</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" class="number" data-sort-key="reduction" aria-sort="none"><button class="table-sort" type="button" data-sort-key="reduction" data-sort-label="reduction"><span>Reduction</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
-            <th scope="col" data-sort-key="activity" aria-sort="descending"><button class="table-sort" type="button" data-sort-key="activity" data-sort-label="last activity"><span>Last activity</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            {columns.map((column) => (
+              <th scope="col" class={column.number ? "number" : undefined} data-sort-key={column.key} aria-sort={column.key === "activity" ? "descending" : "none"}>
+                <div class="th-tools">
+                  <button class="table-sort" type="button" data-sort-key={column.key} data-sort-label={column.sortLabel} aria-label={`Sort by ${column.sortLabel}`}>
+                    <span>{column.label}</span>
+                    <span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span>
+                  </button>
+                  <button class="column-filter" type="button" data-filter-key={column.key} aria-label={`Filter by ${column.filterLabel}`} aria-haspopup="dialog" aria-expanded="false" aria-controls="session-filter-popover" title={`Filter by ${column.filterLabel}`}><Icon name="filter" size={11} /></button>
+                </div>
+              </th>
+            ))}
             <th scope="col"><span class="sr-only">Details</span></th>
           </tr>
         </thead>
@@ -55,6 +70,7 @@ import Icon from "./Icon.astro"
       <span class="empty-icon"><Icon name="sessions" size={28} /></span>
       <h3>No sessions recorded</h3>
       <p>Requests routed through the gateway will appear here.</p>
+      <button class="text-button empty-clear-button" id="clear-session-filters-empty" type="button" hidden><Icon name="close" size={13} />Clear filters</button>
     </div>
     <div class="table-footer">
       <span id="table-summary" role="status" aria-live="polite">0 sessions</span>
@@ -65,4 +81,17 @@ import Icon from "./Icon.astro"
       </div>
     </div>
   </article>
+  <div class="filter-popover" id="session-filter-popover" role="dialog" aria-modal="false" aria-labelledby="session-filter-popover-title" hidden>
+    <span class="filter-popover-caret" id="session-filter-caret" aria-hidden="true"></span>
+    <div class="filter-popover-head">
+      <h3 id="session-filter-popover-title">Filter</h3>
+      <button class="filter-popover-close" id="close-session-filter" type="button" aria-label="Close filter"><Icon name="close" size={15} /></button>
+    </div>
+    <div class="filter-popover-body" id="session-filter-popover-body"></div>
+    <p class="filter-hint" id="session-filter-hint" role="status" hidden></p>
+    <div class="filter-popover-foot">
+      <button class="text-button" id="clear-session-filter" type="button">Clear</button>
+      <button class="text-button filter-done" id="done-session-filter" type="button">Done</button>
+    </div>
+  </div>
 </section>

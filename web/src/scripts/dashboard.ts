@@ -71,7 +71,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   })
   const stats = statsRoot ? mountStats(statsRoot) : null
   const traffic = trafficRoot ? mountTraffic(trafficRoot) : null
-  const sessions = sessionsRoot && dialog ? mountSessions(sessionsRoot, dialog) : null
+  const sessions = sessionsRoot && dialog ? mountSessions(sessionsRoot, dialog, { onHostChange: setHost }) : null
   const health = healthRoot ? mountHealth(healthRoot) : null
   const unsubscribe = systemObservations.subscribe((system) => {
     state = { ...state, system }
