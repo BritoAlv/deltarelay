@@ -38,7 +38,6 @@ const capitalised = (value: string) => value.replace(/^./, (letter) => letter.to
 export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, options: SessionsOptions): SessionsFeature {
   const doc = root.ownerDocument
   const search = requiredById<HTMLInputElement>(root, "session-search")
-  const filterChips = [...root.querySelectorAll<HTMLButtonElement>("#session-filter-chips [data-filter-value]")]
   const exportButton = requiredById<HTMLButtonElement>(root, "export-button")
   const rowsBody = requiredById(root, "session-rows")
   const tableScroll = requiredById<HTMLElement>(root, "session-table-scroll")
@@ -79,7 +78,6 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   let columnFilters = readSessionFilters(initial)
   let sortState = readSort(initial, sortKeys, "activity", "desc")
   search.value = initial.get("q") ?? ""
-  for (const chip of filterChips) chip.setAttribute("aria-pressed", String(chip.dataset.filterValue === filterValue))
   const pageParam = Number(initial.get("page"))
   let state: DashboardViewState | null = null
   let page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1
@@ -194,10 +192,6 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     renderDetail()
     if (!dialog.open) dialog.showModal()
     syncUrl()
-  }
-
-  function updateChips(): void {
-    for (const chip of filterChips) chip.setAttribute("aria-pressed", String(chip.dataset.filterValue === filterValue))
   }
 
   function filterActive(key: SessionSortKey): boolean {
@@ -465,7 +459,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     switch (key) {
       case "session": columnFilters = { ...columnFilters, session: "" }; break
       case "host": options.onHostChange(""); break
-      case "state": filterValue = "all"; updateChips(); break
+      case "state": filterValue = "all"; break
       case "requests": columnFilters = { ...columnFilters, requestsMin: "", requestsMax: "" }; break
       case "original": columnFilters = { ...columnFilters, originalMin: "", originalMax: "" }; break
       case "uploaded": columnFilters = { ...columnFilters, uploadedMin: "", uploadedMax: "" }; break
@@ -481,7 +475,6 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     if (openFilterKey) closeFilterPanel(false)
     columnFilters = emptySessionFilters()
     filterValue = "all"
-    updateChips()
     search.value = ""
     page = 1
     if ((state?.host ?? "") !== "") options.onHostChange("")
@@ -547,12 +540,10 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
 
   function setFilter(value: string): void {
     filterValue = validStates.includes(value) ? value : "all"
-    updateChips()
     page = 1
     renderSessions()
   }
 
-  for (const chip of filterChips) chip.addEventListener("click", () => setFilter(chip.dataset.filterValue ?? "all"))
   for (const button of sortButtons) {
     button.addEventListener("click", () => {
       const key = asSortKey(button.dataset.sortKey)
@@ -595,20 +586,6 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   }
   doc.defaultView?.addEventListener("scroll", closeOnScroll, true)
   doc.defaultView?.addEventListener("resize", () => closeFilterPanel(false))
-  const chips = requiredById<HTMLElement>(root, "session-filter-chips")
-  chips.addEventListener("keydown", (event) => {
-    const current = (event.target as Element).closest<HTMLButtonElement>("[data-filter-value]")
-    if (!current) return
-    const index = filterChips.indexOf(current)
-    let next = index
-    if (event.key === "ArrowRight") next = Math.min(filterChips.length - 1, index + 1)
-    else if (event.key === "ArrowLeft") next = Math.max(0, index - 1)
-    else if (event.key === "Home") next = 0
-    else if (event.key === "End") next = filterChips.length - 1
-    else return
-    event.preventDefault()
-    filterChips[next]?.focus()
-  })
   search.addEventListener("input", () => { page = 1; renderSessions() })
   previous.addEventListener("click", () => { page--; renderSessions() })
   next.addEventListener("click", () => { page++; renderSessions() })

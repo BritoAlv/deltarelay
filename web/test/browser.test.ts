@@ -988,32 +988,34 @@ test("session column filters open from headers and the host filter stays in sync
   await page.close()
 })
 
-test("state filter popover and chips stay synchronized", async () => {
+test("state column filter filters rows and resets from its popover", async () => {
   const page = openPage("sessions")
   page.setFetch(() => json(makeSnapshot(now)))
   const dashboard = startDashboard(page.document, { autoStart: false })
   await dashboard.refresh()
   const doc = page.document
-
-  doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="active"]')!.click()
-  assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
-
   const popover = openColumnFilter(doc, "state")
-  const active = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="active"]')!
-  assert.equal(active.checked, true)
+  assert.equal(popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="all"]')?.checked, true)
   assert.match(popover.textContent ?? "", /Needs attention/)
+
+  const active = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="active"]')!
+  active.checked = true
+  page.fire(active, "change")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
+  assert.equal(new URL(page.window.location.href).searchParams.get("state"), "active")
+  assert.equal(doc.querySelector('button[data-filter-key="state"]')?.getAttribute("data-active"), "true")
 
   const idle = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="idle"]')!
   idle.checked = true
   page.fire(idle, "change")
-  assert.equal(doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="idle"]')?.getAttribute("aria-pressed"), "true")
   assert.equal(doc.querySelector("#session-rows")?.children.length, 4)
   assert.equal(new URL(page.window.location.href).searchParams.get("state"), "idle")
 
   popover.querySelector<HTMLButtonElement>("#clear-session-filter")!.click()
   assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
   assert.equal(new URL(page.window.location.href).searchParams.get("state"), null)
-  assert.equal(doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="all"]')?.getAttribute("aria-pressed"), "true")
+  assert.equal(popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="all"]')?.checked, true)
+  assert.equal(doc.querySelector('button[data-filter-key="state"]')?.getAttribute("data-active"), "false")
   dashboard.destroy()
   await page.close()
 })
@@ -1218,15 +1220,17 @@ test("session search, state, and pagination are deep-linked through the URL", as
   await dashboard.refresh()
   const doc = page.document
   const search = doc.querySelector<HTMLInputElement>("#session-search")!
-  const idle = doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="idle"]')!
   assert.equal(search.value, "api")
-  assert.equal(idle.getAttribute("aria-pressed"), "true")
   assert.equal(doc.querySelector("#page-label")?.textContent, "Page 1 of 1")
   assert.equal(new URL(page.window.location.href).searchParams.get("page"), null)
+  const popover = openColumnFilter(doc, "state")
+  assert.equal(popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="idle"]')?.checked, true)
 
   search.value = "openai"
   page.fire(search, "input")
-  doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="all"]')!.click()
+  const all = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="all"]')!
+  all.checked = true
+  page.fire(all, "change")
   const params = new URL(page.window.location.href).searchParams
   assert.equal(params.get("q"), "openai")
   assert.equal(params.get("state"), null)
@@ -1354,11 +1358,13 @@ test("session filtering and pagination only render retained matches", async () =
   assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
   search.value = ""
   page.fire(search, "input")
-  const attention = doc.querySelector<HTMLButtonElement>('#session-filter-chips [data-filter-value="attention"]')!
-  attention.click()
-  assert.equal(attention.getAttribute("aria-pressed"), "true")
+  const popover = openColumnFilter(doc, "state")
+  const attention = popover.querySelector<HTMLInputElement>('input[data-filter-option="state"][value="attention"]')!
+  attention.checked = true
+  page.fire(attention, "change")
   assert.equal(doc.querySelector("#session-rows")?.children.length, 1)
   assert.match(doc.querySelector("#session-rows")?.textContent ?? "", /Attention/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("state"), "attention")
   dashboard.destroy()
   await page.close()
 })

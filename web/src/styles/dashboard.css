@@ -2239,7 +2239,6 @@
       align-items: center;
     }
     .sessions-panel .search-field { width: 100%; grid-column: 1 / -1; }
-    .sessions-panel .filter-chips { grid-column: 1 / -1; }
     .sessions-panel .clear-filters-button { grid-column: 1 / -1; justify-self: start; }
     .sessions-panel .compact-sort { grid-column: 1; margin-left: 0; justify-self: start; }
     .sessions-panel .export-button { grid-column: 2; margin-left: 0; }
@@ -2660,18 +2659,6 @@
     .compact-sort-field { flex: 1 1 auto; }
     .compact-sort-field select { width: 100%; max-width: none; }
 
-    .sessions-panel .filter-chips {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      width: 100%;
-      overflow: visible;
-    }
-    .sessions-panel .filter-chip {
-      width: 100%;
-      padding: 6px 4px;
-      line-height: 1.25;
-      white-space: normal;
-    }
     .sessions-panel .table-footer { flex-direction: column; align-items: flex-start; }
   }
 

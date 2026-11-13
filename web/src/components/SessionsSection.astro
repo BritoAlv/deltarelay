@@ -21,12 +21,6 @@ const columns = [
         <label class="sr-only" for="session-search">Search session ID or upstream</label>
         <input id="session-search" name="session-search" type="search" placeholder="Search sessions or upstreams…" autocomplete="off" spellcheck="false" />
       </div>
-      <div class="filter-chips" id="session-filter-chips" role="group" aria-label="Filter sessions by state">
-        <button type="button" class="filter-chip" data-filter-value="all" aria-pressed="true">All</button>
-        <button type="button" class="filter-chip" data-filter-value="active" aria-pressed="false">Active</button>
-        <button type="button" class="filter-chip" data-filter-value="idle" aria-pressed="false">Idle</button>
-        <button type="button" class="filter-chip" data-filter-value="attention" aria-pressed="false">Needs attention</button>
-      </div>
       <button class="text-button clear-filters-button" id="clear-session-filters" type="button" hidden><Icon name="close" size={13} />Clear filters</button>
       <span class="count-badge" id="session-count" aria-hidden="true">0</span>
       <div class="compact-sort" id="session-sort-controls">

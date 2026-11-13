@@ -72,12 +72,14 @@ infer a working connection merely because two processes are running.
 - Latest retained provider results. These are observations, **not** live provider
   account/authentication checks. An enabled allowlist is not proof of a healthy
   provider. No provider generation is sent by the dashboard.
-- Session search, state filters, per-column filters, pagination, CSV export,
-  manual refresh, and pause/resume. Each sortable sessions column has its own
-  filter button: option lists for the remote host and state, minimum/maximum
-  bounds for requests, transfer sizes, and reduction, and a from/to date range
-  for last activity. Column filters combine with the search text and state chips;
-  invalid bounds are explained in the popover instead of being applied silently.
+- Session search, per-column filters, pagination, CSV export, manual refresh,
+  and pause/resume. Each sortable sessions column has its own filter button:
+  option lists for the remote host and state, minimum/maximum bounds for
+  requests, transfer sizes, and reduction, and a from/to date range for last
+  activity. The State filter carries the active, idle, and needs-attention
+  choices; there are no duplicate state chips in the toolbar. Column filters
+  combine with the search text, and invalid bounds are explained in the popover
+  instead of being applied silently.
   Automatic refresh is every ten seconds while the tab is visible. A failed
   refresh keeps the last live snapshot and explicitly marks it stale.
 - Deep-linkable view state: the selected host, chart range and view, session
