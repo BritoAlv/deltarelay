@@ -409,8 +409,7 @@
   td.number { font-family: var(--mono); }
   .session-name { background: none; border: 0; padding: 0; color: var(--text); display: block; font: 13px var(--mono); max-width: 260px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
   .session-name:hover { color: var(--accent); }
-  .session-upstream { display: flex; align-items: center; gap: 5px; color: var(--subtle); margin-top: 5px; font-size: 12px; }
-  .session-upstream .tiny-dot { width: 4px; height: 4px; background: var(--subtle); }
+  .session-host { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; color: var(--subtle); font: 12px var(--mono); }
   .reduction-cell { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--accent); }
   .reduction-track { height: 3px; width: 32px; border-radius: 2px; background: var(--border); overflow: hidden; }
   .reduction-track span { display: block; height: 100%; background: var(--accent); }
@@ -871,6 +870,20 @@
     flex-shrink: 0;
   }
   .topbar-status { display: flex; align-items: center; gap: 12px; }
+  .host-filter { display: flex; align-items: center; }
+  .host-filter select {
+    height: 30px;
+    max-width: 190px;
+    padding: 0 26px 0 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 11.5px;
+  }
+  .host-filter select:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
+  .host-filter select:disabled { opacity: .55; }
   .topbar .live-badge { font-size: 11px; white-space: nowrap; }
   .topbar .live-badge .tiny-dot { width: 5px; height: 5px; }
   .topbar-updated { color: var(--subtle); font-size: 11px; white-space: nowrap; }
@@ -2088,6 +2101,7 @@
     .topbar-brand { display: grid; }
     .topbar-actions { gap: 5px; }
     .topbar-status { gap: 7px; }
+    .host-filter select { max-width: 120px; }
     .topbar .topbar-updated,
     .topbar #updated-at,
     .topbar .refresh-note { display: none; }
@@ -2185,6 +2199,7 @@
   @media (max-width: 380px) {
     .topbar { padding-inline: 10px; gap: 6px; }
     .topbar-actions { gap: 3px; }
+    .host-filter select { max-width: 78px; padding-inline: 6px 20px; font-size: 10px; }
     .topbar .button,
     .topbar .icon-button,
     .theme-popover > summary { width: 36px; height: 36px; min-height: 36px; }

@@ -11,7 +11,7 @@
   {"name":"traffic-failed-plus-cancelled-exceeds-requests","valid":false,"changes":[{"path":"history.traffic.hourly.buckets.0.failed","value":1},{"path":"history.traffic.hourly.buckets.0.cancelled","value":1}]},
   {"name":"totals-cancelled-exceeds-requests","valid":false,"changes":[{"path":"history.totals.cancelled","value":3}]},
   {"name":"wrong-traffic-bucket-seconds","valid":false,"changes":[{"path":"history.traffic.hourly.bucket_seconds","value":60}]},
-  {"name":"zero-traffic-retention","valid":false,"changes":[{"path":"history.traffic.daily.retention_seconds","value":0}]},
+  {"name":"unlimited-traffic-retention","valid":true,"changes":[{"path":"history.traffic.daily.retention_seconds","value":0}]},
   {"name":"missing-traffic-series","valid":false,"changes":[{"path":"history.traffic.hourly","remove":true}]},
   {"name":"invalid-traffic-object","valid":false,"changes":[{"path":"history.traffic","value":[]}]},
   {"name":"nanosecond-timestamp","valid":true,"changes":[{"path":"collected_at","value":"2026-11-01T12:00:00.123456789Z"}]},
@@ -43,8 +43,8 @@
   {"name":"wrong-control-error","valid":false,"changes":[{"path":"gateway.control_error","value":null}]},
   {"name":"wrong-health-error","valid":false,"changes":[{"path":"relay.health.control_error","value":12}]},
   {"name":"unknown-request-state","valid":false,"changes":[{"path":"history.recent_requests.0.state","value":"done"}]},
-  {"name":"too-many-sessions","valid":false,"changes":[{"path":"history.sessions","copies":257}]},
-  {"name":"too-many-requests","valid":false,"changes":[{"path":"history.recent_requests","copies":1001}]},
-  {"name":"oversized-session-limit","valid":false,"changes":[{"path":"history.session_limit","value":257}]},
-  {"name":"oversized-request-limit","valid":false,"changes":[{"path":"history.request_limit","value":1001}]}
+  {"name":"many-sessions-allowed","valid":true,"changes":[{"path":"history.sessions","copies":257}]},
+  {"name":"many-requests-allowed","valid":true,"changes":[{"path":"history.recent_requests","copies":1001}]},
+  {"name":"previous-session-limit-accepted","valid":true,"changes":[{"path":"history.session_limit","value":257}]},
+  {"name":"previous-request-limit-accepted","valid":true,"changes":[{"path":"history.request_limit","value":1001}]}
 ]

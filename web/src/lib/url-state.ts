@@ -24,6 +24,24 @@ export function replaceParams(doc: Document, values: Record<string, string | nul
   }
 }
 
+// Keep the host filter across the host-scoped monitor pages without storing
+// private selection state outside the URL. Overview is always all hosts.
+export function syncHostLinks(doc: Document, host: string): void {
+  for (const link of doc.querySelectorAll<HTMLAnchorElement>(".sidebar-nav a[href], .mobile-tabs a[href]")) {
+    const href = link.getAttribute("href")
+    if (!href) continue
+    try {
+      const url = new URL(href, doc.defaultView?.location.href ?? "http://localhost/")
+      if (!["/sessions", "/measurement"].includes(url.pathname)) continue
+      if (host) url.searchParams.set("host", host)
+      else url.searchParams.delete("host")
+      link.setAttribute("href", `${url.pathname}${url.search}`)
+    } catch {
+      // A malformed link must not break the page.
+    }
+  }
+}
+
 export type SortDirection = "asc" | "desc"
 
 export interface SortState<Key extends string> {

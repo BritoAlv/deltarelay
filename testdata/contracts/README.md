@@ -32,8 +32,9 @@ Active contract distinctions:
   traffic buckets; rebuild the gateway and
   dashboard together when upgrading because the browser validator requires it.
 - `history.traffic` is required. Hourly and daily bucket arrays must be strictly
-  ordered and within their declared retention. Missing aggregates are rejected;
-  neither Go nor the browser reconstructs them from old request entries.
+  ordered. A declared retention of `0` means unlimited; positive legacy values
+  are still accepted. Missing aggregates are rejected; neither Go nor the browser
+  reconstructs them from old request entries.
 - `inspection` is optional because capture can be disabled. It appears only when
   capture is enabled (the CLI default).
   `recent_requests[].capture_id`

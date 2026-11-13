@@ -63,7 +63,7 @@ const tabs = [
     <Sidebar current={current} />
 
     <div class="page-shell">
-      <DashboardHeader title={page.heading} group={page.group} refreshNote={refreshNote} idPrefix={idPrefix} />
+      <DashboardHeader title={page.heading} group={page.group} refreshNote={refreshNote} idPrefix={idPrefix} showHostFilter={current === "sessions" || current === "measurement"} />
       <main id="main">
         <div class="page-heading">
           <div>

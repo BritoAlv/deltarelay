@@ -56,9 +56,10 @@ def private_json(path, limit=262144):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd) as file:
         info = os.fstat(file.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_size > limit:
+        oversized = limit is not None and info.st_size > limit
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or oversized:
             raise ProviderError('unsafe_private_file')
-        return strict_json(file.read(limit + 1))
+        return strict_json(file.read() if limit is None else file.read(limit + 1))
 
 
 def origin(value, https_only=False):

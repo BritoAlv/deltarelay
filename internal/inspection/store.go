@@ -51,25 +51,28 @@ func validID(id string) bool {
 	return true
 }
 
+const unlimited int64 = 1<<63 - 1
+
+// Zero or negative limits are unlimited. Positive limits keep their previous
+// meaning so operators can still opt into bounded capture storage.
+func atLimit(limit, value int64) bool   { return limit > 0 && value >= limit }
+func overLimit(limit, value int64) bool { return limit > 0 && value > limit }
+func room(limit, used int64) int64 {
+	if limit <= 0 {
+		return unlimited
+	}
+	return max(0, limit-used)
+}
+
 // Open owns a dedicated private directory. It refuses foreign entries rather
 // than silently adopting or deleting user files. Empty Dir disables capture.
 func Open(config Config) (_ *Store, openErr error) {
 	if config.Dir == "" {
 		return nil, nil
 	}
-	if config.MaxBytes == 0 {
-		config.MaxBytes = DefaultMaxBytes
-	}
-	if config.MaxCaptureBytes == 0 {
-		config.MaxCaptureBytes = DefaultMaxCaptureBytes
-	}
-	if config.MaxCaptures == 0 {
-		config.MaxCaptures = DefaultMaxCaptures
-	}
-	if config.MaxAge == 0 {
-		config.MaxAge = DefaultMaxAge
-	}
-	if config.MaxBytes < 1 || config.MaxBytes > 1<<40 || config.MaxCaptureBytes < 1 || config.MaxCaptureBytes > 1<<30 || config.MaxCaptureBytes > config.MaxBytes || config.MaxCaptures < 1 || config.MaxCaptures > 1000 || config.MaxAge < time.Second {
+	if config.MaxBytes < 0 || config.MaxCaptureBytes < 0 || config.MaxCaptures < 0 || config.MaxAge < 0 ||
+		config.MaxBytes > 0 && config.MaxCaptureBytes > config.MaxBytes ||
+		config.MaxAge > 0 && config.MaxAge < time.Second {
 		return nil, errors.New("invalid inspection retention limits")
 	}
 	if err := os.MkdirAll(config.Dir, 0700); err != nil {
@@ -139,7 +142,13 @@ func (s *Store) load(id string) (*Capture, int64, error) {
 	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
 		return nil, 0, errors.New("unsafe inspection directory")
 	}
-	f, err := privateFile(filepath.Join(dir, "capture.json"), maxMetadataBytes)
+	metadataLimit := int64(maxMetadataBytes)
+	if s.config.MaxCaptureBytes <= 0 {
+		metadataLimit = unlimited
+	} else if s.config.MaxCaptureBytes > metadataLimit {
+		metadataLimit = s.config.MaxCaptureBytes
+	}
+	f, err := privateFile(filepath.Join(dir, "capture.json"), metadataLimit)
 	if errors.Is(err, os.ErrNotExist) {
 		// A crash can occur after Mkdir but before the initial checkpoint is
 		// renamed into place. No artifact can exist without that checkpoint.
@@ -167,7 +176,7 @@ func (s *Store) load(id string) (*Capture, int64, error) {
 		return nil, 0, err
 	}
 	var t Trace
-	d := json.NewDecoder(io.LimitReader(f, maxMetadataBytes+1))
+	d := json.NewDecoder(io.LimitReader(f, metadataLimit))
 	err = d.Decode(&t)
 	var extra any
 	trailing := d.Decode(&extra)
@@ -344,7 +353,7 @@ func (s *Store) Begin(requestID string, sequence uint64, contentType string) *Ca
 	s.prune(time.Now(), 1, 0)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.entries) >= s.config.MaxCaptures || s.bytes >= s.config.MaxBytes {
+	if atLimit(int64(s.config.MaxCaptures), int64(len(s.entries))) || atLimit(s.config.MaxBytes, s.bytes) {
 		s.failed.Store(true)
 		return nil
 	}
@@ -359,7 +368,7 @@ func (s *Store) Begin(requestID string, sequence uint64, contentType string) *Ca
 	// Publish a valid interrupted-capture checkpoint before writing artifacts.
 	// Later checkpoints are coalesced off the forwarding path.
 	data, err := json.Marshal(c.data)
-	if err == nil && int64(len(data)) <= s.config.MaxCaptureBytes && s.bytes+int64(len(data)) <= s.config.MaxBytes {
+	if err == nil && !overLimit(s.config.MaxCaptureBytes, int64(len(data))) && !overLimit(s.config.MaxBytes, s.bytes+int64(len(data))) {
 		err = fsx.WriteJSON(filepath.Join(s.config.Dir, id, "capture.json"), c.data)
 	} else if err == nil {
 		err = errors.New("inspection metadata budget exceeded")
@@ -383,7 +392,7 @@ func (s *Store) get(id string) (*Capture, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[id]
-	if !ok || !e.active && time.Since(e.created) > s.config.MaxAge {
+	if !ok || !e.active && s.config.MaxAge > 0 && time.Since(e.created) > s.config.MaxAge {
 		return nil, false
 	}
 	return e.capture, true
@@ -398,10 +407,19 @@ func (s *Store) reserve(id string, n int64) int64 {
 		s.mu.Unlock()
 		return 0
 	}
-	captureLimit := s.config.MaxCaptureBytes - min(int64(maxMetadataBytes), s.config.MaxCaptureBytes/4)
-	want := min(n, max(0, captureLimit-e.bytes))
+	captureLimit := unlimited
+	if s.config.MaxCaptureBytes > 0 {
+		captureLimit = max(0, s.config.MaxCaptureBytes-min(int64(maxMetadataBytes), s.config.MaxCaptureBytes/4))
+	}
+	want := n
+	if captureLimit != unlimited {
+		want = min(n, room(captureLimit, e.bytes))
+	}
 	s.mu.Unlock()
-	headroom := min(int64(maxMetadataBytes), s.config.MaxBytes/4)
+	headroom := int64(0)
+	if s.config.MaxBytes > 0 {
+		headroom = min(int64(maxMetadataBytes), s.config.MaxBytes/4)
+	}
 	s.prune(time.Now(), 0, want+headroom)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -409,10 +427,12 @@ func (s *Store) reserve(id string, n int64) int64 {
 	if e == nil {
 		return 0
 	}
-	// Leave bounded headroom for the final evidence index, even when body/payload
-	// capture exhausts its quota. That index must still describe the truncation.
-	storeLimit := s.config.MaxBytes - min(int64(maxMetadataBytes), s.config.MaxBytes/4)
-	n = min(n, max(0, captureLimit-e.bytes), max(0, storeLimit-s.bytes))
+	// Leave bounded headroom for the final evidence index when a limit is set.
+	storeLimit := unlimited
+	if s.config.MaxBytes > 0 {
+		storeLimit = max(0, s.config.MaxBytes-min(int64(maxMetadataBytes), s.config.MaxBytes/4))
+	}
+	n = min(n, room(captureLimit, e.bytes), room(storeLimit, s.bytes))
 	e.bytes += n
 	s.bytes += n
 	return n
@@ -423,7 +443,7 @@ func (s *Store) accountMetadata(id string, size int64) bool {
 	defer s.mu.Unlock()
 	if e := s.entries[id]; e != nil {
 		delta := size - e.capture.metadataBytes
-		if delta > 0 && (e.bytes+delta > s.config.MaxCaptureBytes || s.bytes+delta > s.config.MaxBytes) {
+		if delta > 0 && (overLimit(s.config.MaxCaptureBytes, e.bytes+delta) || overLimit(s.config.MaxBytes, s.bytes+delta)) {
 			return false
 		}
 		e.capture.metadataBytes = size
@@ -445,7 +465,10 @@ func (s *Store) prune(now time.Time, additional int, needed int64) {
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].created.Before(candidates[j].created) })
 	var removed []string
 	for _, e := range candidates {
-		if now.Sub(e.created) <= s.config.MaxAge && len(s.entries)+additional <= s.config.MaxCaptures && s.bytes+needed <= s.config.MaxBytes {
+		withinAge := s.config.MaxAge <= 0 || now.Sub(e.created) <= s.config.MaxAge
+		withinCount := s.config.MaxCaptures <= 0 || len(s.entries)+additional <= s.config.MaxCaptures
+		withinBytes := s.config.MaxBytes <= 0 || s.bytes+needed <= s.config.MaxBytes
+		if withinAge && withinCount && withinBytes {
 			break
 		}
 		id := e.capture.data.ID
@@ -501,7 +524,7 @@ func (s *Store) flush() {
 		data, err := json.Marshal(c.data)
 		revision := c.revision
 		c.mu.Unlock()
-		if err == nil && len(data) <= maxMetadataBytes && s.accountMetadata(c.data.ID, int64(len(data)+1)) {
+		if err == nil && !overLimit(s.config.MaxCaptureBytes, int64(len(data))) && s.accountMetadata(c.data.ID, int64(len(data)+1)) {
 			err = fsx.Replace(filepath.Join(s.config.Dir, c.data.ID, "capture.json"), func(f *os.File) error { _, err := f.Write(data); return err })
 		} else if err == nil {
 			err = errors.New("inspection metadata exceeds limit")

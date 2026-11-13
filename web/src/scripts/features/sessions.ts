@@ -1,9 +1,9 @@
 import { sessionCsv } from "../../lib/csv.js"
 import { escapeHtml as escape } from "../../lib/html.js"
-import { bytes, duration, filterSessions, percentage, relativeTime, savings, sessionState } from "../../lib/metrics.js"
+import { bytes, displaySessions, duration, filterSessions, percentage, relativeTime, savings, sessionRequests, sessionState, type SessionView } from "../../lib/metrics.js"
 import { dataValue } from "../../lib/presentation.js"
 import type { DashboardViewState } from "../../lib/state.js"
-import type { Session, Snapshot } from "../../lib/types.js"
+import type { Snapshot } from "../../lib/types.js"
 import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
 import { required, requiredById } from "../dom.js"
 
@@ -14,10 +14,11 @@ export interface SessionsFeature {
 const pageSize = 8
 const integer = (value: number) => value.toLocaleString()
 const pill = (label: string, state: string) => `<span class="status-pill ${state}">${escape(label)}</span>`
-const sortKeys = ["session", "state", "requests", "original", "uploaded", "reduction", "activity"] as const
+const sortKeys = ["session", "host", "state", "requests", "original", "uploaded", "reduction", "activity"] as const
 type SessionSortKey = (typeof sortKeys)[number]
 const sortLabels: Record<SessionSortKey, string> = {
   session: "session",
+  host: "remote host",
   state: "state",
   requests: "requests",
   original: "original size",
@@ -76,11 +77,13 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     })
   }
 
-  function compareSessions(a: Session, b: Session): number {
+  function compareSessions(a: SessionView, b: SessionView): number {
     const direction = sortState.direction === "asc" ? 1 : -1
     switch (sortState.key) {
       case "session":
         return (a.id || "Unattributed requests").localeCompare(b.id || "Unattributed requests", undefined, { numeric: true, sensitivity: "base" }) * direction
+      case "host":
+        return a.hosts.join(", ").localeCompare(b.hosts.join(", "), undefined, { numeric: true, sensitivity: "base" }) * direction
       case "state":
         return sessionState(a).localeCompare(sessionState(b)) * direction
       case "requests":
@@ -104,8 +107,9 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     }
   }
 
-  function visibleSessions(): Session[] {
-    return filterSessions(state?.snapshot?.history.sessions ?? [], search.value, filterValue)
+  function visibleSessions(): SessionView[] {
+    const sessions = displaySessions(state?.snapshot ?? null, state?.host ?? "")
+    return filterSessions(sessions, search.value, filterValue)
       .sort((a, b) => compareSessions(a, b))
   }
 
@@ -149,18 +153,18 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
   function renderDetail() {
     if (!state?.snapshot || selectedSession === null) return
     const snapshot: Snapshot = state.snapshot
-    const session = snapshot.history.sessions.find((candidate) => candidate.id === selectedSession)
+    const session = displaySessions(snapshot, state.host).find((candidate) => candidate.id === selectedSession)
     if (!session) {
       detail.textContent = "Session is no longer in retained history. Global totals are unchanged."
       measureLink.hidden = true
       return
     }
     measureLink.hidden = false
-    measureLink.href = `/measurement?session=${encodeURIComponent(session.id)}`
+    measureLink.href = `/measurement?session=${encodeURIComponent(session.id)}${state.host ? `&host=${encodeURIComponent(state.host)}` : ""}`
     detailTitle.textContent = session.id || "Unattributed requests"
-    const requests = snapshot.history.recent_requests.filter((request) => request.session_id === session.id).sort((a, b) => b.sequence - a.sequence)
+    const requests = sessionRequests(snapshot, session.id, state.host)
     const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
-    detail.innerHTML = `<div class="detail-meta"><span class="metadata-line">${dataValue(session.upstream || "Unknown upstream")}<span>${dataValue(integer(session.requests))} requests</span><span>${dataValue(integer(session.failed))} failed</span><span>${dataValue(integer(session.cancelled))} cancelled</span></span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div><h3>Recent requests <span class="section-meta">${dataValue(integer(requests.length))} retained</span></h3>${requests.map((request) => `<div class="request-entry"><div><code translate="no">${escape(request.id)}</code><p class="metadata-line">${dataValue(request.kind)}${dataValue(relativeTime(request.started_at))}${dataValue(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? dataValue(`HTTP ${request.status}`) : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : request.state === "cancelled" ? "neutral" : "warning")}<p class="request-transfer metadata-line">${request.state === "running" ? "Transfer totals pending" : `${dataValue(bytes(request.transfer.body_bytes))}<span aria-hidden="true">→</span><span class="sr-only">to</span>${dataValue(bytes(request.transfer.request_body_bytes_sent))}`}</p></div></div>`).join("")}<p class="detail-note">${session.id ? "Session ID is opaque; no title or content is shown." : "Requests without a valid session ID are grouped here."} History is bounded; session totals may exceed the retained list. “Interrupted” after a gateway restart does not mean the remote job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
+    detail.innerHTML = `<div class="detail-meta"><span class="metadata-line">${dataValue(session.upstream || "Unknown upstream")}<span>${dataValue(session.hosts.join(", "))}</span><span>${dataValue(integer(session.requests))} requests</span><span>${dataValue(integer(session.failed))} failed</span><span>${dataValue(integer(session.cancelled))} cancelled</span></span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div><h3>Recent requests <span class="section-meta">${dataValue(integer(requests.length))} retained</span></h3>${requests.map((request) => `<div class="request-entry"><div><code translate="no">${escape(request.id)}</code><p class="metadata-line">${dataValue(request.kind)}${dataValue(request.host || "local")}${dataValue(relativeTime(request.started_at))}${dataValue(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? dataValue(`HTTP ${request.status}`) : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : request.state === "cancelled" ? "neutral" : "warning")}<p class="request-transfer metadata-line">${request.state === "running" ? "Transfer totals pending" : `${dataValue(bytes(request.transfer.body_bytes))}<span aria-hidden="true">→</span><span class="sr-only">to</span>${dataValue(bytes(request.transfer.request_body_bytes_sent))}`}</p></div></div>`).join("")}<p class="detail-note">${session.id ? "Session ID is opaque; no title or content is shown." : "Requests without a valid session ID are grouped here."} New history is retained indefinitely; request lists may still be incomplete for sessions recorded before unlimited retention. “Interrupted” after a gateway restart does not mean the remote job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
   }
 
   function openDetail(sessionId: string): void {
@@ -172,6 +176,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
 
   function renderSessions() {
     updateSortControls()
+    const allSessions = displaySessions(state?.snapshot ?? null, state?.host ?? "")
     const sessions = visibleSessions()
     const totalPages = Math.max(1, Math.ceil(sessions.length / pageSize))
     if (state?.snapshot) page = Math.min(page, totalPages)
@@ -184,7 +189,8 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     rowsBody.innerHTML = rows.map((session) => {
       const current = sessionState(session)
       const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
-      return `<tr><td><button class="session-name" type="button" data-session-id="${escape(session.id)}" title="${escape(session.id || "Unattributed requests")}" translate="no">${escape(session.id || "Unattributed requests")}</button><span class="session-upstream"><span class="tiny-dot" aria-hidden="true"></span>${escape(session.upstream || "Unknown upstream")}</span></td><td>${pill(current === "active" ? `${session.active} active` : current === "attention" ? "Attention" : "Idle", current)}</td><td class="number">${integer(session.requests)}</td><td class="number">${escape(bytes(session.body_bytes))}</td><td class="number">${escape(bytes(session.encoded_upload_bytes))}</td><td class="number"><span class="reduction-cell ${reduction !== null && reduction < 0 ? "negative" : ""}">${escape(percentage(reduction))}<span class="reduction-track" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, reduction ?? 0))}%"></span></span></span></td><td title="${escape(new Date(session.updated_at).toLocaleString())}">${escape(relativeTime(session.updated_at))}</td><td><button class="row-detail" type="button" data-session-id="${escape(session.id)}" aria-label="Inspect ${escape(session.id || "unattributed requests")}">↗</button></td></tr>`
+      const label = session.id || "Unattributed requests"
+      return `<tr><td><button class="session-name" type="button" data-session-id="${escape(session.id)}" title="${escape(label)}" translate="no">${escape(label)}</button></td><td><span class="session-host" translate="no" title="${escape(session.hosts.join(", ") || "local")}">${escape(session.hosts.join(", ") || "local")}</span></td><td>${pill(current === "active" ? `${session.active} active` : current === "attention" ? "Attention" : "Idle", current)}</td><td class="number">${integer(session.requests)}</td><td class="number">${escape(bytes(session.body_bytes))}</td><td class="number">${escape(bytes(session.encoded_upload_bytes))}</td><td class="number"><span class="reduction-cell ${reduction !== null && reduction < 0 ? "negative" : ""}">${escape(percentage(reduction))}<span class="reduction-track" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, reduction ?? 0))}%"></span></span></span></td><td title="${escape(new Date(session.updated_at).toLocaleString())}">${escape(relativeTime(session.updated_at))}</td><td><button class="row-detail" type="button" data-session-id="${escape(session.id)}" aria-label="Inspect ${escape(label)}">↗</button></td></tr>`
     }).join("")
     if (focusedSession !== undefined) {
       const replacement = [...rowsBody.querySelectorAll<HTMLButtonElement>(`button.${focusedClass}[data-session-id]`)].find((button) => button.dataset.sessionId === focusedSession)
@@ -192,14 +198,14 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     }
     empty.hidden = sessions.length > 0
     tableScroll.hidden = sessions.length === 0
-    if (state?.snapshot?.history.sessions.length) {
+    if (allSessions.length) {
       required(empty, "h3").textContent = "No matching sessions"
-      required(empty, "p").textContent = "Change the search text or state filter."
+      required(empty, "p").textContent = "Change the search text, state, or host filter."
     } else {
       required(empty, "h3").textContent = "No sessions recorded"
       required(empty, "p").textContent = "Requests routed through the gateway will appear here."
     }
-    const totalSessions = state?.snapshot?.history.sessions.length ?? 0
+    const totalSessions = allSessions.length
     const sortNote = ` · sorted by ${sortLabels[sortState.key]} ${sortWord(sortState.direction)}`
     const summaryHtml = sessions.length
       ? `${dataValue(`${start + 1}–${Math.min(start + pageSize, sessions.length)}`)} of ${dataValue(sessions.length)}${sessions.length !== totalSessions ? ` matching (${dataValue(`${integer(totalSessions)} total`)})` : ""} sessions${sortNote}`
@@ -209,12 +215,12 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     previous.disabled = page <= 1
     next.disabled = page >= totalPages
     exportButton.disabled = sessions.length === 0
-    setText("session-count", state?.snapshot?.history.sessions.length ?? 0)
+    setText("session-count", totalSessions)
     syncUrl()
     if (pendingOpen && state?.snapshot) {
       const sessionId = pendingOpen
       pendingOpen = null
-      if (state.snapshot.history.sessions.some((session) => session.id === sessionId)) openDetail(sessionId)
+      if (allSessions.some((session) => session.id === sessionId)) openDetail(sessionId)
       else syncUrl()
     }
   }

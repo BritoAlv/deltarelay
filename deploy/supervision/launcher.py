@@ -8,6 +8,7 @@ import time
 
 from remote_provider import ProviderError as ControlError, environment, private_json
 from .build import prepare_build
+from .history import configure as configure_history
 
 from .config import validate
 from .control import control_request, controller_status
@@ -31,6 +32,9 @@ def start(project, config_file, no_dashboard=False, no_desktop=False, report=Non
                 control_request(directory / 'supervisor.sock', 'POST', '/action',
                                 {'component': component, 'action': 'start'})
     else:
+        # The gateway is stopped here, so migrating per-host history into the
+        # shared host-labelled file cannot race a live writer.
+        config = configure_history(project, config_file, config, report=emit)
         # No network recovery precedes these offline builds or dashboard startup.
         if report is None:
             prepare_build(project)

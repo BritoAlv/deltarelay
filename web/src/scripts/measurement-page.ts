@@ -1,7 +1,8 @@
 import { fetchOpenCodeSessions, fetchSnapshot } from "../lib/api.js"
-import { relativeTime } from "../lib/metrics.js"
+import { historyHosts, relativeTime } from "../lib/metrics.js"
 import { createPoller } from "../lib/polling.js"
 import type { DashboardViewState } from "../lib/state.js"
+import { readParams, replaceParams, syncHostLinks } from "../lib/url-state.js"
 import { requiredById } from "./dom.js"
 import { mountMeasurement } from "./features/measurement.js"
 
@@ -31,8 +32,11 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
   const updatedAt = requiredById(doc, "measurement-updated-at")
   const refreshNote = requiredById(doc, "measurement-refresh-note")
   const notice = requiredById<HTMLElement>(doc, "measurement-notice")
+  const hostFilter = doc.getElementById("measurement-host-filter") as HTMLSelectElement | null
+  const initialHost = readParams(doc).get("host") ?? ""
+  let hostSignature = ""
 
-  let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, catalog: null, catalogError: "" }
+  let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, host: initialHost, catalog: null, catalogError: "" }
   let generation = 0
   let catalogGeneration = 0
   let catalogBusy = false
@@ -68,8 +72,45 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     if (message && (wasHidden || notice.textContent !== message)) notice.textContent = message
   }
 
+  function setHost(host: string): void {
+    const hosts = historyHosts(state.snapshot)
+    state = { ...state, host: hosts.includes(host) ? host : "" }
+    replaceParams(doc, { host: state.host || null })
+    syncHostLinks(doc, state.host)
+    render()
+  }
+
+  function renderHosts(): void {
+    if (!hostFilter) return
+    const hosts = historyHosts(state.snapshot)
+    if (state.snapshot && state.host && !hosts.includes(state.host)) {
+      state = { ...state, host: "" }
+      replaceParams(doc, { host: null })
+      syncHostLinks(doc, "")
+    }
+    const signature = hosts.join("\u0000")
+    if (signature !== hostSignature) {
+      hostSignature = signature
+      const options = [doc.createElement("option")]
+      options[0]!.value = ""
+      options[0]!.textContent = "All hosts"
+      for (const name of hosts) {
+        const option = doc.createElement("option")
+        option.value = name
+        option.textContent = name
+        options.push(option)
+      }
+      hostFilter.replaceChildren(...options)
+    }
+    hostFilter.disabled = hosts.length === 0
+    hostFilter.value = hosts.includes(state.host) ? state.host : ""
+  }
+
+  hostFilter?.addEventListener("change", () => setHost(hostFilter.value))
+
   function render() {
     if (destroyed) return
+    renderHosts()
     measurement.render(state)
     renderConnection()
   }
@@ -137,6 +178,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     }
   }
 
+  syncHostLinks(doc, initialHost)
   render()
   if (autoStart) {
     poller.start()

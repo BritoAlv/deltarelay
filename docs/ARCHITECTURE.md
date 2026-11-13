@@ -34,7 +34,7 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/client` | PC-side spooling, chunk inventory/upload, relay RPC attempts, retry policy, response resumption, checkpoints, and the offline cancellation outbox. |
 | `internal/upstream` | Destination allowlist matching, DNS/private-network rejection, header filtering, and the provider HTTP client. |
 | `internal/fsx` | Narrow filesystem mechanics: directory syncing, atomic replacement, JSON writes, and exclusive creation. Callers keep their own durability and overwrite policies. |
-| `internal/inspection` | Private request/attempt evidence capture, bounded retention and quota accounting, crash checkpoints, and validated read-only inspection routes. |
+| `internal/inspection` | Private request/attempt evidence capture, optional retention/quota accounting, crash checkpoints, and validated read-only inspection routes. |
 | `internal/store` | Content-addressed chunk/body cache, verification, assembly, and cache quota accounting. |
 | `internal/journal` | Exclusive, durable provider-dispatch claims and replay refusal. |
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
@@ -112,8 +112,8 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
 - With the default `--capture-dir`, the gateway attaches request evidence to a
   metadata observation. An empty `--capture-dir` disables capture. The dashboard
   proxies only validated read-only `/api/inspection` routes, and the capture
-  store keeps its own retention independent of the statistics file. Provider
-  response bodies are not captured.
+  store keeps its own optional bounds independent of the statistics file.
+  Provider response bodies are not captured.
 - With `--opencode-service-file`, the dashboard may read the local OpenCode V2
   `/api/session` catalog and expose only sanitized, local-only session metadata
   through `/api/opencode/sessions`. Messages, content, credentials, cost, token
@@ -189,7 +189,7 @@ no worker and no lock.
 | Remote-provider plugin | v1 JSON envelope and required/optional operations. |
 | Supervisor status | Only current version 2 status with `remote` metadata and remote-host actions is accepted. Optional sanitized `topology` is contract version 1. |
 | Recovery run/topology | Bounded node/edge/action/readiness vocabulary, recovery checkpoints, network generation, and intent. Diagnostics only; never a command queue or relay contract. |
-| Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates. Optional `capture_id` links identify retained request evidence. |
+| Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates and per-host attribution/totals. Optional `capture_id` links identify retained request evidence. |
 | Request inspection | Optional and enabled by default. A gateway with an empty `--capture-dir` omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
 | Persisted state | Mailbox identity/records/frames, exclusive journal markers, client relay pin, download checkpoints, and cancellation outbox use their existing formats. No storage migration is planned. |
 | Launchers | `deploy/start_supervisor.py` launches `deploy/supervisor.py`; `deploy/supervision/build.py` owns offline builds. |
@@ -199,7 +199,7 @@ no worker and no lock.
 Component defaults live with the package that owns the behavior: protocol sizes
 in `internal/protocol`, transfer workers/batches/recovery in `internal/client`,
 provider-job and mailbox limits in `internal/server` and `internal/mailbox`,
-capture retention defaults in `internal/inspection`, and dashboard integration
+capture limit defaults in `internal/inspection`, and dashboard integration
 defaults in `internal/dashboard`. The CLI registers flags
 from those values where semantics match and keeps only composition-owned choices
 (listen addresses, file locations, command-wide timeouts) locally.

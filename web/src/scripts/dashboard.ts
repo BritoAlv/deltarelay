@@ -1,7 +1,8 @@
 import { fetchSnapshot } from "../lib/api.js"
-import { relativeTime } from "../lib/metrics.js"
+import { historyHosts, relativeTime, trackedSessionCount } from "../lib/metrics.js"
 import { createPoller } from "../lib/polling.js"
 import { observationConnection, systemObservations, type DashboardViewState } from "../lib/state.js"
+import { readParams, replaceParams, syncHostLinks } from "../lib/url-state.js"
 import { requiredById } from "./dom.js"
 import { mountHeader, type HeaderView } from "./features/header.js"
 import { mountHealth } from "./features/health.js"
@@ -44,16 +45,29 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   }
   const dialog = sessionsRoot ? requiredById<HTMLDialogElement>(doc, "session-dialog") : null
   const navCount = doc.getElementById("nav-session-count")
+  const hostScoped = doc.getElementById("host-filter") !== null
+  const initialHost = hostScoped ? readParams(doc).get("host") ?? "" : ""
+  if (!hostScoped) replaceParams(doc, { host: null })
 
-  let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null }
+  let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, host: initialHost }
   let generation = 0
   let destroyed = false
+
+  function setHost(host: string): void {
+    if (!hostScoped) return
+    const hosts = historyHosts(state.snapshot)
+    state = { ...state, host: hosts.includes(host) ? host : "" }
+    replaceParams(doc, { host: state.host || null })
+    syncHostLinks(doc, state.host)
+    render()
+  }
 
   const header = mountHeader({
     doc,
     refreshNote,
     onRefresh: () => void refresh(),
     onPauseToggle: () => togglePause(),
+    onHostChange: setHost,
   })
   const stats = statsRoot ? mountStats(statsRoot) : null
   const traffic = trafficRoot ? mountTraffic(trafficRoot) : null
@@ -67,25 +81,32 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const poller = createPoller({ intervalMs: 10_000, run: refresh, document: doc, onPaused: render })
 
   function headerView(): HeaderView {
-    const { snapshot, stale, paused, busy } = state
+    const { snapshot, stale, paused, busy, host } = state
     return {
       label: stale ? "Disconnected" : snapshot ? paused ? "Paused" : "Live" : "Connecting…",
       updatedAt: snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : waitingLabel,
       paused,
       stale,
       busy,
+      host,
+      hosts: historyHosts(snapshot),
       notice: dashboardNotice(state),
     }
   }
 
   function render() {
     if (destroyed) return
+    if (hostScoped && state.snapshot && state.host && !historyHosts(state.snapshot).includes(state.host)) {
+      state = { ...state, host: "" }
+      replaceParams(doc, { host: null })
+      syncHostLinks(doc, "")
+    }
     header.render(headerView())
     stats?.render(state)
     traffic?.render(state)
     sessions?.render(state)
     health?.render(state)
-    if (navCount) navCount.textContent = state.snapshot ? String(state.snapshot.history.sessions.length) : "—"
+    if (navCount) navCount.textContent = state.snapshot ? String(trackedSessionCount(state.snapshot, state.host)) : "—"
   }
 
   function togglePause() {
@@ -123,6 +144,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
     }
   }
 
+  syncHostLinks(doc, initialHost)
   render()
   if (autoStart) {
     poller.start()

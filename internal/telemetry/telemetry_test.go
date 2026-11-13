@@ -31,7 +31,7 @@ func recorder(t *testing.T, path string) *Recorder {
 
 func recorderWith(t *testing.T, path string, write func(string, any) error, flushAfter, shutdown time.Duration) *Recorder {
 	t.Helper()
-	r, err := openRecorder(path, write, flushAfter, shutdown)
+	r, err := openRecorder(path, "local", write, flushAfter, shutdown)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,28 +154,84 @@ func TestPrivatePersistenceAndRestart(t *testing.T) {
 	}
 }
 
-func TestBoundedRetentionPreservesGlobalTotalsAndActiveRequests(t *testing.T) {
+func TestSharedHistorySeparatesHostsWithoutResettingTotals(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stats.json")
+	first, err := OpenWithHost(path, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence := first.Begin("request-alpha-0001", "ses_shared", "mock", "primary")
+	first.Finish(sequence, 200, false, "", sampleTransfer, 10, 20)
+	first.Close()
+
+	second, err := OpenWithHost(path, "beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(second.Close)
+	sequence = second.Begin("request-beta-0001", "ses_shared", "mock", "primary")
+	second.Finish(sequence, 200, false, "", sampleTransfer, 10, 20)
+	s := second.Snapshot()
+	if len(s.Sessions) != 2 || s.Sessions[0].ID != "ses_shared" || s.Sessions[1].Host == s.Sessions[0].Host {
+		t.Fatalf("host sessions were not retained independently: %+v", s.Sessions)
+	}
+	if s.HostTotals["alpha"].Requests != 1 || s.HostTotals["beta"].Requests != 1 || s.Totals.Requests != 2 {
+		t.Fatalf("host totals or global totals are wrong: hosts=%+v totals=%+v", s.HostTotals, s.Totals)
+	}
+	if len(s.Traffic.Hourly.Buckets) != 2 || s.Traffic.Hourly.Buckets[0].Host == s.Traffic.Hourly.Buckets[1].Host {
+		t.Fatalf("traffic buckets did not keep host attribution: %+v", s.Traffic.Hourly.Buckets)
+	}
+	if s.RecentRequests[0].Host != "alpha" || s.RecentRequests[1].Host != "beta" {
+		t.Fatalf("requests lost host attribution: %+v", s.RecentRequests)
+	}
+	if s.RecentRequests[0].Sequence >= s.RecentRequests[1].Sequence {
+		t.Fatalf("request sequences were not carried across hosts: %+v", s.RecentRequests)
+	}
+}
+
+func TestUnlimitedRetentionKeepsEveryObservation(t *testing.T) {
+	const sessionCount = 300
+	const requestCount = 1200
 	r := recorder(t, "")
 	active := r.Begin("active-request-000001", "ses_active", "mock", "primary")
-	for i := 0; i < SessionLimit+30; i++ {
+	for i := 0; i < sessionCount; i++ {
 		sequence := r.Begin(fmt.Sprintf("request-%016d", i), fmt.Sprintf("ses_%d", i), "mock", "primary")
 		r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
 	}
-	s := r.Snapshot()
-	if len(s.Sessions) != SessionLimit || s.EvictedSessions != 31 || s.Totals.Requests != SessionLimit+31 || s.Totals.Active != 1 {
-		t.Fatalf("retention failed: sessions=%d evicted=%d totals=%+v", len(s.Sessions), s.EvictedSessions, s.Totals)
-	}
-	if r.sessionIndex("ses_active") < 0 {
-		t.Fatal("evicted a running session")
+	if s := r.Snapshot(); len(s.Sessions) != sessionCount+1 || s.EvictedSessions != 0 || s.Totals.Active != 1 {
+		t.Fatalf("sessions were discarded: sessions=%d evicted=%d totals=%+v", len(s.Sessions), s.EvictedSessions, s.Totals)
 	}
 	r.Finish(active, 200, false, "", sampleTransfer, 0, 1)
-	for i := 0; i < RequestLimit+20; i++ {
+	for i := 0; i < requestCount; i++ {
 		sequence := r.Begin(fmt.Sprintf("recent-request-%016d", i), "ses_recent", "mock", "primary")
 		r.Finish(sequence, 503, true, "relay_unreachable", sampleTransfer, 0, 1)
 	}
-	s = r.Snapshot()
-	if len(s.RecentRequests) != RequestLimit || s.DroppedRequests == 0 || s.Totals.Active != 0 || s.Totals.Failed != RequestLimit+20 || s.Totals.BodyBytes != s.Totals.Requests*sampleTransfer.BodyBytes {
-		t.Fatalf("request retention changed totals: %+v", s.Totals)
+	s := r.Snapshot()
+	if len(s.RecentRequests) != sessionCount+1+requestCount || s.DroppedRequests != 0 {
+		t.Fatalf("request entries were discarded: requests=%d dropped=%d", len(s.RecentRequests), s.DroppedRequests)
+	}
+	if s.Totals.Active != 0 || s.Totals.Failed != requestCount || s.SessionLimit != 0 || s.RequestLimit != 0 {
+		t.Fatalf("unlimited history changed totals or limits: %+v %d %d", s.Totals, s.SessionLimit, s.RequestLimit)
+	}
+}
+
+func TestClientLabelsAreRecordedPerSessionAndRequest(t *testing.T) {
+	r := recorder(t, "")
+	first := r.BeginWithClient("client-request-000001", "ses_client", "mock", "primary", "cli")
+	second := r.BeginWithClient("client-request-000002", "ses_client", "mock", "title", "desktop")
+	r.Finish(first, 200, false, "", sampleTransfer, 0, 1)
+	r.Finish(second, 200, false, "", sampleTransfer, 0, 1)
+	s := r.Snapshot()
+	if len(s.Sessions) != 1 || len(s.Sessions[0].Clients) != 2 || s.Sessions[0].Clients[0] != "cli" || s.Sessions[0].Clients[1] != "desktop" {
+		t.Fatalf("session clients were not retained: %+v", s.Sessions)
+	}
+	if s.RecentRequests[0].Client != "cli" || s.RecentRequests[1].Client != "desktop" {
+		t.Fatalf("request clients were not retained: %+v", s.RecentRequests)
+	}
+	invalid := r.BeginWithClient("client-request-000003", "ses_client", "mock", "primary", "not a client")
+	r.Finish(invalid, 200, false, "", sampleTransfer, 0, 1)
+	if got := r.Snapshot(); got.RecentRequests[2].Client != "" || len(got.Sessions[0].Clients) != 2 {
+		t.Fatalf("invalid client label was retained: %+v", got.RecentRequests[2])
 	}
 }
 
@@ -429,10 +485,10 @@ func TestTrafficAggregatesFinishedRequests(t *testing.T) {
 func TestTrafficBucketInsertionMergesAndOrders(t *testing.T) {
 	start := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	var buckets []TrafficBucket
-	addTrafficBucket(&buckets, start, sampleTransfer, 1, 2, false, false)
-	addTrafficBucket(&buckets, start.Add(2*time.Hour), sampleTransfer, 3, 4, false, true)
-	addTrafficBucket(&buckets, start.Add(time.Hour), sampleTransfer, 5, 6, false, false)
-	addTrafficBucket(&buckets, start, sampleTransfer, 7, 8, false, false)
+	addTrafficBucket(&buckets, "local", start, sampleTransfer, 1, 2, false, false)
+	addTrafficBucket(&buckets, "local", start.Add(2*time.Hour), sampleTransfer, 3, 4, false, true)
+	addTrafficBucket(&buckets, "local", start.Add(time.Hour), sampleTransfer, 5, 6, false, false)
+	addTrafficBucket(&buckets, "local", start, sampleTransfer, 7, 8, false, false)
 	if len(buckets) != 3 || !buckets[0].Start.Equal(start) || !buckets[1].Start.Equal(start.Add(time.Hour)) || !buckets[2].Start.Equal(start.Add(2*time.Hour)) {
 		t.Fatalf("traffic buckets are not ordered: %+v", buckets)
 	}
@@ -441,19 +497,28 @@ func TestTrafficBucketInsertionMergesAndOrders(t *testing.T) {
 	}
 }
 
-func TestTrafficRetentionTrimsOldBuckets(t *testing.T) {
-	now := time.Now().UTC()
-	series := TrafficSeries{
-		BucketSeconds:    3600,
-		RetentionSeconds: int64(HourlyTrafficRetention / time.Second),
-		Buckets: []TrafficBucket{
-			{Start: now.Add(-HourlyTrafficRetention - time.Hour), Requests: 1},
-			{Start: now.Add(-time.Hour), Requests: 1},
-		},
+func TestTrafficAggregatesAreRetainedAndLegacyWindowsBecomeUnlimited(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	r := recorder(t, path)
+	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
+	r.Finish(sequence, 200, false, "", sampleTransfer, 0, 1)
+	r.Close()
+	saved := readSnapshot(t, path)
+	if len(saved.Traffic.Hourly.Buckets) != 1 || len(saved.Traffic.Daily.Buckets) != 1 {
+		t.Fatalf("traffic aggregates were not persisted: %+v", saved.Traffic)
 	}
-	trimmed := trimTrafficSeries(series, now)
-	if len(trimmed.Buckets) != 1 || !trimmed.Buckets[0].Start.Equal(now.Add(-time.Hour)) {
-		t.Fatalf("retention did not trim the oldest bucket: %+v", trimmed.Buckets)
+	saved.Traffic.Hourly.RetentionSeconds = int64(31 * 24 * time.Hour / time.Second)
+	saved.Traffic.Daily.RetentionSeconds = int64(91 * 24 * time.Hour / time.Second)
+	if err := fsx.WriteJSON(path, saved); err != nil {
+		t.Fatal(err)
+	}
+	reopened := recorder(t, path)
+	s := reopened.Snapshot()
+	if s.Traffic.Hourly.RetentionSeconds != 0 || s.Traffic.Daily.RetentionSeconds != 0 {
+		t.Fatalf("legacy retention windows were not normalized: %+v", s.Traffic)
+	}
+	if len(s.Traffic.Hourly.Buckets) != 1 || len(s.Traffic.Daily.Buckets) != 1 {
+		t.Fatalf("traffic aggregates were discarded on load: %+v", s.Traffic)
 	}
 }
 
@@ -508,7 +573,7 @@ func TestTrafficPersistsAndRejectsCorruption(t *testing.T) {
 	}
 }
 
-func TestTrafficTrimsOnLoad(t *testing.T) {
+func TestTrafficBucketsSurviveLoadWithoutRetentionWindows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.json")
 	r := recorder(t, "")
 	sequence := r.Begin("request-00000000001", "ses_1", "mock", "primary")
@@ -516,12 +581,12 @@ func TestTrafficTrimsOnLoad(t *testing.T) {
 	snapshot := r.Snapshot()
 	now := time.Now().UTC()
 	snapshot.Traffic.Hourly.Buckets = []TrafficBucket{
-		{Start: hourlyTrafficStart(now.Add(-HourlyTrafficRetention - time.Hour)), Requests: 1},
-		{Start: hourlyTrafficStart(now), Requests: 1},
+		{Host: "local", Start: hourlyTrafficStart(now.Add(-365 * 24 * time.Hour)), Requests: 1},
+		{Host: "local", Start: hourlyTrafficStart(now), Requests: 1},
 	}
 	snapshot.Traffic.Daily.Buckets = []TrafficBucket{
-		{Start: dailyTrafficStart(now.Add(-DailyTrafficRetention - 24*time.Hour)), Requests: 1},
-		{Start: dailyTrafficStart(now), Requests: 1},
+		{Host: "local", Start: dailyTrafficStart(now.Add(-365 * 24 * time.Hour)), Requests: 1},
+		{Host: "local", Start: dailyTrafficStart(now), Requests: 1},
 	}
 	data, err := json.Marshal(snapshot)
 	if err != nil {
@@ -532,7 +597,7 @@ func TestTrafficTrimsOnLoad(t *testing.T) {
 	}
 	reopened := recorder(t, path)
 	s := reopened.Snapshot()
-	if len(s.Traffic.Hourly.Buckets) != 1 || len(s.Traffic.Daily.Buckets) != 1 {
-		t.Fatalf("traffic retention was not applied on load: hourly=%d daily=%d", len(s.Traffic.Hourly.Buckets), len(s.Traffic.Daily.Buckets))
+	if len(s.Traffic.Hourly.Buckets) != 2 || len(s.Traffic.Daily.Buckets) != 2 || s.Traffic.Hourly.RetentionSeconds != 0 || s.Traffic.Daily.RetentionSeconds != 0 {
+		t.Fatalf("old traffic buckets were discarded on load: %+v", s.Traffic)
 	}
 }

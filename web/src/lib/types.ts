@@ -14,6 +14,7 @@ export interface Totals {
 }
 
 export interface Session extends Totals {
+  host?: string
   id: string
   started_at: string
   updated_at: string
@@ -21,6 +22,8 @@ export interface Session extends Totals {
   last_status: number
   last_error?: string
   last_request_id: string
+  /** Requesting UI/client identities, for example `cli`, `desktop`, `vscode`. */
+  clients?: string[]
 }
 
 export interface Transfer {
@@ -38,6 +41,8 @@ export interface Transfer {
 }
 
 export interface RelayRequest {
+  host?: string
+  client?: string
   capture_id?: string
   sequence: number
   id: string
@@ -55,6 +60,7 @@ export interface RelayRequest {
 }
 
 export interface TrafficBucket {
+  host?: string
   start: string
   requests: number
   failed: number
@@ -132,8 +138,11 @@ export interface Snapshot {
   }[]
   history: {
     version: 1
+    /** Active gateway host, used by system health beyond the generic remote label. */
+    host?: string
     since: string
     totals: Totals
+    host_totals?: Record<string, Totals>
     sessions: Session[]
     recent_requests: RelayRequest[]
     traffic: Traffic

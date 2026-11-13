@@ -101,6 +101,61 @@ func conversation(extra string) []byte {
 	return body
 }
 
+func TestDashboardRecordsClientAndActiveHistoryHost(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer provider.Close()
+	stats := filepath.Join(t.TempDir(), "stats.json")
+	f := newFixture(t, provider, 0, func(config *gateway.Config) {
+		config.StatsFile = stats
+		config.HistoryHost = "britoalv"
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, f.gateway.URL+"/proxy", bytes.NewReader([]byte(`{"model":"mock"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-DeltaRelay-Local-Token", localToken)
+	request.Header.Set("X-DeltaRelay-Target", provider.URL+"/v1/chat/completions")
+	request.Header.Set("X-DeltaRelay-Request-ID", "client-request-0001")
+	request.Header.Set("X-DeltaRelay-Session-ID", "ses_client_header")
+	request.Header.Set("X-Opencode-Client", "desktop")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	response.Body.Close()
+
+	dashboard, err := http.NewRequestWithContext(ctx, http.MethodGet, f.gateway.URL+"/dashboard", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboard.Header.Set("X-DeltaRelay-Local-Token", localToken)
+	reply, err := http.DefaultClient.Do(dashboard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reply.Body.Close()
+	var snapshot gateway.DashboardSnapshot
+	if err := json.NewDecoder(reply.Body).Decode(&snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.History.Host != "britoalv" {
+		t.Fatalf("dashboard did not expose the active host: %q", snapshot.History.Host)
+	}
+	if len(snapshot.History.Sessions) != 1 || len(snapshot.History.Sessions[0].Clients) != 1 || snapshot.History.Sessions[0].Clients[0] != "desktop" {
+		t.Fatalf("session client was not recorded: %+v", snapshot.History.Sessions)
+	}
+	if len(snapshot.History.RecentRequests) != 1 || snapshot.History.RecentRequests[0].Client != "desktop" {
+		t.Fatalf("request client was not recorded: %+v", snapshot.History.RecentRequests)
+	}
+}
+
 func TestEndToEndStreamingAndReuse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -9,14 +9,16 @@ import (
 	"deltarelay/internal/transfer"
 )
 
+// A zero limit means unlimited. DeltaRelay no longer discards captured
+// evidence by age, count, total size, or per-request size by default.
 const (
-	DefaultMaxBytes        = 512 << 20
-	DefaultMaxCaptureBytes = 64 << 20
-	DefaultMaxCaptures     = 100
-	DefaultMaxAge          = 24 * time.Hour
-	maxMetadataBytes       = 32 << 20
-	maxEvents              = 256
-	maxReferences          = 131072
+	DefaultMaxBytes        int64         = 0
+	DefaultMaxCaptureBytes int64         = 0
+	DefaultMaxCaptures                   = 0
+	DefaultMaxAge          time.Duration = 0
+	maxMetadataBytes                     = 32 << 20
+	maxEvents                            = 256
+	maxReferences                        = 131072
 )
 
 type Config struct {

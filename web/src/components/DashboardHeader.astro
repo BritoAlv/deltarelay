@@ -7,9 +7,10 @@ interface Props {
   group: string
   refreshNote?: string
   idPrefix?: string
+  showHostFilter?: boolean
 }
 
-const { title, group, refreshNote = "Auto-refresh every 10s", idPrefix = "" } = Astro.props
+const { title, group, refreshNote = "Auto-refresh every 10s", idPrefix = "", showHostFilter = false } = Astro.props
 const id = (name: string) => `${idPrefix}${name}`
 ---
 <header class="topbar">
@@ -25,6 +26,12 @@ const id = (name: string) => `${idPrefix}${name}`
       <span id={id("updated-at")} class="topbar-updated">Waiting for local data…</span>
       <span class="refresh-note" id={id("refresh-note")}>{refreshNote}</span>
     </div>
+    {showHostFilter && (
+      <label class="host-filter" title="Filter history by remote host">
+        <span class="sr-only">Remote host</span>
+        <select id={id("host-filter")} name="host" autocomplete="off"><option value="">All hosts</option></select>
+      </label>
+    )}
     <details class="theme-popover">
       <summary aria-label="Appearance" title="Appearance"><Icon name="palette" size={15} /></summary>
       <div class="theme-popover-body"><ThemePicker id={id("theme-popover")} primary={false} /></div>

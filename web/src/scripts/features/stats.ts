@@ -1,4 +1,4 @@
-import { bytes, percentage, savings } from "../../lib/metrics.js"
+import { bytes, historyHosts, historyTotals, percentage, savings, sessionHost, trackedSessionCount } from "../../lib/metrics.js"
 import { dataValue } from "../../lib/presentation.js"
 import type { DashboardViewState } from "../../lib/state.js"
 import { requiredById } from "../dom.js"
@@ -20,7 +20,7 @@ export function mountStats(root: HTMLElement): StatsFeature {
     meterSent.style.width = `${100 - saved}%`
   }
 
-  function renderStats({ snapshot }: DashboardViewState) {
+  function renderStats({ snapshot, host }: DashboardViewState) {
     if (!snapshot) {
       // Never leave stale numbers on screen after the gateway disconnects.
       for (const id of emptyStatIds) {
@@ -33,7 +33,7 @@ export function mountStats(root: HTMLElement): StatsFeature {
       setMeter(null)
       return
     }
-    const totals = snapshot.history.totals
+    const totals = historyTotals(snapshot, host)
     const reduction = savings(totals.body_bytes, totals.encoded_upload_bytes)
     setText("stat-reduction", percentage(reduction))
     requiredById(root, "stat-reduction").classList.toggle("negative", reduction !== null && reduction < 0)
@@ -42,9 +42,10 @@ export function mountStats(root: HTMLElement): StatsFeature {
     setText("stat-saved", bytes(saved))
     requiredById(root, "stat-saved").classList.toggle("negative", saved < 0)
     requiredById(root, "stat-saved-foot").innerHTML = `${dataValue(bytes(totals.encoded_upload_bytes))} sent of ${dataValue(bytes(totals.body_bytes))} original`
-    const activeSessions = snapshot.history.sessions.filter((session) => session.active > 0).length
-    setText("stat-sessions", integer(snapshot.history.sessions.length))
-    requiredById(root, "stat-sessions-foot").innerHTML = `${dataValue(activeSessions)} active · ${snapshot.history.evicted_sessions ? `${dataValue(integer(snapshot.history.evicted_sessions))} older evicted` : "retained history"}`
+    const activeSessions = snapshot.history.sessions.filter((session) => (!host || sessionHost(session) === host) && session.active > 0).length
+    setText("stat-sessions", integer(trackedSessionCount(snapshot, host)))
+    const scope = host ? `${dataValue(host)} · retained history` : `${dataValue(`${historyHosts(snapshot).length} hosts`)} · retained history`
+    requiredById(root, "stat-sessions-foot").innerHTML = `${dataValue(activeSessions)} active · ${snapshot.history.evicted_sessions ? `${dataValue(integer(snapshot.history.evicted_sessions))} older evicted` : scope}`
     requiredById<HTMLElement>(root, "active-session-dot").style.opacity = activeSessions ? "1" : ".3"
     setText("stat-requests", integer(totals.requests))
     requiredById(root, "stat-requests-foot").innerHTML = `${dataValue(totals.active)} running · <span class="kpi-warn">${dataValue(integer(totals.failed))} failed</span> · ${dataValue(integer(totals.cancelled))} cancelled`

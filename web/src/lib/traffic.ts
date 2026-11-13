@@ -3,7 +3,6 @@ import type { Snapshot, Traffic, TrafficBucket, TrafficSeries } from "./types.js
 
 export const HOUR_MS = 3_600_000
 export const DAY_MS = 86_400_000
-export const MAX_RANGE_MS = 90 * DAY_MS
 
 export type TrafficPreset = "24h" | "7d" | "30d" | "90d" | "custom"
 export type TrafficView = "composition" | "trends"
@@ -105,7 +104,6 @@ export function customRange(startDate: string, endDate: string, now: number): Cu
   const end = parseDateInput(endDate, true)
   if (start === null || end === null) return { error: "Choose a valid start and end date." }
   if (start > end) return { error: "The start date must be on or before the end date." }
-  if (end < now - MAX_RANGE_MS || start < now - MAX_RANGE_MS - DAY_MS) return { error: "Custom ranges are limited to the last 90 days." }
   const boundedEnd = Math.min(end, now)
   if (boundedEnd < start) return { error: "The selected range has not started yet." }
   const bucketMs = chooseBucketMs(boundedEnd - start)
@@ -168,10 +166,11 @@ function emptyPoints(range: TrafficRange): TrafficPoint[] {
   })
 }
 
-function aggregateSeries(series: TrafficSeries, range: TrafficRange): TrafficPoint[] {
+function aggregateSeries(series: TrafficSeries, range: TrafficRange, host: string): TrafficPoint[] {
   const points = emptyPoints(range)
   const sourceMs = series.bucket_seconds * 1000
   for (const bucket of series.buckets) {
+    if (host && (bucket.host || "local") !== host) continue
     const at = Date.parse(bucket.start)
     if (!Number.isFinite(at)) continue
     if (at >= range.end) continue
@@ -183,14 +182,15 @@ function aggregateSeries(series: TrafficSeries, range: TrafficRange): TrafficPoi
   return points
 }
 
-function selectSeries(traffic: Traffic, range: TrafficRange): { series: TrafficSeries; source: "hourly" | "daily" } | null {
+function selectSeries(traffic: Traffic, range: TrafficRange, host: string): { series: TrafficSeries; source: "hourly" | "daily" } | null {
   const span = range.end - range.start
   const preferDaily = span > 30 * DAY_MS + DAY_MS
-  const hourly = traffic.hourly
-  const daily = traffic.daily
-  if (!preferDaily && hourly.buckets.length > 0) return { series: hourly, source: "hourly" }
-  if (daily.buckets.length > 0) return { series: daily, source: "daily" }
-  if (hourly.buckets.length > 0) return { series: hourly, source: "hourly" }
+  const has = (series: TrafficSeries) => series.buckets.some((bucket) => !host || (bucket.host || "local") === host)
+  const hourly = has(traffic.hourly) ? traffic.hourly : null
+  const daily = has(traffic.daily) ? traffic.daily : null
+  if (!preferDaily && hourly) return { series: hourly, source: "hourly" }
+  if (daily) return { series: daily, source: "daily" }
+  if (hourly) return { series: hourly, source: "hourly" }
   return null
 }
 
@@ -215,17 +215,22 @@ export function trafficTotals(points: TrafficPoint[]): TrafficTotals {
   }
 }
 
-export function trafficData(snapshot: Snapshot, range: TrafficRange): TrafficData {
+export function trafficData(snapshot: Snapshot, range: TrafficRange, host = ""): TrafficData {
   const history = snapshot.history
   const now = Date.parse(snapshot.collected_at)
-  const selected = selectSeries(history.traffic, range)
+  const selected = selectSeries(history.traffic, range, host)
   if (selected) {
-    const points = aggregateSeries(selected.series, range)
+    const points = aggregateSeries(selected.series, range, host)
     const retentionMs = selected.series.retention_seconds * 1000
     const nowMs = Number.isFinite(now) ? now : range.end
     const seriesSince = Date.parse(selected.series.since)
-    const seriesStart = Math.max(Number.isFinite(seriesSince) ? seriesSince : nowMs - retentionMs, nowMs - retentionMs)
-    const coverageStart = Math.max(range.start, seriesStart)
+    const seriesStart = retentionMs > 0
+      ? Math.max(Number.isFinite(seriesSince) ? seriesSince : nowMs - retentionMs, nowMs - retentionMs)
+      : Number.isFinite(seriesSince) ? seriesSince : nowMs
+    const hostStart = host
+      ? Math.min(...selected.series.buckets.filter((bucket) => (bucket.host || "local") === host).map((bucket) => Date.parse(bucket.start)).filter(Number.isFinite))
+      : seriesStart
+    const coverageStart = Math.max(range.start, Number.isFinite(hostStart) ? hostStart : seriesStart)
     return {
       points,
       totals: trafficTotals(points),

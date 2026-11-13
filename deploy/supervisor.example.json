@@ -30,7 +30,7 @@
       "port": 18789
     },
     "gateway": {
-      "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "gateway", "--server", "http://127.0.0.1:8787", "--token-file", "/home/YOU/.config/deltarelay/relay.token", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--upstreams", "/home/YOU/.config/deltarelay/upstreams.json", "--state-dir", "/home/YOU/.local/state/deltarelay", "--stats-file", "/home/YOU/.local/state/deltarelay/dashboard-stats.json"],
+      "command": ["/absolute/path/to/deltarelay/bin/deltarelay", "gateway", "--server", "http://127.0.0.1:8787", "--token-file", "/home/YOU/.config/deltarelay/relay.token", "--local-token-file", "/home/YOU/.config/deltarelay/local.token", "--upstreams", "/home/YOU/.config/deltarelay/upstreams.json", "--state-dir", "/home/YOU/.local/state/deltarelay", "--stats-file", "/home/YOU/.local/state/deltarelay/dashboard-stats.json", "--capture-dir", "/home/YOU/.local/state/deltarelay/captures", "--history-host", "local"],
       "pid_file": "/home/YOU/.local/state/deltarelay/gateway.pid",
       "port": 8788
     },

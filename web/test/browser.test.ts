@@ -561,8 +561,7 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   const retention = doc.querySelector("#retention-note")!
   assert.match(retention.textContent ?? "", /Gateway session limit/)
   const retentionValues = [...retention.querySelectorAll(".data-facts dd")].map((item) => item.textContent)
-  assert.ok(retentionValues.includes("256"))
-  assert.ok(retentionValues.includes("1,000"))
+  assert.equal(retentionValues.filter((value) => value === "Unlimited").length, 4)
 
   trigger.click()
   const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
@@ -608,6 +607,39 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   page.fire(search, "input")
   dialog.querySelector<HTMLButtonElement>("#close-measurement-session")!.click()
   assert.equal(dialog.open, false)
+  measurement.destroy()
+  await page.close()
+})
+
+test("measurement browser scopes measured sessions and traces by host", async () => {
+  const page = openPage("measurement")
+  const snapshot = makeSnapshot(now)
+  const catalog = makeOpenCodeSessions(now)
+  page.window.history.replaceState(null, "", "/measurement?host=alpha")
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/opencode/sessions") return json(catalog)
+    throw new Error(`Unexpected measurement URL ${url}`)
+  })
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  await measurement.refresh()
+  const doc = page.document
+  const filter = doc.querySelector<HTMLSelectElement>("#measurement-host-filter")!
+  assert.equal(filter.value, "alpha")
+  await waitForText(doc.querySelector("#measurement-session-trigger-title"), /Relay dashboard measurement/, "host-scoped catalog did not load")
+  doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!.click()
+  const dialog = doc.querySelector<HTMLDialogElement>("#measurement-session-dialog")!
+  assert.equal(dialog.querySelectorAll("[data-session-choice]").length, 3)
+  assert.match(dialog.textContent ?? "", /Host: alpha/)
+  dialog.querySelector<HTMLButtonElement>("#close-measurement-session")!.click()
+
+  filter.value = "beta"
+  page.fire(filter, "change")
+  assert.equal(new URL(page.window.location.href).searchParams.get("host"), "beta")
+  assert.match(doc.querySelector("#measurement-session-trigger-title")?.textContent ?? "", /Cache worker|Release check|Docs update/)
+  doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")!.click()
+  assert.equal(dialog.querySelectorAll("[data-session-choice]").length, 3)
+  assert.match(dialog.textContent ?? "", /Host: beta/)
   measurement.destroy()
   await page.close()
 })
@@ -804,7 +836,7 @@ test("measurement page shows an empty state and never invents a trace", async ()
   const doc = page.document
   assert.equal(doc.querySelector<HTMLButtonElement>("#measurement-session-trigger")?.disabled, true)
   assert.match(doc.querySelector("#measurement-trace")?.textContent ?? "", /No retained sessions/)
-  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /Global totals are preserved/)
+  assert.match(doc.querySelector("#retention-note")?.textContent ?? "", /retained indefinitely/)
   measurement.destroy()
   await page.close()
 })
@@ -875,6 +907,47 @@ test("overview refresh renders stats and an accessible chart without session or 
   assert.equal(doc.querySelector("#system-summary"), null)
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard"])
+  dashboard.destroy()
+  await page.close()
+})
+
+test("overview always shows all hosts and carries no host filter", async () => {
+  const page = openPage()
+  page.window.history.replaceState(null, "", "/?host=alpha")
+  const snapshot = makeSnapshot(now)
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#host-filter"), null)
+  assert.equal(doc.querySelector("#stat-sessions")?.textContent, "6")
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, snapshot.history.totals.requests.toLocaleString())
+  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 24 hours: 72 requests/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("host"), null)
+  const sessionsLink = doc.querySelector<HTMLAnchorElement>('.sidebar-nav a[href^="/sessions"]')!
+  assert.equal(new URL(sessionsLink.href, page.window.location.href).searchParams.get("host"), null)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("sessions page filters rows by host and keeps the URL deep-linked", async () => {
+  const page = openPage("sessions")
+  page.window.history.replaceState(null, "", "/sessions?host=alpha")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const filter = doc.querySelector<HTMLSelectElement>("#host-filter")!
+  assert.equal(filter.value, "alpha")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 3)
+  assert.equal(doc.querySelector("#session-count")?.textContent, "3")
+  assert.match(doc.querySelector("#session-rows")?.textContent ?? "", /alpha/)
+
+  filter.value = "beta"
+  page.fire(filter, "change")
+  assert.equal(doc.querySelector("#session-rows")?.children.length, 3)
+  assert.match(doc.querySelector("#session-rows")?.textContent ?? "", /beta/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("host"), "beta")
   dashboard.destroy()
   await page.close()
 })
@@ -1060,6 +1133,8 @@ test("sessions page renders only the session table and updates the sidebar count
   assert.equal(doc.querySelector("#traffic-chart"), null)
   assert.equal(doc.querySelector("#system-summary"), null)
   assert.equal(doc.querySelector("#session-rows")?.children.length, 6)
+  const firstRow = doc.querySelector<HTMLElement>("#session-rows tr")!
+  assert.equal(firstRow.children[1]?.textContent, "alpha")
   assert.equal(doc.querySelector("#session-count")?.textContent, "6")
   assert.equal(doc.querySelector("#nav-session-count")?.textContent, "6")
   assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /1–6 of 6 sessions/)
@@ -1135,7 +1210,7 @@ test("session sorting toggles numeric columns, resets pagination, and restores f
   assert.equal(requestsHeader.getAttribute("aria-sort"), "descending")
   assert.equal(sortSelect.value, "requests")
   assert.match(requestsButton.getAttribute("aria-label") ?? "", /sorted descending/)
-  assert.ok(descending(numbers(2, Number)), "requests sort numerically descending")
+  assert.ok(descending(numbers(3, Number)), "requests sort numerically descending")
 
   doc.querySelector<HTMLButtonElement>("#next-page")!.click()
   assert.equal(doc.querySelector("#page-label")?.textContent, "Page 2 of 2")
@@ -1144,21 +1219,21 @@ test("session sorting toggles numeric columns, resets pagination, and restores f
   assert.equal(requestsHeader.getAttribute("aria-sort"), "ascending")
   assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "requests")
   assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "asc")
-  assert.ok(ascending(numbers(2, Number)), "requests sort numerically ascending")
+  assert.ok(ascending(numbers(3, Number)), "requests sort numerically ascending")
 
   originalHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(originalHeader.getAttribute("aria-sort"), "ascending")
   assert.equal(requestsHeader.getAttribute("aria-sort"), "none")
   assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "original")
-  assert.ok(ascending(numbers(3, parseBytesLabel)), "original bytes sort numerically")
+  assert.ok(ascending(numbers(4, parseBytesLabel)), "original bytes sort numerically")
 
   originalHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(originalHeader.getAttribute("aria-sort"), "descending")
-  assert.ok(descending(numbers(3, parseBytesLabel)), "original bytes sort numerically descending")
+  assert.ok(descending(numbers(4, parseBytesLabel)), "original bytes sort numerically descending")
 
   reductionHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(reductionHeader.getAttribute("aria-sort"), "ascending")
-  assert.ok(ascending(numbers(5, parsePercentLabel)), "reduction percentage sorts numerically")
+  assert.ok(ascending(numbers(6, parsePercentLabel)), "reduction percentage sorts numerically")
   assert.match(reductionHeader.querySelector("button")!.getAttribute("aria-label") ?? "", /sorted ascending/)
 
   sortSelect.value = "activity"
@@ -1233,8 +1308,8 @@ test("CSV export protects formulas and uses the filtered sessions", async () => 
     page.document.querySelector<HTMLButtonElement>("#export-button")!.click()
     assert.ok(captured)
     const csv = await captured.text()
-    assert.match(csv, /^"session_id","upstream","requests","active","failed","cancelled"/)
-    assert.match(csv, /"'=SUM\(A1\)","'@command"/)
+    assert.match(csv, /^"session_id","hosts","upstream","requests","active","failed","cancelled"/)
+    assert.match(csv, /"'=SUM\(A1\)","alpha","'@command"/)
     assert.match(download, /^deltarelay-sessions-\d{4}-\d{2}-\d{2}\.csv$/)
     assert.match(sessionCsv(snapshot.history.sessions), /"'=SUM\(A1\)"/)
     dashboard.destroy()
@@ -1258,6 +1333,7 @@ test("system health combines gateway diagnostics with supervisor network state",
   await Promise.all([dashboard.refresh(), system.refresh()])
   const doc = page.document
   assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Relay checks passed/)
+  assert.match(doc.querySelector("#system-cards")?.textContent ?? "", /Hostalpha/)
   assert.equal(doc.querySelector("#session-rows"), null)
   assert.equal(doc.querySelector("#stat-sessions"), null)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard", "/api/system"])

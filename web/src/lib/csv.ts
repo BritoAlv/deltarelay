@@ -1,16 +1,17 @@
 import type { Session } from "./types.js"
-import { savings } from "./metrics.js"
+import { savings, sessionHost, type SessionView } from "./metrics.js"
 
 // Prefix spreadsheet formulas in text fields; CSV can be active content.
 export function csvCell(value: string | number): string {
   return `"${String(value).replace(/^[=+\-@\t\r]/, "'$&").replaceAll('"', '""')}"`
 }
 
-export function sessionCsv(sessions: Session[]): string {
+export function sessionCsv(sessions: (Session | SessionView)[]): string {
   const rows: (string | number)[][] = [
-    ["session_id", "upstream", "requests", "active", "failed", "cancelled", "body_bytes", "encoded_upload_bytes", "saved_bytes", "reduction_percent", "last_activity"],
+    ["session_id", "hosts", "upstream", "requests", "active", "failed", "cancelled", "body_bytes", "encoded_upload_bytes", "saved_bytes", "reduction_percent", "last_activity"],
     ...sessions.map((session) => [
       session.id || "unattributed",
+      (session as SessionView).hosts?.join(", ") ?? sessionHost(session),
       session.upstream,
       session.requests,
       session.active,

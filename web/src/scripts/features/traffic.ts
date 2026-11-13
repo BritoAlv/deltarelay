@@ -409,11 +409,12 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     }
     startInput.removeAttribute("aria-invalid")
     endInput.removeAttribute("aria-invalid")
-    const data = trafficData(state.snapshot, resolved.range)
+    const data = trafficData(state.snapshot, resolved.range, state.host)
     const previous = pointerInside ? activeIndex : null
     lastData = data
     lastRange = resolved.range
     updateSummary(data)
+    if (state.host) setText("reuse-scope", `${resolved.range.label} · ${state.host}`)
     renderChart(data, resolved.range)
     if (previous !== null) showTooltip(previous)
     updateNotice(data)

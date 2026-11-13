@@ -8,7 +8,6 @@ import {
   DAY_MS,
   formatBucketWindow,
   HOUR_MS,
-  MAX_RANGE_MS,
   niceScale,
   presetRange,
   trafficData,
@@ -53,10 +52,10 @@ test("preset ranges align to local boundaries and choose readable bucket sizes",
   const quarter = presetRange("90d", now)
   assert.equal(quarter.start, floorDay(now - 90 * DAY_MS))
   assert.equal(quarter.bucketMs, 3 * DAY_MS)
-  assert.equal(chooseBucketMs(MAX_RANGE_MS), 3 * DAY_MS)
+  assert.equal(chooseBucketMs(90 * DAY_MS), 3 * DAY_MS)
 })
 
-test("custom ranges validate dates and stay within ninety days", () => {
+test("custom ranges validate dates without a retention window", () => {
   const start = dateInputValue(now - 7 * DAY_MS)
   const end = dateInputValue(now)
   const result = customRange(start, end, now)
@@ -66,7 +65,9 @@ test("custom ranges validate dates and stay within ninety days", () => {
   assert.match(result.range.label, /–/)
 
   assert.match(customRange(end, start, now).error ?? "", /start date/)
-  assert.match(customRange(dateInputValue(now - 100 * DAY_MS), dateInputValue(now - 95 * DAY_MS), now).error ?? "", /90 days/)
+  const older = customRange(dateInputValue(now - 100 * DAY_MS), dateInputValue(now - 95 * DAY_MS), now)
+  assert.ok(older.range)
+  assert.equal(older.range.bucketMs, 6 * HOUR_MS)
   assert.match(customRange("not-a-date", end, now).error ?? "", /valid/)
 })
 

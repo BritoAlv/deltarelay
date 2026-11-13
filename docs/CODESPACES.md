@@ -14,6 +14,8 @@ or personal host names.
 ```text
 .runtime/
   codespace-profile/              # shared local profile: OpenCode, Desktop, control
+    dashboard-stats.json          # one host-labelled dashboard history
+    captures/                     # request evidence for every host
   current -> codespaces/alpha     # active remote host; the only switching pointer
   accounts/
     <account>.gh                  # optional private GitHub CLI account wrapper
@@ -22,8 +24,6 @@ or personal host names.
       provider.json               # provider kind, host name, remote directory
       relay.token                 # shared PC <-> remote relay secret
       state/relay-state.json      # pinned remote relay identity
-      stats.json                  # dashboard history for this host
-      captures/                   # dashboard request captures for this host
     beta/
       ...
 ```
@@ -31,13 +31,20 @@ or personal host names.
 - `provider.json`, `relay.token`, `state/relay-state.json`, and the state
   directory are private regular files/directories (`0600` files, `0700`
   directories).
-- `stats.json` and `captures/` are per host. A new host starts with empty
-  history; existing hosts keep their own history.
-- `relay.token` and `state/relay-state.json` must never be shared between
-  profiles. A relay identity belongs to exactly one deployment.
+- Dashboard history is **not** per host. The gateway writes one shared
+  `dashboard-stats.json` and capture directory in the shared local profile,
+  labelling each session, request, and traffic bucket with the active host.
+  Switching hosts therefore accumulates history instead of resetting it, and
+  the dashboard can filter retained data by host.
+- `relay.token` and `state/relay-state.json` are still per host and must never be
+  shared between profiles. A relay identity belongs to exactly one deployment.
 - The shared local profile contains `local.token`, `upstreams.json`, the
-  OpenCode/Desktop configuration, and supervisor journals. It is not tied to a
-  remote host.
+  OpenCode/Desktop configuration, supervisor journals, dashboard history, and
+  request captures. It is not tied to a remote host.
+
+On first start after an upgrade, the supervisor imports any older per-host
+`stats.json` and `captures/` files into the shared history once, renames the
+source statistics files with a `merged-` suffix, and leaves them as backups.
 
 The supervisor configuration points through the pointer:
 
@@ -55,8 +62,9 @@ The supervisor configuration points through the pointer:
         "/absolute/path/bin/deltarelay", "gateway",
         "--token-file", "/absolute/path/.runtime/current/relay.token",
         "--state-dir", "/absolute/path/.runtime/current/state",
-        "--stats-file", "/absolute/path/.runtime/current/stats.json",
-        "--capture-dir", "/absolute/path/.runtime/current/captures"
+        "--stats-file", "/absolute/path/.runtime/codespace-profile/dashboard-stats.json",
+        "--capture-dir", "/absolute/path/.runtime/codespace-profile/captures",
+        "--history-host", "alpha"
       ]
     }
   }
@@ -144,5 +152,6 @@ that remains a separate local step. See [OpenCode setup](SETUP.md).
 - Removing a profile is an explicit operator action. DeltaRelay never deletes
   profiles automatically.
 - The dashboard request-capture directory contains plaintext prompts and
-  responses. Use `--capture-dir ""` in the gateway command to disable captures
-  for a profile if required.
+  responses. It is retained indefinitely by default. Use `--capture-dir ""` to
+  disable captures, or set explicit `--capture-max-*` bounds, if that is not
+  desired.

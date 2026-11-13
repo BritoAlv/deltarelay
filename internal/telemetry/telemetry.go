@@ -1,4 +1,4 @@
-// Package telemetry keeps bounded, metadata-only gateway statistics. It never
+// Package telemetry keeps metadata-only gateway statistics. It never
 // reads model bodies, provider credentials, response content, or target URLs.
 //
 // In-memory accounting is synchronous: Begin and Finish return as soon as the
@@ -25,15 +25,16 @@ import (
 )
 
 const (
-	SessionLimit = 256
-	RequestLimit = 1000
-	maxFileBytes = 8 << 20
+	// SessionLimit and RequestLimit are zero because no retained observation is
+	// discarded. The fields remain in the wire format so older dashboards can
+	// distinguish bounded history from unlimited history.
+	SessionLimit = 0
+	RequestLimit = 0
 
-	// Traffic aggregates outlive individual request entries. Hourly buckets
-	// serve short and medium ranges; daily buckets keep a compact long-range
-	// history after the hourly window ends.
-	HourlyTrafficRetention = 31 * 24 * time.Hour
-	DailyTrafficRetention  = 91 * 24 * time.Hour
+	// Traffic aggregates are also retained indefinitely. Hourly buckets serve
+	// short and medium ranges; daily buckets keep long-range history.
+	HourlyTrafficRetention = 0
+	DailyTrafficRetention  = 0
 
 	// defaultFlushInterval bounds both how often the worker rewrites the
 	// statistics file and how long a completed accounting update can remain
@@ -59,6 +60,7 @@ type Totals struct {
 }
 
 type Session struct {
+	Host          string    `json:"host,omitempty"`
 	ID            string    `json:"id"`
 	StartedAt     time.Time `json:"started_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -66,15 +68,18 @@ type Session struct {
 	LastStatus    int       `json:"last_status"`
 	LastError     string    `json:"last_error,omitempty"`
 	LastRequestID string    `json:"last_request_id"`
+	Clients       []string  `json:"clients,omitempty"`
 	Totals
 }
 
 type Request struct {
+	Host           string         `json:"host,omitempty"`
 	CaptureID      string         `json:"capture_id,omitempty"`
 	Sequence       uint64         `json:"sequence"`
 	ID             string         `json:"id"`
 	SessionID      string         `json:"session_id"`
 	Upstream       string         `json:"upstream"`
+	Client         string         `json:"client,omitempty"`
 	Kind           string         `json:"kind"`
 	StartedAt      time.Time      `json:"started_at"`
 	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
@@ -86,9 +91,10 @@ type Request struct {
 	DurationMillis int64          `json:"duration_ms"`
 }
 
-// TrafficBucket is a metadata-only aggregate of finished requests. It stays
-// small so multi-day ranges survive request-entry trimming.
+// TrafficBucket is a metadata-only aggregate of finished requests. It keeps
+// long-range history compact without discarding session or request entries.
 type TrafficBucket struct {
+	Host               string    `json:"host,omitempty"`
 	Start              time.Time `json:"start"`
 	Requests           int64     `json:"requests"`
 	Failed             int64     `json:"failed"`
@@ -114,18 +120,20 @@ type Traffic struct {
 }
 
 type Snapshot struct {
-	Version          int       `json:"version"`
-	Since            time.Time `json:"since"`
-	Totals           Totals    `json:"totals"`
-	Sessions         []Session `json:"sessions"`
-	RecentRequests   []Request `json:"recent_requests"`
-	Traffic          Traffic   `json:"traffic"`
-	SessionLimit     int       `json:"session_limit"`
-	RequestLimit     int       `json:"request_limit"`
-	EvictedSessions  int64     `json:"evicted_sessions"`
-	DroppedRequests  int64     `json:"dropped_requests"`
-	Persistent       bool      `json:"persistent"`
-	PersistenceError bool      `json:"persistence_error"`
+	Version          int               `json:"version"`
+	Host             string            `json:"host,omitempty"`
+	Since            time.Time         `json:"since"`
+	Totals           Totals            `json:"totals"`
+	HostTotals       map[string]Totals `json:"host_totals,omitempty"`
+	Sessions         []Session         `json:"sessions"`
+	RecentRequests   []Request         `json:"recent_requests"`
+	Traffic          Traffic           `json:"traffic"`
+	SessionLimit     int               `json:"session_limit"`
+	RequestLimit     int               `json:"request_limit"`
+	EvictedSessions  int64             `json:"evicted_sessions"`
+	DroppedRequests  int64             `json:"dropped_requests"`
+	Persistent       bool              `json:"persistent"`
+	PersistenceError bool              `json:"persistence_error"`
 }
 
 // Recorder owns one in-memory history and, optionally, one background writer
@@ -135,6 +143,7 @@ type Snapshot struct {
 type Recorder struct {
 	mu       sync.Mutex
 	path     string
+	host     string
 	data     Snapshot
 	sequence uint64
 	written  uint64 // highest revision successfully persisted
@@ -153,23 +162,34 @@ type Recorder struct {
 	closeOnce sync.Once
 }
 
-// Open refuses malformed, oversized, non-private, or symlinked history files.
-// An empty path keeps the same bounded history in memory only.
+// Open refuses malformed, non-private, or symlinked history files. An empty
+// path keeps the same unlimited history in memory only.
 func Open(path string) (*Recorder, error) {
-	return openRecorder(path, fsx.WriteJSON, defaultFlushInterval, shutdownFlushTimeout)
+	return OpenWithHost(path, "local")
+}
+
+// OpenWithHost labels observations with the remote host that carried them. A
+// shared statistics file can then retain one continuous history while still
+// distinguishing hosts in the dashboard.
+func OpenWithHost(path, host string) (*Recorder, error) {
+	if !ValidLabel(host) {
+		return nil, errors.New("invalid history host")
+	}
+	return openRecorder(path, host, fsx.WriteJSON, defaultFlushInterval, shutdownFlushTimeout)
 }
 
 // openRecorder injects the metadata writer and timings for tests. Production
 // callers use Open; the injected writer only changes optional statistics
 // persistence, never in-memory accounting or validation.
-func openRecorder(path string, write func(string, any) error, flushAfter, shutdown time.Duration) (_ *Recorder, openErr error) {
-	if write == nil || flushAfter <= 0 || shutdown <= 0 {
-		return nil, errors.New("statistics writer and timings must be positive")
+func openRecorder(path, host string, write func(string, any) error, flushAfter, shutdown time.Duration) (_ *Recorder, openErr error) {
+	if write == nil || flushAfter <= 0 || shutdown <= 0 || !ValidLabel(host) {
+		return nil, errors.New("statistics writer, host, and timings must be valid")
 	}
 	started := time.Now().UTC()
 	r := &Recorder{
 		path:       path,
-		data:       Snapshot{Version: 1, Since: started, Sessions: []Session{}, RecentRequests: []Request{}, Traffic: newTraffic(started)},
+		host:       host,
+		data:       Snapshot{Version: 1, Host: host, Since: started, HostTotals: map[string]Totals{}, Sessions: []Session{}, RecentRequests: []Request{}, Traffic: newTraffic(started)},
 		write:      write,
 		flushAfter: flushAfter,
 		shutdown:   shutdown,
@@ -207,32 +227,45 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > maxFileBytes || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("statistics file must be private, regular, and at most 8 MiB")
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("statistics file must be private and regular")
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	decoder := json.NewDecoder(io.LimitReader(f, maxFileBytes+1))
+	decoder := json.NewDecoder(f)
 	var saved Snapshot
 	if err := decoder.Decode(&saved); err != nil {
 		return nil, errors.New("invalid statistics file")
 	}
 	r.data = saved
+	r.data.Host = r.host
 	var extra any
-	if decoder.Decode(&extra) != io.EOF || r.data.Version != 1 || r.data.Since.IsZero() || len(r.data.Sessions) > SessionLimit || len(r.data.RecentRequests) > RequestLimit {
-		return nil, errors.New("unsupported or oversized statistics history")
+	if decoder.Decode(&extra) != io.EOF || r.data.Version != 1 || r.data.Since.IsZero() {
+		return nil, errors.New("unsupported statistics history")
 	}
 	seen := map[string]bool{}
+	hosts := map[string]bool{}
 	var active int64
 	for i := range r.data.Sessions {
 		s := &r.data.Sessions[i]
-		if s.ID != "" && !ValidLabel(s.ID) || seen[s.ID] || !validTotals(s.Totals) || s.StartedAt.IsZero() || s.UpdatedAt.IsZero() {
+		if s.Host == "" {
+			s.Host = r.host
+		}
+		if !ValidLabel(s.Host) || s.ID != "" && !ValidLabel(s.ID) || seen[sessionKey(s.Host, s.ID)] || !validTotals(s.Totals) || s.StartedAt.IsZero() || s.UpdatedAt.IsZero() {
 			return nil, errors.New("invalid statistics session")
 		}
-		seen[s.ID] = true
+		seenClients := map[string]bool{}
+		for _, client := range s.Clients {
+			if !ValidLabel(client) || seenClients[client] {
+				return nil, errors.New("invalid statistics session client")
+			}
+			seenClients[client] = true
+		}
+		seen[sessionKey(s.Host, s.ID)] = true
+		hosts[s.Host] = true
 		active += s.Active
 		// A previous gateway process cannot still own an active request. This is
 		// a local observation, not a claim that the VPS job was cancelled.
@@ -242,19 +275,47 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 		}
 		s.Active = 0
 	}
+	if r.data.HostTotals == nil || len(r.data.HostTotals) == 0 {
+		// Older single-host files have no per-host totals. All of their retained
+		// totals belong to the host that is opening the file now.
+		if len(hosts) > 1 {
+			return nil, errors.New("invalid statistics host totals")
+		}
+		r.data.HostTotals = map[string]Totals{}
+		r.data.HostTotals[r.host] = r.data.Totals
+		hosts[r.host] = true
+	}
+	for host, totals := range r.data.HostTotals {
+		if !ValidLabel(host) || !validTotals(totals) {
+			return nil, errors.New("invalid statistics host totals")
+		}
+		if totals.Active > 0 {
+			totals.Failed += totals.Active
+			totals.Active = 0
+			r.data.HostTotals[host] = totals
+		}
+		hosts[host] = true
+	}
 	if !validTotals(r.data.Totals) || r.data.Totals.Active != active {
 		return nil, errors.New("invalid statistics totals")
 	}
 	r.data.Totals.Failed += r.data.Totals.Active
 	r.data.Totals.Active = 0
+	if !sumTotals(r.data.HostTotals, r.data.Totals) {
+		return nil, errors.New("inconsistent statistics host totals")
+	}
 	now := time.Now().UTC()
 	sequences := map[uint64]bool{}
 	var running int64
 	for i := range r.data.RecentRequests {
 		request := &r.data.RecentRequests[i]
-		if request.Sequence == 0 || sequences[request.Sequence] || request.StartedAt.IsZero() || request.SessionID != "" && !ValidLabel(request.SessionID) || request.CaptureID != "" && !validCaptureID(request.CaptureID) {
+		if request.Host == "" {
+			request.Host = r.host
+		}
+		if !ValidLabel(request.Host) || request.Sequence == 0 || sequences[request.Sequence] || request.StartedAt.IsZero() || request.SessionID != "" && !ValidLabel(request.SessionID) || request.Client != "" && !ValidLabel(request.Client) || request.CaptureID != "" && !validCaptureID(request.CaptureID) {
 			return nil, errors.New("invalid statistics request")
 		}
+		hosts[request.Host] = true
 		sequences[request.Sequence] = true
 		r.sequence = max(r.sequence, request.Sequence)
 		switch request.State {
@@ -263,7 +324,7 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 				return nil, errors.New("invalid finished statistics request")
 			}
 		case "running":
-			if !seen[request.SessionID] {
+			if !seen[sessionKey(request.Host, request.SessionID)] {
 				return nil, errors.New("active statistics session missing")
 			}
 			running++
@@ -277,10 +338,30 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 	if running != active {
 		return nil, errors.New("inconsistent active statistics")
 	}
-	if !validTraffic(r.data.Traffic) {
+	for i := range r.data.Traffic.Hourly.Buckets {
+		if r.data.Traffic.Hourly.Buckets[i].Host == "" {
+			r.data.Traffic.Hourly.Buckets[i].Host = r.host
+		}
+		hosts[r.data.Traffic.Hourly.Buckets[i].Host] = true
+	}
+	for i := range r.data.Traffic.Daily.Buckets {
+		if r.data.Traffic.Daily.Buckets[i].Host == "" {
+			r.data.Traffic.Daily.Buckets[i].Host = r.host
+		}
+		hosts[r.data.Traffic.Daily.Buckets[i].Host] = true
+	}
+	for host := range hosts {
+		if _, ok := r.data.HostTotals[host]; !ok {
+			r.data.HostTotals[host] = Totals{}
+		}
+	}
+	if !validTraffic(r.data.Traffic, len(hosts)) {
 		return nil, errors.New("invalid statistics traffic")
 	}
-	r.trimTrafficLocked(now)
+	// Older files advertised finite aggregate windows. The data that survived
+	// is kept indefinitely from now on.
+	r.data.Traffic.Hourly.RetentionSeconds = 0
+	r.data.Traffic.Daily.RetentionSeconds = 0
 	// Persist the normalized restart state synchronously: this happens before
 	// the gateway serves requests and is not on a request path.
 	r.revision++
@@ -296,6 +377,31 @@ func openRecorder(path string, write func(string, any) error, flushAfter, shutdo
 
 func validTotals(t Totals) bool {
 	return t.Requests >= 0 && t.Active >= 0 && t.Failed >= 0 && t.Cancelled >= 0 && t.Active+t.Failed+t.Cancelled <= t.Requests && t.BodyBytes >= 0 && t.UploadedChunkBytes >= 0 && t.EncodedUploadBytes >= 0 && t.ReusedBodyBytes >= 0 && t.ResponseBytes >= 0 && t.DurationMillis >= 0
+}
+
+func sessionKey(host, id string) string {
+	return host + "\x00" + id
+}
+
+func addTotals(target *Totals, value Totals) {
+	target.Requests += value.Requests
+	target.Active += value.Active
+	target.Failed += value.Failed
+	target.Cancelled += value.Cancelled
+	target.BodyBytes += value.BodyBytes
+	target.UploadedChunkBytes += value.UploadedChunkBytes
+	target.EncodedUploadBytes += value.EncodedUploadBytes
+	target.ReusedBodyBytes += value.ReusedBodyBytes
+	target.ResponseBytes += value.ResponseBytes
+	target.DurationMillis += value.DurationMillis
+}
+
+func sumTotals(hosts map[string]Totals, expected Totals) bool {
+	var sum Totals
+	for _, totals := range hosts {
+		addTotals(&sum, totals)
+	}
+	return sum == expected
 }
 
 func newTraffic(since time.Time) Traffic {
@@ -315,27 +421,33 @@ func newTraffic(since time.Time) Traffic {
 	}
 }
 
-func validTraffic(t Traffic) bool {
-	return validTrafficSeries(t.Hourly, int64(time.Hour/time.Second), int64(HourlyTrafficRetention/time.Second)) &&
-		validTrafficSeries(t.Daily, int64(24*time.Hour/time.Second), int64(DailyTrafficRetention/time.Second))
+func validTraffic(t Traffic, hosts int) bool {
+	if hosts < 1 {
+		hosts = 1
+	}
+	return validTrafficSeries(t.Hourly, int64(time.Hour/time.Second), hosts) &&
+		validTrafficSeries(t.Daily, int64(24*time.Hour/time.Second), hosts)
 }
 
-func validTrafficSeries(series TrafficSeries, bucketSeconds, retentionSeconds int64) bool {
-	if series.Since.IsZero() || series.BucketSeconds != bucketSeconds || series.RetentionSeconds != retentionSeconds {
+func validTrafficSeries(series TrafficSeries, bucketSeconds int64, hosts int) bool {
+	if series.Since.IsZero() || series.BucketSeconds != bucketSeconds || series.RetentionSeconds < 0 {
 		return false
 	}
-	if int64(len(series.Buckets)) > retentionSeconds/bucketSeconds+2 {
+	// Zero means unlimited. Finite values are accepted for compatibility with
+	// older history files; the recorder normalizes them to unlimited on load.
+	if series.RetentionSeconds > 0 && int64(len(series.Buckets)) > (series.RetentionSeconds/bucketSeconds+2)*int64(hosts) {
 		return false
 	}
 	var previous time.Time
+	var previousHost string
 	for _, bucket := range series.Buckets {
-		if bucket.Start.IsZero() || !validTrafficBucket(bucket) {
+		if !ValidLabel(bucket.Host) || bucket.Start.IsZero() || !validTrafficBucket(bucket) {
 			return false
 		}
-		if !previous.IsZero() && !bucket.Start.After(previous) {
+		if !previous.IsZero() && bucket.Start.Before(previous) || bucket.Start.Equal(previous) && bucket.Host <= previousHost {
 			return false
 		}
-		previous = bucket.Start
+		previous, previousHost = bucket.Start, bucket.Host
 	}
 	return true
 }
@@ -356,18 +468,18 @@ func dailyTrafficStart(at time.Time) time.Time {
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.Local)
 }
 
-func addTrafficBucket(buckets *[]TrafficBucket, start time.Time, stats transfer.Stats, responseBytes, duration int64, failed, cancelled bool) {
+func addTrafficBucket(buckets *[]TrafficBucket, host string, start time.Time, stats transfer.Stats, responseBytes, duration int64, failed, cancelled bool) {
 	list := *buckets
 	index := len(list) - 1
-	for index >= 0 && list[index].Start.After(start) {
+	for index >= 0 && (list[index].Start.After(start) || list[index].Start.Equal(start) && list[index].Host > host) {
 		index--
 	}
-	if index >= 0 && list[index].Start.Equal(start) {
+	if index >= 0 && list[index].Start.Equal(start) && list[index].Host == host {
 		addTrafficResult(&list[index], stats, responseBytes, duration, failed, cancelled)
 		*buckets = list
 		return
 	}
-	bucket := TrafficBucket{Start: start}
+	bucket := TrafficBucket{Host: host, Start: start}
 	addTrafficResult(&bucket, stats, responseBytes, duration, failed, cancelled)
 	list = append(list, TrafficBucket{})
 	copy(list[index+2:], list[index+1:])
@@ -392,27 +504,8 @@ func addTrafficResult(bucket *TrafficBucket, stats transfer.Stats, responseBytes
 }
 
 func (r *Recorder) addTrafficLocked(at time.Time, stats transfer.Stats, responseBytes, duration int64, failed, cancelled bool) {
-	addTrafficBucket(&r.data.Traffic.Hourly.Buckets, hourlyTrafficStart(at), stats, responseBytes, duration, failed, cancelled)
-	addTrafficBucket(&r.data.Traffic.Daily.Buckets, dailyTrafficStart(at), stats, responseBytes, duration, failed, cancelled)
-	r.trimTrafficLocked(at)
-}
-
-func (r *Recorder) trimTrafficLocked(now time.Time) {
-	r.data.Traffic.Hourly = trimTrafficSeries(r.data.Traffic.Hourly, now)
-	r.data.Traffic.Daily = trimTrafficSeries(r.data.Traffic.Daily, now)
-}
-
-func trimTrafficSeries(series TrafficSeries, now time.Time) TrafficSeries {
-	cutoff := now.Add(-time.Duration(series.RetentionSeconds) * time.Second)
-	first := 0
-	for first < len(series.Buckets) && series.Buckets[first].Start.Before(cutoff) {
-		first++
-	}
-	if first == 0 {
-		return series
-	}
-	series.Buckets = append([]TrafficBucket{}, series.Buckets[first:]...)
-	return series
+	addTrafficBucket(&r.data.Traffic.Hourly.Buckets, r.host, hourlyTrafficStart(at), stats, responseBytes, duration, failed, cancelled)
+	addTrafficBucket(&r.data.Traffic.Daily.Buckets, r.host, dailyTrafficStart(at), stats, responseBytes, duration, failed, cancelled)
 }
 
 // Close marks the recorder closed and, for a persistent recorder, requests the
@@ -468,7 +561,16 @@ func ValidLabel(value string) bool {
 	return true
 }
 
+// Begin records a request without a client label. Older callers and clients
+// that do not expose one keep working; their UI column stays empty.
 func (r *Recorder) Begin(id, sessionID, upstream, kind string) uint64 {
+	return r.BeginWithClient(id, sessionID, upstream, kind, "")
+}
+
+// BeginWithClient records the requesting UI/client identity alongside the
+// opaque session and request metadata. Every observation is retained; there is
+// no eviction or trimming path.
+func (r *Recorder) BeginWithClient(id, sessionID, upstream, kind, client string) uint64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
@@ -477,62 +579,47 @@ func (r *Recorder) Begin(id, sessionID, upstream, kind string) uint64 {
 	if !ValidLabel(sessionID) {
 		sessionID = ""
 	}
+	if !ValidLabel(client) {
+		client = ""
+	}
 	switch kind {
 	case "primary", "title", "compaction", "generate":
 	default:
 		kind = "unknown"
 	}
 	now := time.Now().UTC()
-	index := r.sessionIndex(sessionID)
+	index := r.sessionIndex(r.host, sessionID)
 	if index < 0 {
-		if len(r.data.Sessions) >= SessionLimit {
-			oldest := -1
-			for i, session := range r.data.Sessions {
-				if session.Active == 0 && (oldest < 0 || session.UpdatedAt.Before(r.data.Sessions[oldest].UpdatedAt)) {
-					oldest = i
-				}
-			}
-			// The gateway caps concurrency below SessionLimit, so an inactive
-			// session is always available for eviction.
-			if oldest < 0 {
-				return 0
-			}
-			evicted := r.data.Sessions[oldest].ID
-			retained := r.data.RecentRequests[:0]
-			for _, request := range r.data.RecentRequests {
-				if request.SessionID != evicted {
-					retained = append(retained, request)
-				} else {
-					r.data.DroppedRequests++
-				}
-			}
-			r.data.RecentRequests = retained
-			r.data.Sessions = append(r.data.Sessions[:oldest], r.data.Sessions[oldest+1:]...)
-			r.data.EvictedSessions++
-		}
-		r.data.Sessions = append(r.data.Sessions, Session{ID: sessionID, StartedAt: now})
+		r.data.Sessions = append(r.data.Sessions, Session{Host: r.host, ID: sessionID, StartedAt: now})
 		index = len(r.data.Sessions) - 1
 	}
 	s := &r.data.Sessions[index]
 	s.UpdatedAt, s.Upstream, s.LastRequestID = now, upstream, id
+	if client != "" && !containsClient(s.Clients, client) {
+		s.Clients = append(s.Clients, client)
+	}
 	s.Requests++
 	s.Active++
 	r.data.Totals.Requests++
 	r.data.Totals.Active++
-	if len(r.data.RecentRequests) >= RequestLimit {
-		for i, request := range r.data.RecentRequests {
-			if request.State != "running" {
-				r.data.RecentRequests = append(r.data.RecentRequests[:i], r.data.RecentRequests[i+1:]...)
-				r.data.DroppedRequests++
-				break
-			}
-		}
-	}
+	r.hostTotalsLocked(r.host, func(t *Totals) {
+		t.Requests++
+		t.Active++
+	})
 	r.revision++
 	r.sequence++
-	r.data.RecentRequests = append(r.data.RecentRequests, Request{Sequence: r.sequence, ID: id, SessionID: sessionID, Upstream: upstream, Kind: kind, StartedAt: now, State: "running"})
+	r.data.RecentRequests = append(r.data.RecentRequests, Request{Host: r.host, Client: client, Sequence: r.sequence, ID: id, SessionID: sessionID, Upstream: upstream, Kind: kind, StartedAt: now, State: "running"})
 	r.markDirty()
 	return r.sequence
+}
+
+func containsClient(clients []string, client string) bool {
+	for _, current := range clients {
+		if current == client {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string, stats transfer.Stats, responseBytes, duration int64) {
@@ -560,10 +647,11 @@ func (r *Recorder) Finish(sequence uint64, status int, failed bool, code string,
 		if cancelled {
 			request.State = "cancelled"
 		}
-		s := &r.data.Sessions[r.sessionIndex(request.SessionID)]
+		s := &r.data.Sessions[r.sessionIndex(request.Host, request.SessionID)]
 		s.UpdatedAt, s.LastStatus, s.LastError = now, status, code
 		addResult(&s.Totals, failed, cancelled, stats, responseBytes, duration)
 		addResult(&r.data.Totals, failed, cancelled, stats, responseBytes, duration)
+		r.hostTotalsLocked(request.Host, func(t *Totals) { addResult(t, failed, cancelled, stats, responseBytes, duration) })
 		r.addTrafficLocked(now, stats, responseBytes, duration, failed, cancelled)
 		r.revision++
 		r.markDirty()
@@ -605,13 +693,24 @@ func addResult(t *Totals, failed, cancelled bool, stats transfer.Stats, response
 	t.DurationMillis += duration
 }
 
-func (r *Recorder) sessionIndex(id string) int {
+func (r *Recorder) sessionIndex(host, id string) int {
 	for i := range r.data.Sessions {
-		if r.data.Sessions[i].ID == id {
+		if r.data.Sessions[i].Host == host && r.data.Sessions[i].ID == id {
 			return i
 		}
 	}
 	return -1
+}
+
+// hostTotalsLocked keeps exact per-host totals independent of the retained
+// session rows.
+func (r *Recorder) hostTotalsLocked(host string, update func(*Totals)) {
+	if r.data.HostTotals == nil {
+		r.data.HostTotals = map[string]Totals{}
+	}
+	totals := r.data.HostTotals[host]
+	update(&totals)
+	r.data.HostTotals[host] = totals
 }
 
 func (r *Recorder) Snapshot() Snapshot {
@@ -622,8 +721,23 @@ func (r *Recorder) Snapshot() Snapshot {
 	copy.RecentRequests = append([]Request{}, r.data.RecentRequests...)
 	copy.Traffic.Hourly.Buckets = append([]TrafficBucket{}, r.data.Traffic.Hourly.Buckets...)
 	copy.Traffic.Daily.Buckets = append([]TrafficBucket{}, r.data.Traffic.Daily.Buckets...)
+	copy.HostTotals = make(map[string]Totals, len(r.data.HostTotals))
+	for host, totals := range r.data.HostTotals {
+		copy.HostTotals[host] = totals
+	}
+	copy.Host = r.host
+	copy.Traffic.Hourly.RetentionSeconds = 0
+	copy.Traffic.Daily.RetentionSeconds = 0
 	copy.SessionLimit, copy.RequestLimit, copy.Persistent = SessionLimit, RequestLimit, r.path != ""
-	sort.Slice(copy.Sessions, func(i, j int) bool { return copy.Sessions[i].UpdatedAt.After(copy.Sessions[j].UpdatedAt) })
+	sort.Slice(copy.Sessions, func(i, j int) bool {
+		if copy.Sessions[i].UpdatedAt.Equal(copy.Sessions[j].UpdatedAt) {
+			if copy.Sessions[i].Host == copy.Sessions[j].Host {
+				return copy.Sessions[i].ID < copy.Sessions[j].ID
+			}
+			return copy.Sessions[i].Host < copy.Sessions[j].Host
+		}
+		return copy.Sessions[i].UpdatedAt.After(copy.Sessions[j].UpdatedAt)
+	})
 	return copy
 }
 
@@ -696,6 +810,10 @@ func (r *Recorder) flush(final bool) {
 	snapshot := r.data
 	snapshot.Sessions = append([]Session{}, r.data.Sessions...)
 	snapshot.RecentRequests = append([]Request{}, r.data.RecentRequests...)
+	snapshot.HostTotals = make(map[string]Totals, len(r.data.HostTotals))
+	for host, totals := range r.data.HostTotals {
+		snapshot.HostTotals[host] = totals
+	}
 	snapshot.Traffic.Hourly.Buckets = append([]TrafficBucket{}, r.data.Traffic.Hourly.Buckets...)
 	snapshot.Traffic.Daily.Buckets = append([]TrafficBucket{}, r.data.Traffic.Daily.Buckets...)
 	revision := r.revision

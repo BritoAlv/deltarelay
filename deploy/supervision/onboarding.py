@@ -17,6 +17,7 @@ import tempfile
 from remote_provider import ProviderError, private_json, run_command
 from providers.codespaces import CodespacesProvider
 from providers.ssh import SSHProvider
+from .history import CAPTURES_NAME, STATS_NAME
 from .state import save_json
 
 
@@ -107,7 +108,9 @@ def create_config(project, path):
                 'command': [binary, 'gateway', '--server', 'http://127.0.0.1:8787',
                             '--token-file', str(path.parent / 'relay.token'), '--local-token-file', str(local),
                             '--upstreams', str(upstreams), '--state-dir', str(profile),
-                            '--stats-file', str(profile / 'dashboard-stats.json')],
+                            '--stats-file', str(profile / STATS_NAME),
+                            '--capture-dir', str(profile / CAPTURES_NAME),
+                            '--history-host', 'local'],
                 'pid_file': str(profile / 'gateway.pid'), 'port': 8788,
             },
         },

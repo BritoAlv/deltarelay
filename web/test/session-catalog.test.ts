@@ -20,7 +20,8 @@ test("catalog merges OpenCode titles with gateway measurements and keeps unmeasu
   assert.equal(entries.length, 10)
   const measured = entries.find((entry) => entry.id === snapshot.history.sessions[0]!.id)!
   assert.equal(measured.title, "Relay dashboard measurement")
-  assert.equal(measured.gateway, snapshot.history.sessions[0])
+  assert.equal(measured.gateway?.id, snapshot.history.sessions[0]!.id)
+  assert.deepEqual(measured.hosts, ["alpha"])
   assert.equal(measured.project, "deltarelay")
   assert.equal(catalogState(measured), "active")
   assert.notEqual(catalogReduction(measured), null)
@@ -28,6 +29,18 @@ test("catalog merges OpenCode titles with gateway measurements and keeps unmeasu
   assert.equal(unmeasured.gateway, undefined)
   assert.equal(catalogState(unmeasured), "unmeasured")
   assert.equal(catalogReduction(unmeasured), null)
+})
+
+test("catalog filters measurements by host without hiding other stored sessions", () => {
+  const snapshot = makeSnapshot(now)
+  for (const session of snapshot.history.sessions) session.host = "alpha"
+  const catalog = makeOpenCodeSessions(now)
+  const alpha = catalogSessions(snapshot, catalog, "alpha")
+  assert.equal(alpha.filter((entry) => entry.gateway).length, 6)
+  assert.ok(alpha.filter((entry) => entry.gateway).every((entry) => entry.hosts.length === 1 && entry.hosts[0] === "alpha"))
+  const beta = catalogSessions(snapshot, catalog, "beta")
+  assert.equal(beta.filter((entry) => entry.gateway).length, 0)
+  assert.equal(filterCatalogSessions(beta, "", "", "all", "beta").length, 0)
 })
 
 test("gateway-only sessions remain visible when OpenCode has no matching metadata", () => {

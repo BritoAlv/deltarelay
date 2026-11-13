@@ -20,6 +20,7 @@ import Icon from "./Icon.astro"
       <div class="compact-sort" id="session-sort-controls">
         <label class="compact-sort-field"><span>Sort</span><select id="session-sort" aria-label="Sort sessions by">
           <option value="session">Session</option>
+          <option value="host">Remote host</option>
           <option value="state">State</option>
           <option value="requests">Requests</option>
           <option value="original">Original</option>
@@ -33,10 +34,11 @@ import Icon from "./Icon.astro"
     </div>
     <div class="table-scroll" id="session-table-scroll">
       <table>
-        <caption class="sr-only">Retained sessions with request counts, transfer sizes, upload reduction, and last activity. Sortable column headers are available on wide screens; a sort control is available on narrow screens.</caption>
+        <caption class="sr-only">Retained sessions with the remote codespace host, request counts, transfer sizes, upload reduction, and last activity. Sortable column headers are available on wide screens; a sort control is available on narrow screens.</caption>
         <thead>
           <tr>
-            <th scope="col" data-sort-key="session" aria-sort="none"><button class="table-sort" type="button" data-sort-key="session" data-sort-label="session"><span>Session / upstream</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="session" aria-sort="none"><button class="table-sort" type="button" data-sort-key="session" data-sort-label="session"><span>Session</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
+            <th scope="col" data-sort-key="host" aria-sort="none"><button class="table-sort" type="button" data-sort-key="host" data-sort-label="remote codespace host"><span>Remote codespace host</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
             <th scope="col" data-sort-key="state" aria-sort="none"><button class="table-sort" type="button" data-sort-key="state" data-sort-label="state"><span>State</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
             <th scope="col" class="number" data-sort-key="requests" aria-sort="none"><button class="table-sort" type="button" data-sort-key="requests" data-sort-label="requests"><span>Requests</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>
             <th scope="col" class="number" data-sort-key="original" aria-sort="none"><button class="table-sort" type="button" data-sort-key="original" data-sort-label="original size"><span>Original</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button></th>

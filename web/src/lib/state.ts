@@ -35,6 +35,8 @@ export interface DashboardViewState {
   busy: boolean
   error: string
   system: SystemObservation | null
+  /** Selected remote-host label; empty means all hosts. */
+  host: string
   /** Optional local OpenCode session catalog used by the measurement page. */
   catalog?: OpenCodeSessions | null
   /** Catalog-specific failure, kept separate from gateway snapshot staleness. */

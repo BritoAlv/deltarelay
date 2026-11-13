@@ -1,6 +1,6 @@
 import { escapeHtml as escape } from "../../lib/html.js"
 import { dataValue, facts, reductionEquation } from "../../lib/presentation.js"
-import { bytes, duration, percentage, relativeTime, sessionState } from "../../lib/metrics.js"
+import { bytes, displaySessions, duration, historyHosts, percentage, relativeTime, sessionRequests, sessionState, type SessionView } from "../../lib/metrics.js"
 import { barComparison, requestMeasurement, sessionMeasurement } from "../../lib/measurement.js"
 import {
   catalogDays,
@@ -15,7 +15,7 @@ import {
   type CatalogSession,
 } from "../../lib/session-catalog.js"
 import type { DashboardViewState } from "../../lib/state.js"
-import type { RelayRequest, Session, Snapshot } from "../../lib/types.js"
+import type { RelayRequest, Snapshot } from "../../lib/types.js"
 import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 import { mountInspection } from "./inspection.js"
@@ -130,14 +130,8 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     })
   }
 
-  function selected(snapshot: Snapshot): Session | undefined {
-    return snapshot.history.sessions.find((session) => session.id === selectedSession)
-  }
-
-  function sessionRequests(snapshot: Snapshot, session: Session): RelayRequest[] {
-    return snapshot.history.recent_requests
-      .filter((request) => request.session_id === session.id)
-      .sort((a, b) => b.sequence - a.sequence)
+  function selected(snapshot: Snapshot): SessionView | undefined {
+    return displaySessions(snapshot, state?.host ?? "").find((session) => session.id === selectedSession)
   }
 
   function measuredEntries(): CatalogSession[] {
@@ -147,17 +141,20 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   function retentionText(snapshot: Snapshot): string {
     const history = snapshot.history
     const traffic = history.traffic
+    const limitLabel = (value: number) => value > 0 ? integer(value) : "Unlimited"
+    const aggregateLabel = (seconds: number) => seconds > 0 ? `${Math.round(seconds / 86_400)} days` : "Unlimited"
     const limits: [string, unknown][] = [
       ["History since", new Date(history.since).toLocaleString()],
-      ["Gateway session limit", integer(history.session_limit)],
-      ["Request limit", integer(history.request_limit)],
-      ["Sessions trimmed", integer(history.evicted_sessions)],
-      ["Requests trimmed", integer(history.dropped_requests)],
+      ["Hosts in retained history", historyHosts(snapshot).join(", ") || "None"],
+      ["Gateway session limit", limitLabel(history.session_limit)],
+      ["Request limit", limitLabel(history.request_limit)],
+      ["Sessions evicted", integer(history.evicted_sessions)],
+      ["Request entries trimmed", integer(history.dropped_requests)],
       ["Storage", history.persistent ? "Private gateway disk" : "In memory only"],
     ]
-    if (traffic) limits.push(["Hourly aggregates", `${Math.round(traffic.hourly.retention_seconds / 86_400)} days`], ["Daily aggregates", `${Math.round(traffic.daily.retention_seconds / 86_400)} days`])
+    if (traffic) limits.push(["Hourly aggregates", aggregateLabel(traffic.hourly.retention_seconds)], ["Daily aggregates", aggregateLabel(traffic.daily.retention_seconds)])
     const catalogText = state?.catalog ? " The session browser also lists sessions stored by OpenCode; only sessions with gateway measurements can be traced." : ""
-    return `${facts(limits)}<p>Global totals are preserved. Session totals restart if an evicted session reappears. Earlier gateway history is not imported from logs.${catalogText}</p>`
+    return `${facts(limits)}<p>New sessions, requests, and traffic are retained indefinitely; no eviction or age-based trimming is applied. Earlier gateway history is not imported from logs.${catalogText}</p>`
   }
 
   function stateLabel(entry: CatalogSession): string {
@@ -183,6 +180,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const parts: string[] = []
     if (entry.model && entry.model !== providerLabel(entry)) parts.push(entry.model)
     if (entry.agent) parts.push(entry.agent)
+    if (entry.hosts.length) parts.push(`Host: ${entry.hosts.join(", ")}`)
     return parts.join(" · ")
   }
 
@@ -310,7 +308,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     updateDayOptions(days)
     search.value = sessionQuery
     availabilitySelect.value = sessionAvailability
-    const filtered = filterCatalogSessions(catalogEntries, sessionQuery, sessionDay, sessionAvailability)
+    const filtered = filterCatalogSessions(catalogEntries, sessionQuery, sessionDay, sessionAvailability, state?.host ?? "")
       .sort((left, right) => compareCatalog(left, right))
     const totalPages = Math.max(1, Math.ceil(filtered.length / sessionPageSize))
     sessionPage = Math.min(Math.max(1, sessionPage), totalPages)
@@ -350,7 +348,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     next.disabled = sessionPage >= totalPages
     const catalogCount = state?.catalog?.sessions.length ?? 0
     dialogSummary.innerHTML = catalogCount > 0
-      ? `All sessions stored by OpenCode${state?.catalog?.truncated ? ` (first ${dataValue("2,000")})` : ""}. Only sessions with gateway measurements can be traced.`
+      ? `All sessions stored by OpenCode${state?.catalog?.truncated ? ` (first ${dataValue("2,000")})` : ""}.${state?.host ? ` Showing measured sessions for ${dataValue(state.host)}.` : ""} Only sessions with gateway measurements can be traced.`
       : state?.catalog
         ? "OpenCode returned no stored sessions. Showing sessions retained by the gateway."
         : "OpenCode session metadata is unavailable. Showing sessions retained by the gateway."
@@ -379,7 +377,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     selectedRequest = null
     showAll = false
     browserNotice = ""
-    const filtered = filterCatalogSessions(catalogEntries, sessionQuery, sessionDay, sessionAvailability)
+    const filtered = filterCatalogSessions(catalogEntries, sessionQuery, sessionDay, sessionAvailability, state?.host ?? "")
       .sort((left, right) => compareCatalog(left, right))
     const index = filtered.findIndex((candidate) => candidate.id === id)
     if (index >= 0) sessionPage = Math.floor(index / sessionPageSize) + 1
@@ -399,7 +397,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     triggerTitle.textContent = "Waiting for local gateway…"
     triggerMeta.textContent = ""
     trigger.disabled = true
-    retention.innerHTML = `${facts([["Gateway session limit", "256"], ["Request limit", "1,000"]])}<p>Global totals survive retention trimming. Earlier gateway history is not imported from logs.</p>`
+    retention.innerHTML = `${facts([["Gateway session limit", "Unlimited"], ["Request limit", "Unlimited"]])}<p>New sessions and requests are retained indefinitely. Earlier gateway history is not imported from logs.</p>`
     trace.innerHTML = `<div class="empty-state"><h3>Waiting for local gateway…</h3><p>Start the local gateway and dashboard server to trace retained sessions. No provider requests are sent by this page.</p></div>`
     inspector.update(null, undefined, "")
     if (dialog.open) renderSessionBrowser()
@@ -443,7 +441,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     return `<details class="trace-request${selectedRequest === request.sequence ? " selected" : ""}" data-request-id="${escape(request.id)}" data-request-sequence="${request.sequence}"${open}>
       <summary>
         <code class="trace-request-id" translate="no">${escape(request.id)}</code>
-        <span class="trace-request-meta metadata-line">${dataValue(request.kind)} ${dataValue(relativeTime(request.started_at))} ${dataValue(duration(measured.elapsedMs))}${status ? dataValue(`HTTP ${request.status}`) : ""}</span>
+        <span class="trace-request-meta metadata-line">${dataValue(request.kind)} ${dataValue(request.host || "local")} ${dataValue(relativeTime(request.started_at))} ${dataValue(duration(measured.elapsedMs))}${status ? dataValue(`HTTP ${request.status}`) : ""}</span>
         ${request.error_code ? `<span class="trace-request-error">${escape(request.error_code)}</span>` : ""}
         <div class="trace-request-values">
           ${selectedRequest === request.sequence ? '<span class="sr-only">Selected request</span>' : ""}
@@ -528,7 +526,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const current = selected(snapshot)
     if (!current) return
     const entry = catalogEntry(catalogEntries, current.id)
-    const requests = sessionRequests(snapshot, current)
+    const requests = sessionRequests(snapshot, current.id, state?.host ?? "")
     if (!requests.some((request) => request.sequence === selectedRequest)) selectedRequest = requests[0]?.sequence ?? null
     const inspected = requests.find((request) => request.sequence === selectedRequest) ?? null
     const measured = inspected ? requestMeasurement(inspected, snapshot.collected_at) : null
@@ -553,12 +551,13 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       ? `<button class="text-button trace-more" type="button" data-trace-more>${showAll ? `Show Latest ${requestPageSize}` : `Show All ${integer(requests.length)} Retained Requests`}</button>`
       : ""
     const ledger = requests.length === 0
-      ? `<div class="empty-state trace-requests-empty"><h3>No retained request entries</h3><p>Session totals still include ${dataValue(integer(sessionSummary.totalRequests))} request${sessionSummary.totalRequests === 1 ? "" : "s"}; their request-level entries were trimmed from history.</p></div>`
+      ? `<div class="empty-state trace-requests-empty"><h3>No retained request entries</h3><p>Session totals still include ${dataValue(integer(sessionSummary.totalRequests))} request${sessionSummary.totalRequests === 1 ? "" : "s"}; their request-level entries predate unlimited retention and cannot be reconstructed.</p></div>`
       : `${coverage}${visible.map((request) => renderRequest(request, snapshot)).join("")}${more}`
 
     const focus = traceFocus()
     const identityFacts: Array<readonly [string, string]> = [
       ["Session ID", current.id || "Unattributed requests"],
+      ["Host", current.hosts.join(", ") || "Unknown host"],
       ["Upstream", current.upstream || "Unknown upstream"],
       ...(entry?.model ? [["Model", entry.model] as const] : []),
       ...(entry?.agent ? [["Agent", entry.agent] as const] : []),
@@ -596,7 +595,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
           <div class="trace-visual-head"><h3>From body to wire</h3><span class="trace-visual-meta">Request-level stages, not a packet capture</span></div>
           <div class="trace-selected-request">
             <span class="trace-selected-label">Selected request</span>
-            ${inspected ? `<code translate="no">${escape(inspected.id)}</code><span class="trace-selected-meta metadata-line">${dataValue(inspected.kind)}${dataValue(inspected.state)}${inspected.capture_id ? "" : dataValue("not captured")}</span>` : `<span class="trace-selected-meta">No retained request entries</span>`}
+            ${inspected ? `<code translate="no">${escape(inspected.id)}</code><span class="trace-selected-meta metadata-line">${dataValue(inspected.kind)}${dataValue(inspected.host || "local")}${dataValue(inspected.state)}${inspected.capture_id ? "" : dataValue("not captured")}</span>` : `<span class="trace-selected-meta">No retained request entries</span>`}
           </div>
           <table class="trace-stage-table">
             <caption class="sr-only">Selected request body-to-wire stages</caption>
@@ -689,7 +688,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     render(nextState) {
       state = nextState
       const snapshot = nextState.snapshot
-      catalogEntries = catalogSessions(snapshot, nextState.catalog ?? null)
+      catalogEntries = catalogSessions(snapshot, nextState.catalog ?? null, nextState.host)
       if (!snapshot) {
         renderUnavailable()
         return
@@ -702,7 +701,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         empty("Requests routed through the gateway will appear here. Global totals remain available.")
         return
       }
-      if (selectedSession === null || !snapshot.history.sessions.some((session) => session.id === selectedSession)) {
+      if (selectedSession === null || !displaySessions(snapshot, nextState.host).some((session) => session.id === selectedSession)) {
         const fallback = measuredEntries()[0]
         selectedSession = fallback?.id ?? null
         showAll = false

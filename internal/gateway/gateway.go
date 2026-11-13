@@ -56,6 +56,7 @@ type Config struct {
 	OnResult              func(Result)
 	OnStart               func(string)
 	StatsFile             string
+	HistoryHost           string
 	Inspection            inspection.Config
 }
 
@@ -70,6 +71,7 @@ type Result struct {
 	Cancelled      bool           `json:"cancelled,omitempty"`
 	ErrorCode      string         `json:"error_code,omitempty"`
 	SessionID      string         `json:"session_id,omitempty"`
+	Client         string         `json:"client,omitempty"`
 }
 
 type Gateway struct {
@@ -107,7 +109,10 @@ func New(config Config) (*Gateway, error) {
 	if !policy.Enabled() {
 		return nil, errors.New("gateway requires an explicit upstream allowlist")
 	}
-	history, err := telemetry.Open(config.StatsFile)
+	if config.HistoryHost == "" {
+		config.HistoryHost = "local"
+	}
+	history, err := telemetry.OpenWithHost(config.StatsFile, config.HistoryHost)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +235,11 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	if !telemetry.ValidLabel(result.SessionID) {
 		result.SessionID = ""
 	}
-	observation = g.history.Begin(id, result.SessionID, rule.Name, r.Header.Get("X-DeltaRelay-Request-Kind"))
+	result.Client = r.Header.Get("X-Opencode-Client")
+	if !telemetry.ValidLabel(result.Client) {
+		result.Client = ""
+	}
+	observation = g.history.BeginWithClient(id, result.SessionID, rule.Name, r.Header.Get("X-DeltaRelay-Request-Kind"), result.Client)
 	w.Header().Set("X-DeltaRelay-Request-ID", id)
 	if g.config.OnStart != nil {
 		g.config.OnStart(id)

@@ -17,6 +17,7 @@ import (
 	"deltarelay/internal/gateway"
 	"deltarelay/internal/inspection"
 	"deltarelay/internal/protocol"
+	"deltarelay/internal/telemetry"
 	"deltarelay/internal/upstream"
 )
 
@@ -40,18 +41,19 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	recovery := bindRecovery(flags, true)
 	quiet := flags.Bool("quiet", false, "disable per-request metadata-only statistics logs")
 	statsFile := flags.String("stats-file", defaultEnv("DELTARELAY_STATS_FILE", defaultStatsFile), "private bounded session statistics; empty disables persistence")
+	historyHost := flags.String("history-host", defaultEnv("DELTARELAY_HISTORY_HOST", "local"), "label for the remote host that carries this gateway's traffic")
 	captureDir := flags.String("capture-dir", defaultEnv("DELTARELAY_CAPTURE_DIR", defaultCaptureDir), "private request/payload captures (sensitive prompts/code); empty disables capture")
-	captureBytes := flags.Int64("capture-max-bytes", inspection.DefaultMaxBytes, "maximum retained inspection bytes, including metadata")
-	captureRequestBytes := flags.Int64("capture-max-request-bytes", inspection.DefaultMaxCaptureBytes, "maximum inspection bytes per request including its evidence index; excess is explicitly truncated")
-	captureCount := flags.Int("capture-max-requests", inspection.DefaultMaxCaptures, "maximum retained inspection captures")
-	captureAge := flags.Duration("capture-max-age", inspection.DefaultMaxAge, "maximum age of retained inspection captures")
+	captureBytes := flags.Int64("capture-max-bytes", inspection.DefaultMaxBytes, "maximum retained inspection bytes, including metadata; 0 keeps everything")
+	captureRequestBytes := flags.Int64("capture-max-request-bytes", inspection.DefaultMaxCaptureBytes, "maximum inspection bytes per request including its evidence index; 0 keeps everything")
+	captureCount := flags.Int("capture-max-requests", inspection.DefaultMaxCaptures, "maximum retained inspection captures; 0 keeps everything")
+	captureAge := flags.Duration("capture-max-age", inspection.DefaultMaxAge, "maximum age of retained inspection captures; 0 keeps everything")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
 	}
-	if flags.NArg() != 0 || *budget < -1 || *headerTimeout <= 0 || *maxBody < 1 {
+	if flags.NArg() != 0 || *budget < -1 || *headerTimeout <= 0 || *maxBody < 1 || !telemetry.ValidLabel(*historyHost) {
 		return errors.New("invalid gateway arguments")
 	}
 	host, _, err := net.SplitHostPort(*listen)
@@ -86,7 +88,7 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	handler, err := gateway.New(gateway.Config{
 		Client: c, LocalToken: localToken, Upstreams: rules, AllowPrivateUpstreams: *allowPrivate,
 		MaxBodySize: *maxBody, MaxConcurrent: *concurrent, RequestTimeout: *requestTimeout,
-		StatsFile:  *statsFile,
+		StatsFile: *statsFile, HistoryHost: *historyHost,
 		Inspection: inspection.Config{Dir: *captureDir, MaxBytes: *captureBytes, MaxCaptureBytes: *captureRequestBytes, MaxCaptures: *captureCount, MaxAge: *captureAge},
 		OnStart: func(id string) {
 			if !*quiet {
