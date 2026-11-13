@@ -318,9 +318,13 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     }
     const scale = niceScale(min, max, 4)
     const y = (value: number) => bottom - (value - scale.min) / (scale.max - scale.min) * plotHeight
+    const seenLabels = new Set<string>()
     const grid = scale.ticks.map((value) => {
       const position = y(value)
-      return `<line class="chart-grid" x1="${left}" x2="${right}" y1="${position.toFixed(1)}" y2="${position.toFixed(1)}"/><text class="chart-axis" x="${left - 8}" y="${(position + 3).toFixed(1)}" text-anchor="end">${escapeHtml(bytes(value, 0))}</text>`
+      const label = bytes(value, 0)
+      const duplicate = seenLabels.has(label)
+      seenLabels.add(label)
+      return `<line class="chart-grid" x1="${left}" x2="${right}" y1="${position.toFixed(1)}" y2="${position.toFixed(1)}"/><text class="chart-axis" x="${left - 8}" y="${(position + 3).toFixed(1)}" text-anchor="end">${duplicate ? "" : escapeHtml(label)}</text>`
     }).join("")
     const zero = scale.min < 0 ? `<line class="chart-zero" x1="${left}" x2="${right}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}"/>` : ""
     const labels = axisIndices(points.length, width < 420 ? 4 : 6).map((index, position, all) => {
@@ -425,6 +429,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
       custom.hidden = true
       notice.hidden = true
     }
+    root.classList.toggle("custom-open", preset === "custom")
     syncUrl()
     if (lastState) render(lastState)
   })
@@ -529,6 +534,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
 
   rangeSelect.value = preset
   custom.hidden = preset !== "custom"
+  root.classList.toggle("custom-open", preset === "custom")
   compositionButton.setAttribute("aria-pressed", String(view === "composition"))
   trendsButton.setAttribute("aria-pressed", String(view === "trends"))
   if (preset === "custom") ensureCustomDefaults(Date.now())

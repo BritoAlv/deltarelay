@@ -21,6 +21,7 @@ export function mountMapNavigation(root: HTMLElement) {
   let x = 0
   let y = 0
   let fitted = true
+  let readableFit = true
   let suppressClick = false
   const pointers = new Map<number, { x: number; y: number }>()
   let drag: { x: number; y: number; cameraX: number; cameraY: number; moved: boolean } | null = null
@@ -45,18 +46,24 @@ export function mountMapNavigation(root: HTMLElement) {
     x = anchor.x - worldX * scale
     y = anchor.y - worldY * scale
     fitted = false
+    readableFit = false
     paint()
   }
-  function fit() {
+  function fitMode(readable: boolean) {
     const { width, height } = dimensions()
     if (!width || !height) return
     // Reserve space for the floating toolbar, rather than covering the top row.
-    scale = Math.max(.1, Math.min(2.5, (width - 32) / mapWidth, (height - 76) / mapHeight))
-    x = (width - mapWidth * scale) / 2
-    y = 60 + (height - 60 - mapHeight * scale) / 2
+    const fittedScale = Math.min(2.5, (width - 32) / mapWidth, (height - 76) / mapHeight)
+    // Keep labels legible on first open at every width; "Fit all" still performs a true fit.
+    scale = Math.max(.1, Math.min(2.5, readable ? Math.max(fittedScale, .75) : fittedScale))
+    x = Math.max(16, (width - mapWidth * scale) / 2)
+    y = scale > fittedScale ? 60 : 60 + (height - 60 - mapHeight * scale) / 2
     fitted = true
+    readableFit = readable
     paint()
   }
+  function fitAll() { fitMode(false) }
+  function fitDefault() { fitMode(true) }
   function center(id: NodeID) {
     const node = mapNodes.find((item) => item.id === id)
     if (!node) return
@@ -65,6 +72,7 @@ export function mountMapNavigation(root: HTMLElement) {
     x = width / 2 - (node.x + nodeWidth / 2) * scale
     y = 60 + (height - 60) / 2 - (node.y + nodeHeight / 2) * scale
     fitted = false
+    readableFit = false
     paint()
   }
   function cancel() {
@@ -169,14 +177,14 @@ export function mountMapNavigation(root: HTMLElement) {
       paint()
     } else if (["+", "=", "-", "0", "Home"].includes(event.key)) {
       event.preventDefault()
-      if (event.key === "0" || event.key === "Home") fit()
+      if (event.key === "0" || event.key === "Home") fitAll()
       else zoom(scale * (event.key === "-" ? .8 : 1.25))
     }
   })
   on(zoomIn, "click", () => zoom(scale * 1.25))
   on(zoomOut, "click", () => zoom(scale / 1.25))
   on(resetButton, "click", () => zoom(1))
-  on(fitButton, "click", fit)
+  on(fitButton, "click", fitAll)
   // Tabbing through off-screen node buttons should reveal, not scroll, the
   // transformed canvas. Preserve the keyboard user's place on resize as well.
   on(viewport, "focusin", (event) => {
@@ -185,8 +193,8 @@ export function mountMapNavigation(root: HTMLElement) {
     const rect = button.getBoundingClientRect(), bounds = viewport.getBoundingClientRect()
     if (rect.left < bounds.left || rect.right > bounds.right || rect.top < bounds.top + 60 || rect.bottom > bounds.bottom) center(button.dataset.nodeId as NodeID)
   })
-  const observer = new view.ResizeObserver(() => { if (fitted) fit() })
+  const observer = new view.ResizeObserver(() => { if (fitted) (readableFit ? fitDefault() : fitAll()) })
   observer.observe(viewport)
-  fit()
-  return { reveal() { if (fitted) fit() }, destroy() { cancel(); observer.disconnect(); for (const remove of cleanup) remove() } }
+  fitDefault()
+  return { reveal() { if (fitted) (readableFit ? fitDefault() : fitAll()) }, destroy() { cancel(); observer.disconnect(); for (const remove of cleanup) remove() } }
 }

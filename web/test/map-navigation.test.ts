@@ -4,11 +4,11 @@ import { openPage } from "./browser.js"
 import { mountMapNavigation } from "../src/scripts/features/map-navigation.js"
 import { mapHeight, mapWidth } from "../src/lib/topology-layout.js"
 
-function setup() {
+function setup(width = 760, height = 500) {
   const page = openPage("controls")
   const root = page.document.getElementById("controls")!
   const viewport = root.querySelector<HTMLElement>(".topology-viewport")!
-  Object.defineProperties(viewport, { clientWidth: { value: 760 }, clientHeight: { value: 500 } })
+  Object.defineProperties(viewport, { clientWidth: { value: width }, clientHeight: { value: height } })
   const navigation = mountMapNavigation(root)
   const node = root.querySelector<HTMLButtonElement>('[data-node-id="relay"]')!
   const canvas = root.querySelector<HTMLElement>(".topology-canvas")!
@@ -22,16 +22,33 @@ function setup() {
   return { ...page, root, viewport, navigation, node, camera, pointer, async finish() { navigation.destroy(); await page.close() } }
 }
 
-test("map fits all components without a toolbar row or component picker", async () => {
+test("map opens at a readable scale and Fit all fits every component", async () => {
   const page = setup()
   const camera = page.camera()
-  assert.ok(camera.scale < 1)
+  assert.ok(camera.scale >= .75, "the initial camera stays readable")
+  assert.ok(12 * camera.scale >= 9, "node titles render at least 9px")
   assert.ok(camera.x >= 0 && camera.y >= 60)
-  assert.ok(camera.x + mapWidth * camera.scale <= 760)
-  assert.ok(camera.y + mapHeight * camera.scale <= 500)
+  page.root.querySelector<HTMLButtonElement>("#map-fit")!.click()
+  const fitted = page.camera()
+  assert.ok(fitted.scale < camera.scale)
+  assert.ok(fitted.x + mapWidth * fitted.scale <= 760.5)
+  assert.ok(fitted.y + mapHeight * fitted.scale <= 500.5)
   assert.equal(page.root.querySelector(".map-navigation")?.parentElement, page.root.querySelector(".topology-workspace"))
   assert.equal(page.root.querySelector(".topology-workspace select"), null)
   assert.equal(page.root.querySelector(".topology-workspace #node-inspector"), null)
+  await page.finish()
+})
+
+test("map keeps a readable scale on a narrow mobile viewport", async () => {
+  const page = setup(330, 589)
+  const camera = page.camera()
+  assert.ok(camera.scale >= .75)
+  assert.ok(12 * camera.scale >= 9)
+  page.root.querySelector<HTMLButtonElement>("#map-fit")!.click()
+  const fitted = page.camera()
+  assert.ok(fitted.scale < camera.scale)
+  assert.ok(fitted.x + mapWidth * fitted.scale <= 330.5)
+  assert.ok(fitted.y + mapHeight * fitted.scale <= 589.5)
   await page.finish()
 })
 

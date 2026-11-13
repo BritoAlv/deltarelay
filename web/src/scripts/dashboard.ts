@@ -144,7 +144,11 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
 
 function dashboardNotice(state: DashboardViewState): string | null {
   const { snapshot, error } = state
-  if (error) return `${error}${snapshot ? " Showing the last successful snapshot; values may be stale." : ""}`
+  if (error) {
+    const detail = error.trim()
+    const separator = /[.!?]$/.test(detail) ? " " : ". "
+    return `${detail}${snapshot ? `${separator}Showing the last successful snapshot; values may be stale.` : ""}`
+  }
   if (!snapshot) return null
   if (snapshot.history.persistence_error) return "Statistics could not be saved to disk. Live observations still work, but new history may be lost on restart. Check permissions and free space for the gateway’s --stats-file."
   if (!snapshot.relay.reachable) {

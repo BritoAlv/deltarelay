@@ -54,7 +54,8 @@ export function mountHealth(root: HTMLElement): HealthFeature {
       const issue = !cancelled && (provider.last_status >= 400 || Boolean(provider.last_error))
       const status = provider.active > 0 ? "active" : issue ? "warning" : cancelled ? "neutral" : provider.last_seen ? "good" : "neutral"
       const label = provider.active > 0 ? `${provider.active} running` : cancelled ? "cancelled" : provider.last_seen ? provider.last_error || `HTTP ${provider.last_status}` : "Unobserved"
-      return `<div class="provider-item"><span title="${escape(provider.last_seen ? `Last result ${new Date(provider.last_seen).toLocaleString()}` : "No retained requests")}">${escape(provider.name)}</span>${pill(label, status)}</div>`
+      const providerTitle = provider.last_seen ? `${provider.name} — Last result ${new Date(provider.last_seen).toLocaleString()}` : `${provider.name} — No retained requests`
+      return `<div class="provider-item"><span title="${escape(providerTitle)}">${escape(provider.name)}</span>${pill(label, status)}</div>`
     }).join("")
     cards.innerHTML = `
       <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[0]}</span>${statePill(controlIssue ? "Attention" : "Online", controlIssue ? "warning" : "good")}</div><h3>Local gateway</h3>${facts([["Request slots in use", `${gateway.active} of ${gateway.concurrency}`], ["Pending cancellations", gateway.pending_cancellations], ["Uptime", duration(Math.max(0, Date.parse(data.collected_at) - Date.parse(gateway.started_at)))]])}${gateway.control_error ? '<p class="warning">Control error</p>' : ""}</article>

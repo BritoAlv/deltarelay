@@ -30,6 +30,24 @@ const colors = HighlightStyle.define([
   { tag: tags.punctuation, color: "var(--muted)" },
 ])
 
+// CodeMirror injects its light base theme outside the dashboard's cascade
+// layers, so the editor chrome must be themed through the library itself.
+const chrome = EditorView.theme({
+  "&": { backgroundColor: "var(--bg)", color: "var(--text)" },
+  ".cm-content": { caretColor: "var(--accent)" },
+  ".cm-gutters": { backgroundColor: "var(--surface)", color: "var(--subtle)", borderRight: "1px solid var(--border)" },
+  ".cm-lineNumbers .cm-gutterElement": { color: "var(--subtle)" },
+  ".cm-activeLine": { backgroundColor: "color-mix(in srgb, var(--accent) 8%, transparent)" },
+  ".cm-activeLineGutter": { backgroundColor: "color-mix(in srgb, var(--accent) 8%, transparent)" },
+  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 25%, transparent)" },
+  ".cm-panels": { backgroundColor: "var(--surface-raised)", color: "var(--text)" },
+  ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
+  ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--border)" },
+  ".cm-textfield": { backgroundColor: "var(--surface)", color: "var(--text)", border: "1px solid var(--border-strong)", borderRadius: "4px" },
+  ".cm-button": { backgroundColor: "var(--surface)", color: "var(--text)", border: "1px solid var(--border-strong)", borderRadius: "4px", backgroundImage: "none" },
+  ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--warning) 25%, transparent)", outline: "1px solid var(--warning)" },
+}, { dark: true })
+
 // These adapters only host the libraries. Parsing, folding, search, selection,
 // virtual rendering and keyboard navigation belong to CodeMirror/HexCanvas.
 export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOptions) {
@@ -78,6 +96,7 @@ export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOpti
         extensions: [
           EditorState.readOnly.of(true), EditorView.editable.of(false),
           EditorView.contentAttributes.of({ "aria-label": options.mode === "json" ? "Read-only JSON viewer" : "Read-only text viewer", tabindex: "0", translate: "no" }),
+          chrome,
           lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), drawSelection(),
           search(), keymap.of([...searchKeymap, ...foldKeymap, ...defaultKeymap]),
           wrapping.of(EditorView.lineWrapping),
