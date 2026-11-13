@@ -46,6 +46,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
   const detail = requiredById(dialog, "session-detail")
   const detailTitle = requiredById(dialog, "detail-title")
   const closeDetail = requiredById<HTMLButtonElement>(dialog, "close-detail")
+  const measureLink = requiredById<HTMLAnchorElement>(dialog, "detail-measure")
   const setText = (id: string, value: string | number) => {
     const element = requiredById(root, id)
     const nextValue = String(value)
@@ -151,8 +152,11 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement): Ses
     const session = snapshot.history.sessions.find((candidate) => candidate.id === selectedSession)
     if (!session) {
       detail.textContent = "Session is no longer in retained history. Global totals are unchanged."
+      measureLink.hidden = true
       return
     }
+    measureLink.hidden = false
+    measureLink.href = `/measurement?session=${encodeURIComponent(session.id)}`
     detailTitle.textContent = session.id || "Unattributed requests"
     const requests = snapshot.history.recent_requests.filter((request) => request.session_id === session.id).sort((a, b) => b.sequence - a.sequence)
     const reduction = savings(session.body_bytes, session.encoded_upload_bytes)

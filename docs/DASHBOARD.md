@@ -333,7 +333,9 @@ provider token/KV-cache reuse. Neither metric promises a provider-billing discou
 The traffic chart aggregates these values into hourly and daily buckets. In
 composition view, each bar is original body bytes split into uploaded bytes,
 relay cache reuse, and other savings; negative savings appear as a red overshoot.
-Trend view plots original, uploaded, saved, and reused bytes separately.
+Trend view plots original, uploaded, saved, and reused bytes separately. Solid
+segments cover buckets with finished requests; dashed, dimmed connectors span
+periods with no traffic so gaps are not mistaken for zero usage.
 
 The separate **Measurement** page (`/measurement`) applies these definitions to a
 session selected from retained gateway history. The session browser can list the

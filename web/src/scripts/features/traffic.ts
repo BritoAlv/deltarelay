@@ -238,15 +238,25 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   function drawTrends(data: TrafficData, range: TrafficRange, left: number, top: number, bottom: number, slot: number, y: (value: number) => number): string {
     const points = data.points
     const xAt = (index: number) => left + (index + 0.5) * slot
-    const linePath = (value: (point: TrafficPoint) => number) => {
-      let path = ""
-      let started = false
+    const linePaths = (value: (point: TrafficPoint) => number, className: string) => {
+      let solid = ""
+      let gaps = ""
+      let previous: { index: number; x: number; y: number } | null = null
       points.forEach((point, index) => {
-        if (point.requests === 0) { started = false; return }
-        path += `${started ? "L" : "M"}${xAt(index).toFixed(1)},${y(value(point)).toFixed(1)}`
-        started = true
+        if (point.requests === 0) return
+        const x = xAt(index)
+        const pointY = y(value(point))
+        const coordinate = `${x.toFixed(1)},${pointY.toFixed(1)}`
+        if (previous && previous.index !== index - 1) {
+          gaps += `M${previous.x.toFixed(1)},${previous.y.toFixed(1)} L${coordinate}`
+          solid += `M${coordinate}`
+        } else {
+          solid += `${previous ? "L" : "M"}${coordinate}`
+        }
+        previous = { index, x, y: pointY }
       })
-      return path
+      const gap = gaps ? `<path class="${className} chart-gap-line" d="${gaps}"/>` : ""
+      return `<path class="${className}" d="${solid}"/>${gap}`
     }
     const areaPath = (value: (point: TrafficPoint) => number) => {
       let path = ""
@@ -269,7 +279,10 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     const saved = (point: TrafficPoint) => point.body - point.encoded
     const dots = (value: (point: TrafficPoint) => number, className: string) => points.map((point, index) => point.requests === 0 ? "" : `<circle class="${className}" cx="${xAt(index).toFixed(1)}" cy="${y(value(point)).toFixed(1)}" r="2.2"/>`).join("")
     const areas = `<path class="chart-saved-area" d="${areaPath(saved)}"/><path class="chart-reuse-area" d="${areaPath((point) => point.reused)}"/>`
-    const lines = `<path class="chart-original-line" d="${linePath((point) => point.body)}"/><path class="chart-upload-line" d="${linePath((point) => point.encoded)}"/><path class="chart-saved-line" d="${linePath(saved)}"/><path class="chart-reuse-line" d="${linePath((point) => point.reused)}"/>`
+    const lines = linePaths((point) => point.body, "chart-original-line")
+      + linePaths((point) => point.encoded, "chart-upload-line")
+      + linePaths(saved, "chart-saved-line")
+      + linePaths((point) => point.reused, "chart-reuse-line")
     const markers = dots((point) => point.body, "chart-dot chart-dot-original") + dots((point) => point.encoded, "chart-dot chart-dot-upload") + dots(saved, "chart-dot chart-dot-saved") + dots((point) => point.reused, "chart-dot chart-dot-reuse")
     const hits = points.map((point, index) => {
       const x = left + index * slot

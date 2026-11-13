@@ -908,6 +908,9 @@ test("traffic ranges, views, and custom dates update the chart", async () => {
   assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /78 requests/)
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 5)
 
+  trends.click()
+  assert.ok(doc.querySelectorAll("#traffic-chart path.chart-gap-line").length > 0)
+
   range.value = "custom"
   page.fire(range, "change")
   assert.equal(doc.querySelector<HTMLElement>("#chart-custom")?.hidden, false)
@@ -1184,6 +1187,11 @@ test("session details open from a row and close again", async () => {
   assert.equal(doc.querySelector("#detail-title")?.textContent, button.dataset.sessionId)
   assert.equal(new URL(page.window.location.href).searchParams.get("session"), button.dataset.sessionId)
   assert.match(doc.querySelector("#session-detail")?.textContent ?? "", /Recent requests/)
+  const measure = doc.querySelector<HTMLAnchorElement>("#detail-measure")!
+  assert.equal(measure.hidden, false)
+  const measureUrl = new URL(measure.href, page.window.location.href)
+  assert.equal(measureUrl.pathname, "/measurement")
+  assert.equal(measureUrl.searchParams.get("session"), button.dataset.sessionId)
   doc.querySelector<HTMLButtonElement>("#close-detail")!.click()
   assert.equal(dialog.open, false)
   assert.equal(new URL(page.window.location.href).searchParams.get("session"), null)
