@@ -318,6 +318,7 @@ Installed-OpenCode tests (`make opencode-test`) and performance comparisons
 - [OpenCode Desktop and VPS setup](docs/SETUP.md)
 - [Varro + VS Code integration](docs/VARRO_VSCODE.md)
 - [Automatic remote setup](docs/REMOTE_SETUP.md)
+- [Per-host profiles and Codespace organization](docs/CODESPACES.md)
 - [Dashboard, offline builds, and measurements](docs/DASHBOARD.md)
 - [Automatic recovery and service controls](docs/SUPERVISION.md)
 - [Architecture](docs/ARCHITECTURE.md)

@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import cli
+from remote_provider import ProviderError
 
 
 class CLITest(unittest.TestCase):
@@ -63,6 +64,39 @@ class CLITest(unittest.TestCase):
                 self.invoke(*args)
         create.assert_not_called()
         start.assert_not_called()
+
+    @patch.object(cli, 'switch_codespace')
+    def test_use_switches_profile_and_restarts_services(self, switch):
+        code, output, errors = self.invoke('use', 'alpha', '--config', '/private/supervisor.json')
+        self.assertEqual(code, 0, errors)
+        switch.assert_called_once()
+        self.assertEqual(switch.call_args.args[:3], (Path(__file__).resolve().parents[1], 'alpha',
+                                                      Path('/private/supervisor.json')))
+        self.assertTrue(switch.call_args.kwargs['restart'])
+        self.assertIn('Active profile: alpha', output)
+
+    @patch.object(cli, 'switch_codespace')
+    def test_use_can_update_only_the_pointer(self, switch):
+        code, output, errors = self.invoke('use', 'alpha', '--no-start', '--config', '/private/supervisor.json')
+        self.assertEqual(code, 0, errors)
+        self.assertFalse(switch.call_args.kwargs['restart'])
+
+    @patch.object(cli, 'switch_codespace')
+    @patch.object(cli, 'active_profile', return_value='beta')
+    @patch.object(cli, 'list_profiles', return_value=['alpha', 'beta'])
+    def test_use_list_marks_the_active_profile(self, listed, active, switch):
+        code, output, errors = self.invoke('use', '--list')
+        self.assertEqual(code, 0, errors)
+        self.assertIn('  alpha', output)
+        self.assertIn('* beta', output)
+        switch.assert_not_called()
+
+    @patch.object(cli, 'switch_codespace', side_effect=ProviderError('profiles_not_configured'))
+    def test_use_reports_safe_switch_errors(self, switch):
+        code, output, errors = self.invoke('use', 'alpha', '--config', '/private/supervisor.json')
+        self.assertEqual(code, 1)
+        self.assertNotIn('Active profile', output)
+        self.assertIn('profiles_not_configured', errors)
 
     def test_auto_color_respects_terminal_and_environment(self):
         stream = io.StringIO()

@@ -43,6 +43,11 @@ regular JSON file, owned by the current user, with no group/other permissions or
 symlink. Executables and their dependencies are explicitly trusted local code,
 not sandboxed. Keep credentials in private files or explicitly selected variables.
 
+To keep several existing hosts side by side and switch between them with one
+pointer, see [per-host profiles and Codespace organization](CODESPACES.md). The
+provider contract below is unchanged; the profile layout only selects which
+private `provider.json` and relay identity are active.
+
 `relay_url` in the plugin's `connection` result must match the supervisor's
 `relay_url` (ignoring a trailing slash). The gateway's `--server` must use this
 same stable URL. Allowed origins are trusted HTTPS, or HTTP on `127.0.0.1`,
