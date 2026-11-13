@@ -442,13 +442,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         </div>`
     return `<details class="trace-request${selectedRequest === request.sequence ? " selected" : ""}" data-request-id="${escape(request.id)}" data-request-sequence="${request.sequence}"${open}>
       <summary>
-        <div class="trace-request-heading">
-          <code translate="no">${escape(request.id)}</code>
-          <span class="trace-request-meta metadata-line">${dataValue(request.kind)} ${dataValue(relativeTime(request.started_at))} ${dataValue(duration(measured.elapsedMs))}${status ? dataValue(`HTTP ${request.status}`) : ""}</span>
-          ${request.error_code ? `<span class="trace-request-error">${escape(request.error_code)}</span>` : ""}
-        </div>
+        <code class="trace-request-id" translate="no">${escape(request.id)}</code>
+        <span class="trace-request-meta metadata-line">${dataValue(request.kind)} ${dataValue(relativeTime(request.started_at))} ${dataValue(duration(measured.elapsedMs))}${status ? dataValue(`HTTP ${request.status}`) : ""}</span>
+        ${request.error_code ? `<span class="trace-request-error">${escape(request.error_code)}</span>` : ""}
         <div class="trace-request-values">
-          ${selectedRequest === request.sequence ? '<span class="trace-request-selected">Selected</span>' : ""}
+          ${selectedRequest === request.sequence ? '<span class="sr-only">Selected request</span>' : ""}
           ${pill(request.state, tone)}
           <strong class="${measured.reduction !== null && measured.reduction < 0 ? "negative" : "accent"}">${escape(measured.pending ? "Pending" : percentage(measured.reduction))}</strong>
           <span class="metadata-line">${measured.pending ? "Transfer totals pending" : `${dataValue(bytes(measured.original))}<span aria-hidden="true">→</span><span class="sr-only">to</span>${dataValue(bytes(measured.encoded))}`}</span>
