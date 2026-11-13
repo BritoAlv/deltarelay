@@ -63,13 +63,15 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     : null
 
   function observation(): SystemObservation {
-    if (!system) return { connection: "unknown", collectedAt: null, receivedAt: receivedAt || null, stale: true, managed: false }
+    if (!system) return { connection: "unknown", collectedAt: null, receivedAt: receivedAt || null, stale: true, managed: false, auth: null, go: null }
     return {
       connection: connectionState(system),
       collectedAt: system.collected_at,
       receivedAt: receivedAt || null,
       stale,
       managed: system.managed,
+      auth: system.auth,
+      go: system.go ?? null,
     }
   }
 

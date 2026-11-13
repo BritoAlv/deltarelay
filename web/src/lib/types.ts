@@ -131,6 +131,8 @@ export interface Snapshot {
   }
   providers: {
     name: string
+    origin?: string
+    path_prefix?: string
     active: number
     last_status: number
     last_error?: string

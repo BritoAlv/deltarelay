@@ -1,5 +1,5 @@
 import { Channel } from "./events.js"
-import type { ConnectionState } from "./system.js"
+import type { AuthStatus, ConnectionState, GoAllowance } from "./system.js"
 import type { OpenCodeSessions, Snapshot } from "./types.js"
 
 export interface SystemObservation {
@@ -13,6 +13,10 @@ export interface SystemObservation {
   stale: boolean
   /** Whether the supervisor manages service controls for this profile. */
   managed: boolean
+  /** OpenCode OAuth metadata, when the system poll has it. */
+  auth: AuthStatus | null
+  /** OpenCode Go allowance, when the local service reports it. */
+  go: GoAllowance | null
 }
 
 // Five-second system polling can legitimately miss one or two ticks during a

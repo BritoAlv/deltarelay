@@ -8,6 +8,20 @@ export interface AuthStatus {
   stale: boolean
 }
 
+export interface AllowanceMeter {
+  percent: number
+  limited: boolean
+  resets_at: string
+}
+
+export interface GoAllowance {
+  rolling: AllowanceMeter
+  weekly: AllowanceMeter
+  monthly: AllowanceMeter
+  checked_at: string
+  stale: boolean
+}
+
 export interface SystemStatus {
   version: 2
   managed: boolean
@@ -27,12 +41,21 @@ export interface SystemStatus {
   }
   components: { id: string; label: string; state: string; can_start: boolean; can_restart: boolean }[]
   auth: AuthStatus
+  go?: GoAllowance
   topology?: TopologyStatus
 }
 
 const componentIDs = ["dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop"]
 export type RemoteCapability = "relay.ensure" | "relay.restart" | "host.wake" | "host.stop"
 const remoteCapabilities = ["relay.ensure", "relay.restart", "host.wake", "host.stop"]
+
+function isAllowanceMeter(value: unknown): boolean {
+  return object(value) && typeof value.percent === "number" && Number.isFinite(value.percent) && value.percent >= 0 && value.percent <= 100 && typeof value.limited === "boolean" && timestamp(value.resets_at)
+}
+
+export function isGoAllowance(value: unknown): value is GoAllowance {
+  return object(value) && isAllowanceMeter(value.rolling) && isAllowanceMeter(value.weekly) && isAllowanceMeter(value.monthly) && timestamp(value.checked_at) && typeof value.stale === "boolean"
+}
 
 export function supportsRemote(system: SystemStatus | null, capability: RemoteCapability): boolean {
   return Boolean(system?.remote.capabilities.includes(capability))
@@ -42,6 +65,7 @@ export function isSystemStatus(v: unknown): v is SystemStatus {
   if (!object(v) || v.version !== 2 || typeof v.managed !== "boolean" || !timestamp(v.collected_at) || typeof v.csrf_token !== "string" || !/^[a-f0-9]{64}$/.test(v.csrf_token) || !optionalString(v.error)) return false
   if (typeof v.internet_state !== "string" || !nullableTimestamp(v.internet_checked_at)) return false
   if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || !optionalTimestamp(v.auth.expires_at) || !optionalTimestamp(v.auth.checked_at)) return false
+  if (v.go !== undefined && !isGoAllowance(v.go)) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
   if (v.topology !== undefined && !isTopology(v.topology)) return false
   if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || !counters(v.recovery, ["attempts"]) || !nullableTimestamp(v.recovery.next_retry_at) || !nullableTimestamp(v.recovery.last_connected_at)) return false

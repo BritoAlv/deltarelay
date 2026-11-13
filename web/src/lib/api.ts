@@ -73,7 +73,7 @@ export function isSnapshot(value: unknown): value is Snapshot {
   if (!Array.isArray(history.sessions) || sessionLimit > 0 && history.sessions.length > sessionLimit || !history.sessions.every(session)) return false
   if (!Array.isArray(history.recent_requests) || requestLimit > 0 && history.recent_requests.length > requestLimit || !history.recent_requests.every(request)) return false
   if (!traffic(history.traffic)) return false
-  return Array.isArray(providers) && providers.every((p) => object(p) && typeof p.name === "string" && counters(p, ["active", "last_status"]) && optionalString(p.last_error) && optionalTimestamp(p.last_seen))
+  return Array.isArray(providers) && providers.every((p) => object(p) && typeof p.name === "string" && optionalString(p.origin) && optionalString(p.path_prefix) && counters(p, ["active", "last_status"]) && optionalString(p.last_error) && optionalTimestamp(p.last_seen))
 }
 
 function openCodeSession(value: unknown): boolean {

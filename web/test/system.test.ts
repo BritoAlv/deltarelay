@@ -29,6 +29,28 @@ test("control snapshots validate schemas, components, timestamps, and ephemeral 
   }
 })
 
+test("control snapshots validate Go allowance meters", () => {
+  const go = {
+    rolling: { percent: 8, limited: false, resets_at: "2026-10-28T13:00:00Z" },
+    weekly: { percent: 22, limited: false, resets_at: "2026-10-30T13:00:00Z" },
+    monthly: { percent: 11, limited: false, resets_at: "2026-11-28T13:00:00Z" },
+    checked_at: "2026-10-28T12:00:00Z",
+    stale: false,
+  }
+  assert.equal(isSystemStatus({ ...status, go }), true)
+  for (const change of [
+    { go: { ...go, rolling: { ...go.rolling, percent: -1 } } },
+    { go: { ...go, weekly: { ...go.weekly, percent: 101 } } },
+    { go: { ...go, monthly: { ...go.monthly, limited: "no" } } },
+    { go: { ...go, rolling: { ...go.rolling, resets_at: "bad" } } },
+    { go: { ...go, checked_at: "bad" } },
+    { go: { ...go, stale: 1 } },
+    { go: { ...go, weekly: undefined } },
+  ]) {
+    assert.equal(isSystemStatus({ ...status, ...change }), false)
+  }
+})
+
 test("gate is a bounded managed component and the inventory limit is seven", () => {
   const gate = { id: "gate", label: "Varro health gate", state: "running", can_start: true, can_restart: true }
   assert.equal(isSystemStatus({ ...status, components: [...status.components, gate] }), true)

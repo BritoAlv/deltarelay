@@ -53,6 +53,7 @@ type SystemStatus struct {
 	Remote            RemoteStatus      `json:"remote"`
 	Components        []ComponentStatus `json:"components"`
 	Auth              AuthStatus        `json:"auth"`
+	Go                *GoAllowance      `json:"go,omitempty"`
 	Topology          *TopologyStatus   `json:"topology,omitempty"`
 }
 
@@ -112,6 +113,7 @@ func (h *Handler) system(w http.ResponseWriter, r *http.Request) {
 	}
 	result.CSRFToken = h.nonce
 	result.Auth = h.authStatus(r.Context())
+	result.Go = h.goAllowance(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodHead {
 		_ = json.NewEncoder(w).Encode(result)

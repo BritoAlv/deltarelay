@@ -51,6 +51,11 @@ type Handler struct {
 	authCache AuthStatus
 	authNext  time.Time
 
+	usageMu    sync.Mutex
+	usageCache *GoAllowance
+	usageErr   error
+	usageNext  time.Time
+
 	catalogMu   sync.Mutex
 	catalog     OpenCodeSessions
 	catalogErr  error

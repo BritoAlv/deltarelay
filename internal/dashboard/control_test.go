@@ -241,6 +241,8 @@ func TestOAuthExpiryMetadataNeverLeaksSecretsOrRefreshes(t *testing.T) {
 						status = "needs_auth"
 					}
 					_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"connections": []any{map[string]any{"id": "active", "status": map[string]string{"status": status}}}}})
+				case "/api/experimental/usage/limits":
+					_, _ = io.WriteString(w, `{"data":null}`)
 				default:
 					t.Error("unexpected API call; polling must never resolve credentials or refresh OAuth")
 				}

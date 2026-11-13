@@ -96,7 +96,7 @@ func TestDashboardSessionSavingsAndFailureAccounting(t *testing.T) {
 	if s.History.RecentRequests[1].Transfer.UploadedChunks != 0 || s.History.RecentRequests[0].Kind != "compaction" || s.History.RecentRequests[2].State != "failed" {
 		t.Fatal("request details lost reuse, kind, or failure state")
 	}
-	if len(s.Providers) != 1 || s.Providers[0].LastStatus != 429 || s.Providers[0].LastSeen == nil {
+	if len(s.Providers) != 1 || s.Providers[0].LastStatus != 429 || s.Providers[0].LastSeen == nil || s.Providers[0].Origin != provider.URL || s.Providers[0].PathPrefix != "/v1/" {
 		t.Fatal("provider observations missing")
 	}
 	if calls.Load() != 3 {

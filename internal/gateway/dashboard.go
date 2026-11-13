@@ -14,6 +14,8 @@ import (
 
 type ProviderStatus struct {
 	Name       string     `json:"name"`
+	Origin     string     `json:"origin,omitempty"`
+	PathPrefix string     `json:"path_prefix,omitempty"`
 	Active     int        `json:"active"`
 	LastStatus int        `json:"last_status"`
 	LastError  string     `json:"last_error,omitempty"`
@@ -63,7 +65,7 @@ func (g *Gateway) dashboard(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[rule.Name] = true
-		provider := ProviderStatus{Name: rule.Name}
+		provider := ProviderStatus{Name: rule.Name, Origin: rule.Origin, PathPrefix: rule.PathPrefix}
 		for _, request := range result.History.RecentRequests {
 			if request.Upstream != rule.Name {
 				continue

@@ -1617,6 +1617,101 @@ test("system health combines gateway diagnostics with supervisor network state",
   await page.close()
 })
 
+test("provider forwarding shows the OpenCode Go allowance and switches provider tabs", async () => {
+  const page = openPage("system")
+  const snapshot = makeSnapshot(now)
+  snapshot.providers = [
+    { name: "openai", origin: "https://api.openai.com", path_prefix: "/v1/", active: 1, last_status: 200, last_seen: new Date(now - 40_000).toISOString() },
+    { name: "opencode", origin: "https://opencode.ai", path_prefix: "/inference/", active: 2, last_status: 200, last_seen: new Date(now - 20_000).toISOString() },
+  ]
+  const status = systemStatus({
+    go: {
+      rolling: { percent: 8, limited: false, resets_at: new Date(Date.now() + 2 * 3_600_000).toISOString() },
+      weekly: { percent: 22, limited: false, resets_at: new Date(Date.now() + 2 * 86_400_000).toISOString() },
+      monthly: { percent: 11, limited: false, resets_at: new Date(Date.now() + 29 * 86_400_000).toISOString() },
+      checked_at: new Date(now).toISOString(),
+      stale: false,
+    },
+  })
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url === "/api/system") return json(status)
+    throw new Error(`Unexpected URL ${url}`)
+  })
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  const doc = page.document
+  const tabs = () => [...doc.querySelectorAll<HTMLButtonElement>('#system-cards [role="tab"]')]
+  const panel = (name: string) => doc.querySelector<HTMLElement>(`#system-cards [data-provider-panel="${name}"]`)
+
+  assert.deepEqual(tabs().map((tab) => tab.textContent?.trim()), ["opencode-go", "openai"])
+  assert.equal(tabs()[0]?.getAttribute("aria-selected"), "true")
+  assert.equal(panel("opencode-go")?.hidden, false)
+  assert.equal(panel("openai")?.hidden, true)
+  assert.match(panel("opencode-go")?.textContent ?? "", /opencode\.ai · \/inference\//)
+  assert.match(panel("opencode-go")?.textContent ?? "", /Go allowance.*8%.*22%.*11%/s)
+  assert.match(panel("opencode-go")?.querySelector(".provider-usage-reset")?.textContent ?? "", /resets in 2h/)
+
+  const auth = doc.querySelector("#provider-auth")!
+  assert.equal(auth.closest("[data-provider-panel]")?.getAttribute("data-provider-panel"), "openai")
+  tabs()[1]!.click()
+  assert.equal(panel("opencode-go")?.hidden, true)
+  assert.equal(panel("openai")?.hidden, false)
+  assert.equal(tabs()[1]?.getAttribute("aria-selected"), "true")
+
+  // A dashboard refresh and a system refresh keep the selected tab and the
+  // mounted auth element, including its disclosure state.
+  const disclosure = auth.querySelector<HTMLDetailsElement>("details")!
+  disclosure.open = true
+  await dashboard.refresh()
+  await system.refresh()
+  assert.equal(tabs()[1]?.getAttribute("aria-selected"), "true")
+  assert.equal(panel("openai")?.hidden, false)
+  assert.equal(doc.querySelector("#provider-auth"), auth)
+  assert.equal(disclosure.open, true)
+
+  status.auth.state = "needs_auth"
+  await system.refresh()
+  assert.ok(tabs()[1]?.querySelector(".provider-tab-dot.warning"))
+
+  status.go = undefined
+  await system.refresh()
+  assert.match(panel("openai")?.textContent ?? "", /ChatGPT sign-in/)
+  tabs()[0]!.click()
+  assert.match(panel("opencode-go")?.textContent ?? "", /Go usage is unavailable/)
+
+  dashboard.destroy()
+  system.destroy()
+  await page.close()
+})
+
+test("provider forwarding marks a limited Go allowance as attention", async () => {
+  const page = openPage("system")
+  const snapshot = makeSnapshot(now)
+  snapshot.providers = [{ name: "opencode", active: 5, last_status: 200, last_seen: new Date(now).toISOString() }]
+  const status = systemStatus({
+    go: {
+      rolling: { percent: 8, limited: false, resets_at: new Date(Date.now() + 3_600_000).toISOString() },
+      weekly: { percent: 22, limited: false, resets_at: new Date(Date.now() + 86_400_000).toISOString() },
+      monthly: { percent: 100, limited: true, resets_at: new Date(Date.now() + 86_400_000).toISOString() },
+      checked_at: new Date(now).toISOString(),
+      stale: false,
+    },
+  })
+  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(status))
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  const doc = page.document
+  assert.match(doc.querySelector("#system-cards")?.textContent ?? "", /Check results/)
+  assert.match(doc.querySelector('[data-provider-panel="opencode-go"]')?.textContent ?? "", /Limit reached/)
+  assert.equal(doc.querySelector('[data-provider-panel="opencode-go"] .provider-usage-row.warning .provider-usage-percent')?.textContent, "100%")
+  dashboard.destroy()
+  system.destroy()
+  await page.close()
+})
+
 test("system health distinguishes no internet from an unreachable VPS", async () => {
   const page = openPage("system")
   const snapshot = makeSnapshot(now)
