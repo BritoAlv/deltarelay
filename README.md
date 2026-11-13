@@ -32,18 +32,16 @@ guarantee of faster responses or permanent response storage.
 
 ## 2 - Results of the proposed solution
 
-**3.3 GiB of request bodies. 78.5 MiB uploaded.**
+**6.6 GiB of request bodies. 172.4 MiB uploaded.**
 
-**97.7% less uploaded** in the dashboard's captured **Last 7 days** view below.
+**97.4% less uploaded** in the dashboard's captured **Last 7 days** view below.
 
-![Dashboard seven-day upload composition and cache-reuse charts: 3.3 GiB original, 78.5 MiB uploaded, 3.2 GiB saved, and 96.4% cache reuse.](docs/images/dashboard-savings.png)
+![Dashboard seven-day upload composition and cache-reuse charts: 6.6 GiB original, 172.4 MiB uploaded, 6.4 GiB saved, and 96.1% cache reuse.](docs/images/dashboard-savings.png)
 
-Actual local dashboard capture, November 7, 2026 (UTC), with rounded display
-values. The chart reports finished requests only: 3,297 requests, including
-9 failed and 1,041 cancelled in that window. Aggregated traffic starts November 3;
-earlier totals are preserved but not plotted, so the selected range is not seven
-complete days of plotted history. **This is an observed sample, not a benchmark
-or a speed guarantee.**
+Actual local dashboard capture, November 12, 2026 (local time), with rounded
+display values. The chart reports finished requests only: 6,256 requests,
+including 10 failed and 170 cancelled in that window. **This is an observed
+sample, not a benchmark or a speed guarantee.**
 
 Reduction is `1 - encoded upload bytes / original body bytes`. It combines chunk
 reuse and compression, includes upload control metadata, and excludes HTTP
@@ -152,19 +150,24 @@ and [retention and limits](docs/PROTOCOL.md#6-retention-and-limits).
 
 ### Local workspace, remote relay, and controls
 
-![Actual dashboard architecture map showing local OpenCode components, encrypted tunnel, remote relay and storage, model provider, and the independent dashboard and recovery control plane.](docs/images/dashboard-architecture.png)
+![Actual dashboard architecture map showing Varro in VS Code and its health gate, local OpenCode components, encrypted tunnel, remote relay and storage, model provider, and the independent dashboard and recovery control plane.](docs/images/dashboard-architecture.png)
 
-Actual dashboard map captured November 7, 2026 (UTC), using GitHub Codespaces as
-the remote host. Status labels are observations at capture time—not a claim that
-every connection is verified. The map distinguishes the model-request path from
-checks, recovery, and management. Request content and forwarding credentials still
-pass through the trusted relay. See [architecture](docs/ARCHITECTURE.md).
+Actual dashboard architecture view captured November 12, 2026 (local time),
+using GitHub Codespaces as the remote host. It is a read-only map of live
+supervisor topology: selecting a component highlights its connections, while
+lifecycle state and actions are on the **Controls** tab. The map distinguishes
+model-request/response flow from checks, recovery, and management. Request content
+and forwarding credentials still pass through the trusted relay. See
+[architecture](docs/ARCHITECTURE.md).
 
 On PCs that use VS Code, Varro attaches through the supervisor-managed loopback
 health gate to the **same** shared OpenCode service as Desktop/TUI:
 `VS Code/Varro → gate → OpenCode service`, alongside
 `Desktop/TUI → OpenCode service`. The gate is default-on and never starts,
-restarts, or replaces the backend. See [Varro + VS Code](docs/VARRO_VSCODE.md).
+restarts, or replaces the backend. Install Varro in a dedicated profile, keep
+`varro.server.port` at `18789` with `autoStart` and `autoUpdate` off, then launch
+that profile. See the [Varro quick
+integration](docs/VARRO_VSCODE.md#quick-integration) for the full sequence.
 
 ### Security and limitations
 
@@ -182,8 +185,9 @@ restarts, or replaces the backend. See [Varro + VS Code](docs/VARRO_VSCODE.md).
 
 ## 5 - Instructions to install
 
-Installation has three parts: build the local tool and dashboard, set up an
-existing trusted remote host, and enable the OpenCode plugin.
+Installation has three core parts: build the local tool and dashboard, set up an
+existing trusted remote host, and enable the OpenCode plugin. Varro in VS Code is
+an optional additional integration that uses the same shared OpenCode service.
 
 ### Requirements
 
@@ -196,6 +200,9 @@ existing trusted remote host, and enable the OpenCode plugin.
   requires an authenticated current `gh` CLI and an existing Codespace.
 - **OpenCode integration:** OpenCode V2, a working provider connection, and Node.js
   22+. The plugin has no npm dependencies.
+- **Varro integration (optional):** VS Code 1.107+ and a Varro build with
+  attach-only/v2 support (0.34.6 was checked). The supervisor starts the loopback
+  gate; Varro must not manage a separate OpenCode server.
 
 ### Build and first-time setup
 
@@ -221,6 +228,12 @@ Next, follow the [OpenCode setup guide](docs/SETUP.md) to enable the plugin and
 verify routing. **Building the project or setting up a host does not activate the
 plugin.** That guide also covers manual setup and direct HTTPS.
 
+To use Varro in VS Code, install it in a dedicated profile and point it at the
+gate as described in [Varro + VS Code](docs/VARRO_VSCODE.md). The supervisor
+starts the gate by default; you do not run a separate gate command. The
+dashboard's **Open** action can launch the configured profile once after
+`vscode.open_command` is set.
+
 ## 6 - Instructions to run
 
 ### Start an existing installation
@@ -243,7 +256,9 @@ uv run ./deltarelay start --config /private/supervisor.json
 
 Replace `/private/supervisor.json` with your actual configuration file. To start
 the local controls and network recovery without launching OpenCode/Desktop, add
-`--no-desktop` to either command.
+`--no-desktop` to either command. `--no-desktop` does not disable the Varro health
+gate: it still starts with the supervisor and never starts or restarts the
+OpenCode backend.
 
 Open **http://127.0.0.1:8790/controls** (or your configured dashboard address) to
 check connection status. Local startup readiness does not guarantee that the
@@ -301,7 +316,7 @@ Installed-OpenCode tests (`make opencode-test`) and performance comparisons
 ## Documentation
 
 - [OpenCode Desktop and VPS setup](docs/SETUP.md)
-- [Varro VS Code shared-service bridge](docs/VARRO_VSCODE.md)
+- [Varro + VS Code integration](docs/VARRO_VSCODE.md)
 - [Automatic remote setup](docs/REMOTE_SETUP.md)
 - [Dashboard, offline builds, and measurements](docs/DASHBOARD.md)
 - [Automatic recovery and service controls](docs/SUPERVISION.md)

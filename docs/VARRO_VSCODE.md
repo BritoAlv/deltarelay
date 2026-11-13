@@ -17,6 +17,33 @@ VS Code / Varro -> gate 127.0.0.1:18789 -> profile OpenCode shared service
 Desktop / TUI --------------------------> same shared service
 ```
 
+## Quick integration
+
+1. Build and start DeltaRelay normally with `uv run ./deltarelay start` (or
+   `./startup.sh`). The supervisor starts the gate at `gate_url` (default
+   `http://127.0.0.1:18789`). Do not also start the manual `deltarelay gate`
+   command on that port.
+2. Install Varro in a dedicated VS Code profile, using a build compatible with
+   your VS Code and Node versions (see [Install and configure
+   Varro](#install-and-configure-varro)).
+3. Keep `varro.server.port` at `18789`, with `varro.server.autoStart` and
+   `varro.server.autoUpdate` both `false`. Point Varro at the **gate** port, not
+   the OpenCode service port, and never use `"auto"`.
+4. Quit every VS Code window that uses that profile, then relaunch it without
+   `OPENCODE_SERVER_*` variables when the gate has no password. If you configured
+   a separate gate password, set both variables to that password as shown below.
+5. Check readiness with `curl -fsS http://127.0.0.1:18789/healthz | jq` (add
+   Basic auth when a gate password is configured). `/livez` proves only that the
+   gate listener is running; `/healthz` also checks the gateway/relay, OpenCode
+   v2 service, and optional workspace plugin.
+6. Optional: set `vscode.open_command` in the supervisor configuration and
+   restart the supervisor so the dashboard's **Varro in VS Code** card can launch
+   that profile. The supervisor runs the command once and does not manage the
+   editor afterwards.
+
+The detailed prerequisites, failure behavior, acceptance checks, and rollback
+follow.
+
 ## Prerequisites and direct-attach check
 
 Use OpenCode v2 and Varro with attach-only/v2 support. The downloaded package
@@ -61,8 +88,9 @@ then start it normally:
 uv run ./deltarelay start --config /private/supervisor.json
 ```
 
-The supervisor starts the gate on `gate_url` (default `127.0.0.1:18789`) without
-starting or restarting OpenCode, Desktop, the relay, or the tunnel. Gate
+The supervisor starts the gate on `gate_url` (default
+`http://127.0.0.1:18789`) without starting or restarting OpenCode, Desktop, the
+relay, or the tunnel. Gate
 liveness is checked locally by `GET /livez` with the private local token; the
 gate's backend checks still run on Varro requests and `/healthz`. The map shows
 `Varro in VS Code → Varro health gate → OpenCode server` alongside the existing

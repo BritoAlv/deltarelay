@@ -19,11 +19,14 @@ gateway is down. Controls are disabled unless the dashboard is explicitly
 connected to a private supervisor. The map reflects the whole system; it does not
 infer a working connection merely because two processes are running.
 
-- **System controls** shows the request path (Desktop, OpenCode server, plugin,
-  gateway, transport, Internet/interface path, remote host, relay, storage,
-  provider) and the separate dashboard/supervisor control plane. Select a node
-  to inspect its evidence, dependencies, and configured lifecycle actions. The
-  current automatic recovery step is highlighted in place.
+- **System controls** has **Controls**, **Architecture** (read-only), and
+  **Settings** tabs. It shows the request paths Desktop/TUI → OpenCode server →
+  plugin → gateway → transport → relay → provider, and VS Code/Varro → Varro
+  health gate → the same shared OpenCode server, plus the separate
+  dashboard/supervisor control plane. Component cards expose evidence and
+  configured lifecycle actions; the architecture map highlights connections when
+  you select a node. The current automatic recovery step is highlighted in the
+  Controls view.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed and cancelled attempts and negative savings.
   Failed and cancelled requests are counted separately; a client that closes

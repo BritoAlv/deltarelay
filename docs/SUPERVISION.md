@@ -139,10 +139,10 @@ reports an unrecognized occupied port rather than replacing its owner.
 
 ## Component topology and recovery contract
 
-System controls renders the whole deployment as a live map. The request paths are
-Desktop → OpenCode server (loaded DeltaRelay plugin) → local gateway → transport
-→ relay → external model provider, and, for Varro, VS Code → health gate →
-the same shared OpenCode server. The map also shows network/host prerequisites
+System controls includes a live topology map of the whole deployment. The request
+paths are Desktop → OpenCode server (loaded DeltaRelay plugin) → local gateway →
+transport → relay → external model provider, and, for Varro, VS Code → health
+gate → the same shared OpenCode server. The map also shows network/host prerequisites
 and relay-owned storage. A separate control path shows the dashboard browser,
 dashboard service, supervisor, and remote-host adapter. Nodes and their connections
 are reported independently:
@@ -157,13 +157,15 @@ external services rather than processes. A configured tunnel gets a process
 boundary; direct HTTPS does not. The model provider stays outside the relay and
 remote-host boundaries. Arrow colors distinguish model-request flow from checks,
 recovery, and management, independently of readiness or live request activity.
+The dashboard's **Architecture** tab shows this map read-only; lifecycle state and
+actions are on the **Controls** tab.
 
 Each node publishes its own desired state, observed lifecycle, readiness,
-current activity, evidence timestamp, and supported actions. The map supports
-`start`, `recover`, `restart`, and `stop` where configured, plus `wake`/`stop`
-for a remote host that advertises those capabilities. Read-only nodes (model
-provider, relay storage, plugin state without a configured OpenCode location)
-do not invent lifecycle actions. A process that is running but whose API has not
+current activity, evidence timestamp, and supported actions. The Controls view
+supports `start`, `recover`, `restart`, and `stop` where configured, plus
+`wake`/`stop` for a remote host that advertises those capabilities. Read-only
+nodes (model provider, relay storage, plugin state without a configured OpenCode
+location) do not invent lifecycle actions. A process that is running but whose API has not
 answered is shown as **Running · unverified**, not **Ready**.
 
 Recovery uses the same model. A component adapter owns one resource and never
@@ -188,8 +190,8 @@ recovery path resets credentials, clears cache/mailbox state, disables
 verification, or submits a model request.
 
 Only one service-changing operation executes at a time. Read-only observation
-continues when safe, and the map shows the active component with a spinner and
-the exact action in progress. Conflicting operations are serialized serially;
+continues when safe, and the Controls view shows the active component with a
+spinner and the exact action in progress. Conflicting operations are serialized serially;
 duplicate browser submissions with the same request ID are ignored. Components
 that are not part of the repair stay running.
 
