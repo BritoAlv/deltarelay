@@ -1,12 +1,15 @@
 import { savings } from "./metrics.js"
-import type { Snapshot, Traffic, TrafficBucket, TrafficSeries } from "./types.js"
+import type { RelayRequest, Snapshot, Traffic, TrafficBucket, TrafficSeries } from "./types.js"
 
 export const HOUR_MS = 3_600_000
 export const DAY_MS = 86_400_000
+export const SECOND_MS = 1_000
+export const MINUTE_MS = 60_000
 
-export type TrafficPreset = "24h" | "7d" | "30d" | "90d" | "last" | "custom"
-export type TrafficFixedPreset = Exclude<TrafficPreset, "last" | "custom">
-export type TrafficLastUnit = "hours" | "days"
+export type TrafficPreset = "24h" | "7d" | "30d" | "90d" | "last" | "custom" | "datetime"
+export type TrafficFixedPreset = Exclude<TrafficPreset, "last" | "custom" | "datetime">
+export type TrafficLastUnit = "seconds" | "minutes" | "hours" | "days"
+export const trafficLastUnits: readonly TrafficLastUnit[] = ["seconds", "minutes", "hours", "days"]
 export type TrafficView = "composition" | "trends"
 
 export interface TrafficRange {
@@ -50,8 +53,10 @@ export interface TrafficData {
   points: TrafficPoint[]
   totals: TrafficTotals
   coverageStart: number | null
-  source: "hourly" | "daily" | "none"
+  source: "hourly" | "daily" | "requests" | "none"
   truncated: boolean
+  /** Exact windows cannot recover request timestamps lost by older bounded histories. */
+  incomplete?: boolean
 }
 
 export interface AxisScale {
@@ -67,7 +72,7 @@ const presetConfig: Record<TrafficFixedPreset, { span: number; bucketMs: number;
   "90d": { span: 90 * DAY_MS, bucketMs: 3 * DAY_MS, label: "Last 90 days" },
 }
 
-const bucketCandidates = [HOUR_MS, 2 * HOUR_MS, 3 * HOUR_MS, 6 * HOUR_MS, 12 * HOUR_MS, DAY_MS, 2 * DAY_MS, 3 * DAY_MS, 7 * DAY_MS]
+const bucketCandidates = [SECOND_MS, 5 * SECOND_MS, 15 * SECOND_MS, MINUTE_MS, 5 * MINUTE_MS, 15 * MINUTE_MS, 30 * MINUTE_MS, HOUR_MS, 2 * HOUR_MS, 3 * HOUR_MS, 6 * HOUR_MS, 12 * HOUR_MS, DAY_MS, 2 * DAY_MS, 3 * DAY_MS, 7 * DAY_MS]
 
 function startOfLocalHour(value: number): number {
   const date = new Date(value)
@@ -87,7 +92,7 @@ function alignStart(value: number, bucketMs: number): number {
 }
 
 export function chooseBucketMs(spanMs: number): number {
-  return bucketCandidates.find((candidate) => spanMs / candidate <= 42) ?? 7 * DAY_MS
+  return bucketCandidates.find((candidate) => spanMs / candidate <= 42) ?? Math.ceil(spanMs / (42 * DAY_MS)) * DAY_MS
 }
 
 export function presetRange(preset: TrafficFixedPreset, now: number): TrafficRange {
@@ -104,11 +109,11 @@ export interface CustomRangeResult {
 }
 
 export function lastRange(amount: number, unit: TrafficLastUnit, now: number): CustomRangeResult {
-  if (!Number.isSafeInteger(amount) || amount < 1) return { error: "Choose a whole number of hours or days greater than zero." }
-  const span = amount * (unit === "days" ? DAY_MS : HOUR_MS)
+  if (!Number.isSafeInteger(amount) || amount < 1) return { error: "Choose a whole number of seconds, minutes, hours, or days greater than zero." }
+  const span = amount * ({ seconds: SECOND_MS, minutes: MINUTE_MS, hours: HOUR_MS, days: DAY_MS }[unit])
   if (span > lastRangeLimit) return { error: "Choose a lookback of 3,650 days or less." }
   const bucketMs = chooseBucketMs(span)
-  const start = alignStart(now - span, bucketMs)
+  const start = now - span
   const singular = amount === 1 ? unit.slice(0, -1) : unit
   return { range: { start, end: now, bucketMs, preset: "last", label: `Last ${amount} ${singular}` } }
 }
@@ -132,6 +137,77 @@ export function customRange(startDate: string, endDate: string, now: number): Cu
       label: startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`,
     },
   }
+}
+
+/** Explicit formats only: never guess whether 01/02 means January or February. */
+export function parseDateTime(input: string): number | null {
+  const value = input.trim()
+  if (/^\d{10}$|^\d{13}$/.test(value)) {
+    const at = Number(value) * (value.length === 10 ? SECOND_MS : 1)
+    return Number.isFinite(new Date(at).getTime()) ? at : null
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2})?$/.exec(value)
+  if (!match) return null
+  const [, y, mo, d, h, mi, s = "0", fraction = "", zone = ""] = match
+  const [year, month, day, hour, minute, second] = [y, mo, d, h, mi, s].map(Number)
+  const calendar = new Date(0)
+  calendar.setUTCFullYear(year!, month! - 1, day!)
+  if (calendar.getUTCFullYear() !== year || calendar.getUTCMonth() !== month! - 1 || calendar.getUTCDate() !== day || hour! > 23 || minute! > 59 || second! > 59) return null
+  if (zone && zone !== "Z" && (Number(zone.slice(1, 3)) > 23 || Number(zone.slice(4)) > 59)) return null
+  const milliseconds = Number(fraction.slice(0, 3).padEnd(3, "0"))
+  if (zone) {
+    const iso = `${y}-${mo}-${d}T${h}:${mi}:${s.padStart(2, "0")}.${String(milliseconds).padStart(3, "0")}${zone}`
+    const at = Date.parse(iso)
+    return Number.isFinite(at) ? at : null
+  }
+  const local = new Date(0)
+  local.setFullYear(year!, month! - 1, day!)
+  local.setHours(hour!, minute!, second!, milliseconds)
+  // Reject nonexistent local times (including the spring DST clock jump).
+  if (local.getFullYear() !== year || local.getMonth() !== month! - 1 || local.getDate() !== day || local.getHours() !== hour || local.getMinutes() !== minute) return null
+  return local.getTime()
+}
+
+export function dateTimeRange(startValue: string, endValue: string, now: number): CustomRangeResult {
+  const start = parseDateTime(startValue)
+  const end = parseDateTime(endValue)
+  if (start === null || end === null) return { error: "Enter valid start and end timestamps using one of the formats below." }
+  if (start >= end) return { error: "The start timestamp must be before the end timestamp." }
+  if (start >= now) return { error: "The selected range has not started yet." }
+  const boundedEnd = Math.min(end, now)
+  return { range: { start, end: boundedEnd, bucketMs: chooseBucketMs(boundedEnd - start), preset: "datetime", label: `${formatDateTime(start)} – ${formatDateTime(boundedEnd)}` } }
+}
+
+export function formatDateTime(value: number): string {
+  return new Date(value).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", ...(value % SECOND_MS ? { fractionalSecondDigits: 3 as const } : {}), hour12: false, timeZoneName: "short" })
+}
+
+export function requestInRange(request: RelayRequest, range: TrafficRange): boolean {
+  const at = request.finished_at ? Date.parse(request.finished_at) : NaN
+  return request.state !== "running" && at >= range.start && at < range.end
+}
+
+function preciseTrafficData(snapshot: Snapshot, range: TrafficRange, host: string): TrafficData {
+  const points = emptyPoints(range)
+  for (const request of snapshot.history.recent_requests) {
+    if ((host && (request.host || "local") !== host) || !requestInRange(request, range)) continue
+    const at = Date.parse(request.finished_at!)
+    const index = Math.min(points.length - 1, Math.floor((at - range.start) / range.bucketMs))
+    const point = points[index]!
+    point.requests++
+    point.failed += Number(request.state === "failed" || request.state === "interrupted")
+    point.cancelled += Number(request.state === "cancelled")
+    point.body += request.transfer.body_bytes
+    point.encoded += request.transfer.request_body_bytes_sent
+    point.reused += request.transfer.reused_body_bytes
+    point.uploadedChunkBytes += request.transfer.uploaded_chunk_bytes
+    point.response += request.response_bytes
+    point.duration += request.duration_ms
+  }
+  const since = Date.parse(snapshot.history.since)
+  const coverageStart = Number.isFinite(since) ? Math.max(since, range.start) : range.start
+  return { points, totals: trafficTotals(points), source: "requests", coverageStart, truncated: coverageStart > range.start,
+    incomplete: snapshot.history.dropped_requests > 0 }
 }
 
 export function dateInputValue(value: number): string {
@@ -230,6 +306,9 @@ export function trafficTotals(points: TrafficPoint[]): TrafficTotals {
 }
 
 export function trafficData(snapshot: Snapshot, range: TrafficRange, host = ""): TrafficData {
+  // Relative and pasted ranges keep exact boundaries; hourly/daily aggregates
+  // cannot answer sub-hour questions without including unrelated requests.
+  if (range.preset === "last" || range.preset === "datetime") return preciseTrafficData(snapshot, range, host)
   const history = snapshot.history
   const now = Date.parse(snapshot.collected_at)
   const selected = selectSeries(history.traffic, range, host)
@@ -290,8 +369,8 @@ export function formatDate(value: number): string {
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
-export function formatTime(value: number): string {
-  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })
+export function formatTime(value: number, seconds = false): string {
+  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(seconds ? { second: "2-digit" as const } : {}), hour12: false })
 }
 
 export function formatBucketWindow(at: number, end: number, bucketMs: number): string {
@@ -303,13 +382,14 @@ export function formatBucketWindow(at: number, end: number, bucketMs: number): s
   const start = new Date(at)
   const finish = new Date(end)
   const sameDay = start.toDateString() === finish.toDateString()
-  if (sameDay) return `${formatDate(at)}, ${formatTime(at)} – ${formatTime(end)}`
-  return `${formatDate(at)} ${formatTime(at)} – ${formatDate(end)} ${formatTime(end)}`
+  const seconds = bucketMs < MINUTE_MS
+  if (sameDay) return `${formatDate(at)}, ${formatTime(at, seconds)} – ${formatTime(end, seconds)}`
+  return `${formatDate(at)} ${formatTime(at, seconds)} – ${formatDate(end)} ${formatTime(end, seconds)}`
 }
 
 export function formatAxisLabel(at: number, spanMs: number): string {
   if (spanMs > 2 * DAY_MS) return formatDate(at)
-  return formatTime(at)
+  return formatTime(at, spanMs <= 10 * MINUTE_MS)
 }
 
 export function compositionSegments(point: TrafficPoint): { uploaded: number; reused: number; other: number; overshoot: number } {

@@ -39,11 +39,36 @@ infer a working connection merely because two processes are running.
   the requests. “All hosts” merges retained session rows with the same OpenCode
   session ID while keeping each host's measurements available when selected.
   The selection is deep-linkable with `?host=<profile>`.
-- Upload traffic over 24 hours, 7, 30, or 90 days, any custom number of
-  hours or days, or an absolute date range. Composition and trend views plot
+- One **Time range** control above the Overview cards scopes upload reduction,
+  bandwidth saved, tracked sessions, model requests, upload traffic, and cache
+  reuse together. It defaults to **Last 30 days**, with 24-hour, 7-day, and
+  90-day presets, any custom number of **seconds, minutes, hours, or days**, or
+  an absolute date range. Relative windows use exact boundaries against the
+  latest snapshot (automatic refresh remains every ten seconds; pause freezes
+  the snapshot).
+  **Custom range → Date picker** retains whole-day selection. **Paste timestamps**
+  accepts ISO 8601 with `Z` or a numeric timezone offset,
+  `YYYY-MM-DD HH:mm[:ss]` in the displayed browser timezone, ten-digit Unix
+  seconds, and thirteen-digit Unix milliseconds. A preview shows the interpreted
+  timestamps before Apply. Exact ranges include the start and exclude the end;
+  future end times stop at the latest snapshot. Invalid input leaves the last
+  applied range intact. Both range and chart view are restored from the URL.
+  Composition and trend views plot
   bandwidth saved and relay cache reuse with a legend, range summary, tooltips,
   and responsive axes. Cache reuse versus raw uploaded chunks remains visible
   beside the chart.
+- Relative and pasted timestamp windows use finished request records, rather
+  than including an entire hourly bucket for a seconds- or minutes-long range.
+  The cards and chart share the same finished-request byte totals. Model requests
+  additionally includes requests running now that started in the selected live
+  window; their bytes are pending and are excluded from the chart. Tracked
+  sessions counts distinct session IDs observed in that period across hosts,
+  including those running requests, not the lifetime totals of overlapping
+  sessions. Historical ranges do not claim to reconstruct past running states.
+  Older imported histories that discarded request records show coverage warnings
+  and label session counts as retained records only; missing timestamps are not
+  inferred from aggregates. Legacy lifetime outcome warnings remain separate
+  from period totals because older aggregate outcomes were not reconciled.
 - Active requests, upstream, request kind (primary/title/compaction/generate),
   status, duration, and safe error codes in a session inspector.
 - A separate **Measurement** page traces any gateway-measured session with the

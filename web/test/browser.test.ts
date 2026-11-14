@@ -6,7 +6,7 @@ import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemStatus } from "../src/scripts/system.js"
 import { makeOpenCodeSessions, makeSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
-import { dateInputValue } from "../src/lib/traffic.js"
+import { dateInputValue, presetRange, trafficData } from "../src/lib/traffic.js"
 import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import type { SetupStatus } from "../src/lib/setup.js"
@@ -902,15 +902,15 @@ test("overview refresh renders stats and an accessible chart without session or 
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions")?.textContent, "6")
   assert.equal(doc.querySelector("#nav-session-count")?.textContent, "6")
-  assert.match(doc.querySelector("#stat-requests-foot")?.textContent ?? "", /1 failed · 1 cancelled/)
+  assert.match(doc.querySelector("#stat-requests-foot")?.textContent ?? "", /2 failed · 1 cancelled/)
   assert.match(doc.querySelector("#traffic-chart")?.innerHTML ?? "", /<svg/)
   assert.equal(doc.querySelector("#traffic-chart svg")?.getAttribute("preserveAspectRatio"), "xMidYMid meet")
-  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 24 hours.*72 requests/)
+  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 30 days.*101 requests/)
   assert.match(doc.querySelector("#chart-saved")?.textContent ?? "", /GiB|MiB|KiB|B/)
   assert.match(doc.querySelector("#chart-reused")?.textContent ?? "", /GiB|MiB|KiB|B/)
   assert.match(doc.querySelector("#reuse-value")?.textContent ?? "", /%/)
   assert.match(doc.querySelector<HTMLElement>("#reuse-meter-reuse")?.style.width ?? "", /%/)
-  assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /72 requests · 1 failed · 1 cancelled/)
+  assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /101 requests · 2 failed · 1 cancelled/)
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 1)
   assert.equal(doc.querySelector("#session-rows"), null)
   assert.equal(doc.querySelector("#system-summary"), null)
@@ -920,7 +920,7 @@ test("overview refresh renders stats and an accessible chart without session or 
   await page.close()
 })
 
-test("overview separates legacy outcomes from failures", async () => {
+test("overview labels legacy lifetime outcomes separately instead of assigning them to a period", async () => {
   const page = openPage()
   const snapshot = makeSnapshot(now)
   const legacySession = snapshot.history.sessions.find((session) => session.failed > 0)!
@@ -936,11 +936,12 @@ test("overview separates legacy outcomes from failures", async () => {
   const dashboard = startDashboard(page.document, { autoStart: false })
   await dashboard.refresh()
   const doc = page.document
-  assert.match(doc.querySelector("#stat-requests-foot")?.textContent ?? "", /0 failed.*1 legacy.*1 cancelled/)
+  assert.equal(doc.querySelector("#stat-saved")?.textContent, doc.querySelector("#chart-saved")?.textContent)
+  assert.doesNotMatch(doc.querySelector("#stat-requests-foot")?.textContent ?? "", /legacy/)
   const note = doc.querySelector<HTMLElement>("#stats-note")!
   assert.equal(note.hidden, false)
-  assert.match(note.textContent ?? "", /1 legacy requests predate final-state reconciliation/)
-  assert.match(note.textContent ?? "", /Current host alpha: 0 failed/)
+  assert.match(note.textContent ?? "", /1 legacy requests with unknown outcomes/)
+  assert.match(note.textContent ?? "", /lifetime counts cannot be assigned to the selected period/)
   dashboard.destroy()
   await page.close()
 })
@@ -955,8 +956,8 @@ test("overview always shows all hosts and carries no host filter", async () => {
   const doc = page.document
   assert.equal(doc.querySelector("#host-filter"), null)
   assert.equal(doc.querySelector("#stat-sessions")?.textContent, "6")
-  assert.equal(doc.querySelector("#stat-requests")?.textContent, snapshot.history.totals.requests.toLocaleString())
-  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 24 hours: 72 requests/)
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, "102")
+  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 30 days: 101 requests/)
   assert.equal(new URL(page.window.location.href).searchParams.get("host"), null)
   const sessionsLink = doc.querySelector<HTMLAnchorElement>('.sidebar-nav a[href^="/sessions"]')!
   assert.equal(new URL(sessionsLink.href, page.window.location.href).searchParams.get("host"), null)
@@ -1210,7 +1211,7 @@ test("traffic ranges, views, and custom dates update the chart", async () => {
   assert.match(chart.getAttribute("aria-label") ?? "", /Last 3 days/)
   amount.value = "0"
   doc.querySelector<HTMLButtonElement>("#chart-last-apply")!.click()
-  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /greater than zero/)
+  assert.match(doc.querySelector("#overview-range-notice")?.textContent ?? "", /greater than zero/)
   assert.equal(amount.getAttribute("aria-invalid"), "true")
   amount.value = "3"
   unit.value = "days"
@@ -1218,7 +1219,7 @@ test("traffic ranges, views, and custom dates update the chart", async () => {
   assert.match(chart.getAttribute("aria-label") ?? "", /Last 3 days/)
 
   trends.click()
-  assert.ok(doc.querySelectorAll("#traffic-chart path.chart-gap-line").length > 0)
+  assert.ok(doc.querySelectorAll("#traffic-chart path.chart-saved-line").length > 0)
 
   range.value = "custom"
   page.fire(range, "change")
@@ -1235,7 +1236,7 @@ test("traffic ranges, views, and custom dates update the chart", async () => {
   start.value = dateInputValue(now)
   end.value = dateInputValue(now - 86_400_000)
   doc.querySelector<HTMLButtonElement>("#chart-apply")!.click()
-  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /start date/)
+  assert.match(doc.querySelector("#overview-range-notice")?.textContent ?? "", /start date/)
   dashboard.destroy()
   await page.close()
 })
@@ -1259,7 +1260,7 @@ test("traffic range and view are deep-linked through the URL", async () => {
   assert.equal(new URL(page.window.location.href).searchParams.get("view"), null)
   range.value = "30d"
   page.fire(range, "change")
-  assert.equal(new URL(page.window.location.href).searchParams.get("range"), "30d")
+  assert.equal(new URL(page.window.location.href).searchParams.get("range"), null)
   dashboard.destroy()
   await page.close()
 })
@@ -1278,6 +1279,134 @@ test("relative traffic lookback is deep-linked through the URL", async () => {
   assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 18 hours/)
   dashboard.destroy()
   await page.close()
+})
+
+test("overview range sits above the cards and all presets share the chart totals", async () => {
+  const page = openPage()
+  const snapshot = makeSnapshot(now)
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const range = doc.querySelector<HTMLSelectElement>("#chart-range")!
+  assert.equal(doc.querySelector("#overview")?.firstElementChild?.id, "overview-range")
+  assert.equal(doc.querySelector("#traffic-panel #chart-range"), null)
+  assert.equal(range.value, "30d")
+  for (const preset of ["24h", "7d", "30d", "90d"] as const) {
+    range.value = preset
+    page.fire(range, "change")
+    const totals = trafficData(snapshot, presetRange(preset, now)).totals
+    assert.equal(doc.querySelector("#stat-saved")?.textContent, doc.querySelector("#chart-saved")?.textContent)
+    assert.equal(doc.querySelector("#stat-reduction")?.textContent, doc.querySelector("#chart-saved-rate")?.textContent)
+    assert.equal(doc.querySelector("#stat-requests")?.textContent, String(totals.requests + 1))
+    assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", new RegExp(`${totals.requests} requests`))
+  }
+  dashboard.destroy()
+  await page.close()
+})
+
+test("seconds and minutes update the four cards and render real request-level chart points", async () => {
+  const page = openPage()
+  const snapshot = makeSnapshot(now)
+  const request = snapshot.history.recent_requests.at(-2)!
+  request.started_at = new Date(now - 10_000).toISOString()
+  request.finished_at = new Date(now - 5000).toISOString()
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const range = doc.querySelector<HTMLSelectElement>("#chart-range")!
+  range.value = "last"
+  page.fire(range, "change")
+  const amount = doc.querySelector<HTMLInputElement>("#chart-last-amount")!
+  const unit = doc.querySelector<HTMLSelectElement>("#chart-last-unit")!
+  const apply = doc.querySelector<HTMLButtonElement>("#chart-last-apply")!
+  amount.value = "30"
+  unit.value = "seconds"
+  apply.click()
+  assert.equal(doc.querySelector("#stat-sessions")?.textContent, "2")
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, "2")
+  assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /^1 requests/)
+  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 30 seconds: 1 requests/)
+  assert.equal(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length, 1)
+  assert.equal(doc.querySelector("#stat-saved")?.textContent, doc.querySelector("#chart-saved")?.textContent)
+  assert.equal(doc.querySelector("#stat-reduction")?.textContent, doc.querySelector("#chart-saved-rate")?.textContent)
+  const appliedChart = doc.querySelector("#traffic-chart")!.getAttribute("aria-label")
+  const appliedUrl = page.window.location.href
+  amount.value = "0"
+  apply.click()
+  assert.equal(doc.querySelector("#traffic-chart")!.getAttribute("aria-label"), appliedChart)
+  assert.equal(page.window.location.href, appliedUrl)
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, "2")
+  assert.equal(doc.activeElement, amount)
+  amount.value = "4"
+  apply.click()
+  assert.equal(doc.querySelector("#stat-sessions")?.textContent, "0")
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, "0")
+  assert.equal(doc.querySelector("#stat-reduction")?.textContent, "—")
+  assert.equal(doc.querySelector("#stat-saved")?.textContent, doc.querySelector("#chart-saved")?.textContent)
+  assert.match(doc.querySelector("#traffic-chart")?.textContent ?? "", /No finished requests/)
+  amount.value = "1"
+  unit.value = "minutes"
+  apply.click()
+  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 1 minute: 1 requests/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("unit"), "minutes")
+  snapshot.collected_at = new Date(now + 120_000).toISOString()
+  await dashboard.refresh()
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, "0", "relative windows move with the latest snapshot")
+  dashboard.destroy()
+  // Destroy detaches the shared range handlers.
+  amount.value = "10"
+  apply.click()
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, "0")
+  await page.close()
+})
+
+test("pasted timestamp ranges preview timezones, apply atomically, and restore with the chart view", async () => {
+  const page = openPage()
+  const snapshot = makeSnapshot(now)
+  page.setFetch(() => json(snapshot))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const range = doc.querySelector<HTMLSelectElement>("#chart-range")!
+  range.value = "custom"
+  page.fire(range, "change")
+  doc.querySelector<HTMLButtonElement>("#range-mode-timestamps")!.click()
+  assert.equal(doc.querySelector<HTMLElement>("#range-date-fields")!.hidden, true)
+  const start = doc.querySelector<HTMLInputElement>("#range-timestamp-start")!
+  const end = doc.querySelector<HTMLInputElement>("#range-timestamp-end")!
+  start.value = "2026-10-28T13:15:00+02:00"
+  end.value = String(now / 1000)
+  page.fire(start, "input")
+  assert.match(doc.querySelector("#range-timestamp-preview")?.textContent ?? "", /Will apply:/)
+  doc.querySelector<HTMLButtonElement>("#range-timestamp-apply")!.click()
+  const expected = snapshot.history.recent_requests.filter((request) => request.finished_at && Date.parse(request.finished_at) >= now - 3_600_000 && Date.parse(request.finished_at) < now)
+  assert.equal(doc.querySelector("#stat-requests")?.textContent, String(expected.length + 1))
+  assert.equal(doc.querySelector("#stat-saved")?.textContent, doc.querySelector("#chart-saved")?.textContent)
+  doc.querySelector<HTMLButtonElement>("#chart-view-trends")!.click()
+  assert.equal(doc.querySelector("#traffic-chart")?.getAttribute("data-view"), "trends")
+  const url = page.window.location.href
+  const chart = doc.querySelector("#traffic-chart")?.getAttribute("aria-label")
+  end.value = "2026-02-30T12:00:00Z"
+  doc.querySelector<HTMLButtonElement>("#range-timestamp-apply")!.click()
+  assert.match(doc.querySelector("#overview-range-notice")?.textContent ?? "", /valid start and end/)
+  assert.equal(doc.querySelector("#traffic-chart")?.getAttribute("aria-label"), chart)
+  assert.equal(page.window.location.href, url)
+  dashboard.destroy()
+  await page.close()
+
+  const restored = openPage()
+  restored.window.history.replaceState(null, "", url)
+  restored.setFetch(() => json(snapshot))
+  const app = startDashboard(restored.document, { autoStart: false })
+  await app.refresh()
+  assert.equal(restored.document.querySelector<HTMLSelectElement>("#chart-range")?.value, "custom")
+  assert.equal(restored.document.querySelector<HTMLButtonElement>("#range-mode-timestamps")?.getAttribute("aria-pressed"), "true")
+  assert.equal(restored.document.querySelector<HTMLInputElement>("#range-timestamp-start")?.value, "2026-10-28T13:15:00+02:00")
+  assert.equal(restored.document.querySelector("#traffic-chart")?.getAttribute("aria-label"), chart)
+  app.destroy()
+  await restored.close()
 })
 
 test("session page size can be changed and resets pagination", async () => {

@@ -3,33 +3,24 @@ import { bytes, percentage } from "../../lib/metrics.js"
 import { dataValue } from "../../lib/presentation.js"
 import {
   compositionSegments,
-  customRange,
-  dateInputValue,
-  DAY_MS,
   formatAxisLabel,
   formatBucketWindow,
   formatDate,
-  lastRange as lookbackRange,
   niceScale,
-  presetRange,
-  trafficData,
   type TrafficData,
-  type TrafficLastUnit,
   type TrafficPoint,
-  type TrafficPreset,
   type TrafficRange,
   type TrafficView,
 } from "../../lib/traffic.js"
 import type { DashboardViewState } from "../../lib/state.js"
+import type { OverviewData } from "../../lib/overview.js"
 import { readParams, replaceParams } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
 
 export interface TrafficFeature {
-  render(state: DashboardViewState): void
+  render(state: DashboardViewState, overview: OverviewData | null): void
   destroy(): void
 }
-
-const validPresets: readonly TrafficPreset[] = ["24h", "7d", "30d", "90d", "last", "custom"]
 
 interface ChartLayout {
   left: number
@@ -42,15 +33,6 @@ interface ChartLayout {
 }
 
 export function mountTraffic(root: HTMLElement): TrafficFeature {
-  const rangeSelect = requiredById<HTMLSelectElement>(root, "chart-range")
-  const relative = requiredById<HTMLElement>(root, "chart-relative")
-  const lastAmountInput = requiredById<HTMLInputElement>(root, "chart-last-amount")
-  const lastUnitSelect = requiredById<HTMLSelectElement>(root, "chart-last-unit")
-  const lastApplyButton = requiredById<HTMLButtonElement>(root, "chart-last-apply")
-  const custom = requiredById<HTMLElement>(root, "chart-custom")
-  const startInput = requiredById<HTMLInputElement>(root, "chart-start")
-  const endInput = requiredById<HTMLInputElement>(root, "chart-end")
-  const applyButton = requiredById<HTMLButtonElement>(root, "chart-apply")
   const compositionButton = requiredById<HTMLButtonElement>(root, "chart-view-composition")
   const trendsButton = requiredById<HTMLButtonElement>(root, "chart-view-trends")
   const chart = requiredById<HTMLElement>(root, "traffic-chart")
@@ -64,15 +46,9 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   const setText = (id: string, value: string | number) => { requiredById(root, id).textContent = String(value) }
 
   const initial = readParams(root.ownerDocument)
-  const initialPreset = initial.get("range") as TrafficPreset | null
   let lastState: DashboardViewState | null = null
-  let preset: TrafficPreset = initialPreset && validPresets.includes(initialPreset) ? initialPreset : "24h"
+  let lastOverview: OverviewData | null = null
   let view: TrafficView = initial.get("view") === "trends" ? "trends" : "composition"
-  let customStart = initial.get("start") ?? ""
-  let customEnd = initial.get("end") ?? ""
-  const initialLastAmount = Number(initial.get("last"))
-  let lastAmount = Number.isSafeInteger(initialLastAmount) && initialLastAmount > 0 ? initialLastAmount : 6
-  let lastUnit: TrafficLastUnit = initial.get("unit") === "days" ? "days" : "hours"
   let lastData: TrafficData | null = null
   let lastRange: TrafficRange | null = null
   let layout: ChartLayout | null = null
@@ -85,11 +61,6 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   let observer: ResizeObserver | null = null
   let windowResize: (() => void) | null = null
   const viewWindow = root.ownerDocument.defaultView
-
-  function nowFor(state: DashboardViewState): number {
-    const parsed = state.snapshot ? Date.parse(state.snapshot.collected_at) : NaN
-    return Number.isFinite(parsed) ? parsed : Date.now()
-  }
 
   function setMeterWidths(reuse: number, saved: number): void {
     const reuseWidth = Math.max(0, Math.min(100, reuse))
@@ -117,54 +88,9 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     activeIndex = null
   }
 
-  function syncCustomBounds(now: number, state: DashboardViewState): void {
-    const since = state.snapshot ? Date.parse(state.snapshot.history.since) : NaN
-    const earliest = Number.isFinite(since) ? Math.max(since, now - 90 * DAY_MS) : now - 90 * DAY_MS
-    startInput.min = endInput.min = dateInputValue(earliest)
-    startInput.max = endInput.max = dateInputValue(now)
-  }
-
-  function ensureCustomDefaults(now: number): void {
-    if (!customStart || !customEnd || customRange(customStart, customEnd, now).error) {
-      customStart = dateInputValue(now - 7 * DAY_MS)
-      customEnd = dateInputValue(now)
-    }
-    startInput.value = customStart
-    endInput.value = customEnd
-  }
-
-  function syncLastInputs(): void {
-    lastAmountInput.value = String(lastAmount)
-    lastUnitSelect.value = lastUnit
-  }
-
-  function syncRangeVisibility(): void {
-    relative.hidden = preset !== "last"
-    custom.hidden = preset !== "custom"
-    root.classList.toggle("custom-open", preset === "last" || preset === "custom")
-  }
-
-  function resolveRange(state: DashboardViewState): { range?: TrafficRange; error?: string } {
-    const now = nowFor(state)
-    if (preset === "last") {
-      const result = lookbackRange(lastAmount, lastUnit, now)
-      if (!result.range) return { error: result.error ?? "Choose a valid lookback range." }
-      return { range: result.range }
-    }
-    if (preset !== "custom") return { range: presetRange(preset, now) }
-    const result = customRange(customStart, customEnd, now)
-    if (!result.range) return { error: result.error ?? "Choose a valid custom range." }
-    return { range: result.range }
-  }
-
   function syncUrl(): void {
     replaceParams(root.ownerDocument, {
-      range: preset === "24h" ? null : preset,
       view: view === "composition" ? null : view,
-      last: preset === "last" ? String(lastAmount) : null,
-      unit: preset === "last" ? lastUnit : null,
-      start: preset === "custom" ? customStart || null : null,
-      end: preset === "custom" ? customEnd || null : null,
     })
   }
 
@@ -191,17 +117,13 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   function updateNotice(data: TrafficData): void {
     const messages: string[] = []
     if (data.truncated && data.coverageStart !== null) {
-      messages.push(`Aggregated traffic starts ${dataValue(formatDate(data.coverageStart))}; earlier totals are preserved but not plotted.`)
+      messages.push(`Recorded traffic starts ${dataValue(formatDate(data.coverageStart))}; this range has partial coverage.`)
     }
+    if (data.incomplete) messages.push("Older history discarded some request timestamps. Exact-range totals include retained requests only.")
     if (data.totals.requests === 0) messages.push("No finished requests in this range. Widen the range or wait for new traffic.")
     const text = messages.join(" ")
     notice.hidden = messages.length === 0
     if (messages.length && notice.innerHTML !== text) notice.innerHTML = text
-  }
-
-  function showNotice(message: string): void {
-    notice.hidden = false
-    if (notice.textContent !== message) notice.textContent = message
   }
 
   function axisIndices(length: number, target: number): number[] {
@@ -418,90 +340,22 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     return index >= 0 ? index : 0
   }
 
-  function render(state: DashboardViewState): void {
+  function render(state: DashboardViewState, overview: OverviewData | null): void {
     lastState = state
-    if (!state.snapshot) {
+    lastOverview = overview
+    if (!state.snapshot || !overview) {
       reset()
       return
     }
-    const now = nowFor(state)
-    syncCustomBounds(now, state)
-    const resolved = resolveRange(state)
-    if (!resolved.range) {
-      reset("Choose a valid time range.")
-      if (preset === "last") {
-        lastAmountInput.setAttribute("aria-invalid", "true")
-        startInput.removeAttribute("aria-invalid")
-        endInput.removeAttribute("aria-invalid")
-      } else {
-        lastAmountInput.removeAttribute("aria-invalid")
-        startInput.setAttribute("aria-invalid", "true")
-        endInput.setAttribute("aria-invalid", "true")
-      }
-      showNotice(resolved.error ?? "Choose a valid range.")
-      return
-    }
-    lastAmountInput.removeAttribute("aria-invalid")
-    startInput.removeAttribute("aria-invalid")
-    endInput.removeAttribute("aria-invalid")
-    const data = trafficData(state.snapshot, resolved.range, state.host)
+    const { traffic: data, range } = overview
     const previous = pointerInside ? activeIndex : null
     lastData = data
-    lastRange = resolved.range
+    lastRange = range
     updateSummary(data)
-    if (state.host) setText("reuse-scope", `${resolved.range.label} · ${state.host}`)
-    renderChart(data, resolved.range)
+    if (state.host) setText("reuse-scope", `${range.label} · ${state.host}`)
+    renderChart(data, range)
     if (previous !== null) showTooltip(previous)
     updateNotice(data)
-  }
-
-  rangeSelect.addEventListener("change", () => {
-    preset = rangeSelect.value as TrafficPreset
-    const now = lastState ? nowFor(lastState) : Date.now()
-    if (preset === "last") syncLastInputs()
-    if (preset === "custom") ensureCustomDefaults(now)
-    notice.hidden = true
-    syncRangeVisibility()
-    syncUrl()
-    if (lastState) render(lastState)
-  })
-
-  lastApplyButton.addEventListener("click", () => {
-    const amount = Number(lastAmountInput.value)
-    const unit: TrafficLastUnit = lastUnitSelect.value === "days" ? "days" : "hours"
-    const now = lastState ? nowFor(lastState) : Date.now()
-    const result = lookbackRange(amount, unit, now)
-    lastAmount = amount
-    lastUnit = unit
-    preset = "last"
-    if (result.range) {
-      lastAmountInput.removeAttribute("aria-invalid")
-      syncUrl()
-    } else {
-      lastAmountInput.setAttribute("aria-invalid", "true")
-    }
-    if (lastState) render(lastState)
-  })
-
-  applyButton.addEventListener("click", () => {
-    customStart = startInput.value
-    customEnd = endInput.value
-    preset = "custom"
-    syncUrl()
-    if (lastState) {
-      render(lastState)
-      if (startInput.getAttribute("aria-invalid") === "true") startInput.focus()
-    }
-  })
-
-  for (const input of [startInput, endInput, lastAmountInput]) {
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault()
-        if (input === lastAmountInput) lastApplyButton.click()
-        else applyButton.click()
-      }
-    })
   }
 
   function setView(next: TrafficView): void {
@@ -509,7 +363,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     compositionButton.setAttribute("aria-pressed", String(next === "composition"))
     trendsButton.setAttribute("aria-pressed", String(next === "trends"))
     syncUrl()
-    if (lastState) render(lastState)
+    if (lastState) render(lastState, lastOverview)
   }
 
   compositionButton.addEventListener("click", () => setView("composition"))
@@ -569,7 +423,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     resizeFrame = schedule(() => {
       resizeFrame = 0
       const width = chart.clientWidth || chart.parentElement?.clientWidth || 800
-      if (width !== lastWidth && lastState) render(lastState)
+      if (width !== lastWidth && lastState) render(lastState, lastOverview)
     }) as unknown as number
   }
 
@@ -582,12 +436,8 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     viewWindow.addEventListener("resize", windowResize)
   }
 
-  rangeSelect.value = preset
-  syncLastInputs()
-  syncRangeVisibility()
   compositionButton.setAttribute("aria-pressed", String(view === "composition"))
   trendsButton.setAttribute("aria-pressed", String(view === "trends"))
-  if (preset === "custom") ensureCustomDefaults(Date.now())
   syncUrl()
   reset()
 

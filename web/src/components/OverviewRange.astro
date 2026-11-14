@@ -1,0 +1,50 @@
+---
+import Icon from "./Icon.astro"
+---
+<div class="overview-range" id="overview-range">
+  <div class="overview-range-bar">
+    <p class="overview-range-scope">Selected period <span id="overview-range-summary">Last 30 days</span></p>
+    <label class="overview-range-select" for="chart-range"><Icon name="clock" size={15} /><span>Time range</span>
+      <select id="chart-range" name="overview-range" autocomplete="off" aria-controls="stats-grid traffic-panel">
+        <option value="24h">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d" selected>Last 30 days</option>
+        <option value="90d">Last 90 days</option>
+        <option value="last">Last X…</option>
+        <option value="custom">Custom range…</option>
+      </select>
+    </label>
+  </div>
+  <div id="chart-relative" class="overview-range-editor" hidden>
+    <div class="overview-range-fields">
+      <label for="chart-last-amount">Last <input type="number" id="chart-last-amount" name="overview-last" min="1" step="1" inputmode="numeric" value="6" aria-describedby="overview-range-notice" /></label>
+      <label class="sr-only" for="chart-last-unit">Lookback unit</label>
+      <select id="chart-last-unit" name="overview-last-unit" autocomplete="off">
+        <option value="seconds">seconds</option><option value="minutes">minutes</option><option value="hours" selected>hours</option><option value="days">days</option>
+      </select>
+      <button type="button" class="button button-secondary" id="chart-last-apply">Apply range</button>
+    </div>
+    <p class="overview-range-hint">Relative to the latest snapshot. Data refreshes every 10 seconds; pause freezes the window.</p>
+  </div>
+  <div id="chart-custom" class="overview-range-editor" hidden>
+    <div class="chart-view-toggle range-input-toggle" role="group" aria-label="Custom range input">
+      <button type="button" id="range-mode-dates" class="chart-view-button" aria-pressed="true" aria-controls="range-date-fields">Date picker</button>
+      <button type="button" id="range-mode-timestamps" class="chart-view-button" aria-pressed="false" aria-controls="range-timestamp-fields">Paste timestamps</button>
+    </div>
+    <div id="range-date-fields" class="overview-range-fields">
+      <label for="chart-start">From <input type="date" id="chart-start" name="overview-start" autocomplete="off" aria-describedby="overview-range-notice" /></label>
+      <label for="chart-end">To <input type="date" id="chart-end" name="overview-end" autocomplete="off" aria-describedby="overview-range-notice" /></label>
+      <button type="button" class="button button-secondary" id="chart-apply">Apply range</button>
+    </div>
+    <div id="range-timestamp-fields" hidden>
+      <div class="overview-range-fields timestamp-fields">
+        <label for="range-timestamp-start">Start timestamp <input type="text" id="range-timestamp-start" name="overview-timestamp-start" placeholder="2026-10-28T12:00:00Z" autocomplete="off" spellcheck="false" aria-describedby="range-timestamp-formats range-timestamp-preview overview-range-notice" /></label>
+        <label for="range-timestamp-end">End timestamp <input type="text" id="range-timestamp-end" name="overview-timestamp-end" placeholder="2026-10-28T12:30:00Z" autocomplete="off" spellcheck="false" aria-describedby="range-timestamp-formats range-timestamp-preview overview-range-notice" /></label>
+        <button type="button" class="button button-secondary" id="range-timestamp-apply">Apply range</button>
+      </div>
+      <p class="overview-range-hint" id="range-timestamp-formats">ISO 8601 (Z or ±HH:MM), YYYY-MM-DD HH:mm[:ss], 10-digit Unix seconds, or 13-digit milliseconds. <span id="range-timezone"></span> Start included, end excluded; future ends stop at the latest snapshot.</p>
+      <p class="range-timestamp-preview" id="range-timestamp-preview" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+  <p id="overview-range-notice" class="overview-range-notice" role="status" aria-live="polite" hidden></p>
+</div>

@@ -1,10 +1,11 @@
-import { bytes, historyHosts, historyTotals, percentage, savings, sessionHost, trackedSessionCount } from "../../lib/metrics.js"
+import { bytes, percentage } from "../../lib/metrics.js"
+import type { OverviewData } from "../../lib/overview.js"
 import { dataValue } from "../../lib/presentation.js"
 import type { DashboardViewState } from "../../lib/state.js"
 import { requiredById } from "../dom.js"
 
 export interface StatsFeature {
-  render(state: DashboardViewState): void
+  render(state: DashboardViewState, overview: OverviewData | null): void
 }
 
 const emptyStatIds = ["stat-reduction", "stat-saved", "stat-sessions", "stat-requests"]
@@ -21,8 +22,8 @@ export function mountStats(root: HTMLElement): StatsFeature {
     meterSent.style.width = `${100 - saved}%`
   }
 
-  function renderStats({ snapshot, host }: DashboardViewState) {
-    if (!snapshot) {
+  function renderStats({ snapshot }: DashboardViewState, overview: OverviewData | null) {
+    if (!snapshot || !overview) {
       // Never leave stale numbers on screen after the gateway disconnects.
       for (const id of emptyStatIds) {
         setText(id, "—")
@@ -36,32 +37,25 @@ export function mountStats(root: HTMLElement): StatsFeature {
       setMeter(null)
       return
     }
-    const totals = historyTotals(snapshot, host)
-    const reduction = savings(totals.body_bytes, totals.encoded_upload_bytes)
+    const totals = overview.traffic.totals
+    const reduction = totals.reduction
     setText("stat-reduction", percentage(reduction))
     requiredById(root, "stat-reduction").classList.toggle("negative", reduction !== null && reduction < 0)
     setMeter(reduction)
-    const saved = totals.body_bytes - totals.encoded_upload_bytes
+    const saved = totals.saved
     setText("stat-saved", bytes(saved))
     requiredById(root, "stat-saved").classList.toggle("negative", saved < 0)
-    requiredById(root, "stat-saved-foot").innerHTML = `${dataValue(bytes(totals.encoded_upload_bytes))} sent of ${dataValue(bytes(totals.body_bytes))} original`
-    const activeSessions = snapshot.history.sessions.filter((session) => (!host || sessionHost(session) === host) && session.active > 0).length
-    setText("stat-sessions", integer(trackedSessionCount(snapshot, host)))
-    const scope = host ? `${dataValue(host)} · retained history` : `${dataValue(`${historyHosts(snapshot).length} hosts`)} · retained history`
-    requiredById(root, "stat-sessions-foot").innerHTML = `${dataValue(activeSessions)} active · ${snapshot.history.evicted_sessions ? `${dataValue(integer(snapshot.history.evicted_sessions))} older evicted` : scope}`
+    requiredById(root, "stat-saved-foot").innerHTML = `${dataValue(bytes(totals.encoded))} sent of ${dataValue(bytes(totals.body))} original`
+    const activeSessions = overview.activeSessions
+    setText("stat-sessions", integer(overview.sessions))
+    requiredById(root, "stat-sessions-foot").innerHTML = `${dataValue(activeSessions)} active now · ${overview.incompleteSessions ? "retained requests only" : "in selected period"}`
     requiredById<HTMLElement>(root, "active-session-dot").style.opacity = activeSessions ? "1" : ".3"
-    setText("stat-requests", integer(totals.requests))
-    const legacy = totals.legacy ?? 0
-    const legacyText = legacy ? ` · ${dataValue(integer(legacy))} legacy` : ""
-    requiredById(root, "stat-requests-foot").innerHTML = `${dataValue(totals.active)} running · <span class="kpi-warn">${dataValue(integer(totals.failed))} failed</span>${legacyText} · ${dataValue(integer(totals.cancelled))} cancelled`
+    setText("stat-requests", integer(totals.requests + overview.running))
+    const legacy = snapshot.history.totals.legacy ?? 0
+    requiredById(root, "stat-requests-foot").innerHTML = `${dataValue(overview.running)} running now · <span class="kpi-warn">${dataValue(integer(totals.failed))} failed</span> · ${dataValue(integer(totals.cancelled))} cancelled`
     if (legacy) {
-      const currentHost = snapshot.history.host ?? ""
-      const currentFailed = currentHost ? historyTotals(snapshot, currentHost).failed : totals.failed
-      const historicalFailed = Math.max(0, totals.failed - currentFailed)
-      const hostNote = currentHost ? ` Current host ${currentHost}: ${integer(currentFailed)} failed.` : ""
-      const historicalNote = historicalFailed ? ` Historical hosts: ${integer(historicalFailed)} failed.` : ""
       statsNote.hidden = false
-      statsNote.textContent = `${integer(legacy)} legacy requests predate final-state reconciliation; their outcome is unknown, so they are not counted as failures or cancellations.${hostNote}${historicalNote}`
+      statsNote.textContent = `Retained history contains ${integer(legacy)} legacy requests with unknown outcomes. These lifetime counts cannot be assigned to the selected period; older traffic records may predate outcome reconciliation.`
     } else {
       statsNote.hidden = true
       statsNote.textContent = ""

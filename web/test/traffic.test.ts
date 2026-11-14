@@ -4,10 +4,14 @@ import {
   chooseBucketMs,
   compositionSegments,
   customRange,
+  dateTimeRange,
+  parseDateTime,
   dateInputValue,
   DAY_MS,
   formatBucketWindow,
   HOUR_MS,
+  MINUTE_MS,
+  SECOND_MS,
   lastRange,
   niceScale,
   presetRange,
@@ -56,18 +60,18 @@ test("preset ranges align to local boundaries and choose readable bucket sizes",
   assert.equal(chooseBucketMs(90 * DAY_MS), 3 * DAY_MS)
 })
 
-test("relative ranges accept any number of hours or days", () => {
+test("relative ranges keep exact boundaries for seconds, minutes, hours, and days", () => {
   const hours = lastRange(6, "hours", now)
   assert.ok(hours.range)
-  assert.equal(hours.range.start, floorHour(now - 6 * HOUR_MS))
+  assert.equal(hours.range.start, now - 6 * HOUR_MS)
   assert.equal(hours.range.end, now)
-  assert.equal(hours.range.bucketMs, HOUR_MS)
+  assert.equal(hours.range.bucketMs, 15 * MINUTE_MS)
   assert.equal(hours.range.preset, "last")
   assert.equal(hours.range.label, "Last 6 hours")
 
   const day = lastRange(1, "days", now)
   assert.ok(day.range)
-  assert.equal(day.range.start, floorHour(now - DAY_MS))
+  assert.equal(day.range.start, now - DAY_MS)
   assert.equal(day.range.label, "Last 1 day")
 
   const days = lastRange(45, "days", now)
@@ -79,6 +83,79 @@ test("relative ranges accept any number of hours or days", () => {
   assert.match(lastRange(-2, "days", now).error ?? "", /greater than zero/)
   assert.match(lastRange(1.5, "hours", now).error ?? "", /whole number/)
   assert.match(lastRange(4000, "days", now).error ?? "", /3,650 days/)
+  for (const [unit, span] of [["seconds", SECOND_MS], ["minutes", MINUTE_MS]] as const) {
+    const result = lastRange(30, unit, now).range!
+    assert.equal(result.start, now - 30 * span)
+    assert.equal(result.end, now)
+    assert.equal(result.label, `Last 30 ${unit}`)
+    assert.ok(result.bucketMs <= span)
+  }
+  assert.match(lastRange(1, "seconds", now).range!.label, /Last 1 second$/)
+  const long = lastRange(3650, "days", now).range!
+  assert.ok((long.end - long.start) / long.bucketMs <= 42, "long ranges do not collapse later data into the final chart bucket")
+})
+
+test("pasted timestamps accept explicit formats and reject ambiguous or impossible dates", () => {
+  assert.equal(parseDateTime("2026-10-28T12:15:00Z"), now)
+  assert.equal(parseDateTime(" 2026-10-28T14:15:00+02:00 "), now)
+  assert.equal(parseDateTime("2026-10-28 07:15:00-05:00"), now)
+  assert.equal(parseDateTime("2026-10-28T12:15:00.123456789Z"), now + 123)
+  assert.equal(parseDateTime(String(now / 1000)), now)
+  assert.equal(parseDateTime(String(now)), now)
+  assert.equal(parseDateTime("2026-10-28 12:15:00"), new Date(2026, 9, 28, 12, 15).getTime())
+  assert.equal(parseDateTime("2026-10-28T12:15"), new Date(2026, 9, 28, 12, 15).getTime())
+  assert.notEqual(parseDateTime("2024-02-29T12:00:00Z"), null)
+  for (const invalid of ["2026-02-30T12:00:00Z", "2025-02-29T12:00:00Z", "2026-13-01T12:00:00Z", "2026-00-01T12:00:00Z", "2026-01-00T12:00:00Z", "2026-10-28T24:15:00Z", "2026-10-28T12:60:00Z", "2026-10-28T12:15:60Z", "2026-10-28T12:15:00+25:00", "10/11/2026 12:00", "2026-10-28", "not-a-date"]) {
+    assert.equal(parseDateTime(invalid), null, invalid)
+  }
+  const start = new Date(now - 10_000).toISOString()
+  const end = new Date(now).toISOString()
+  const range = dateTimeRange(start, end, now).range!
+  assert.equal(range.start, now - 10_000)
+  assert.equal(range.end, now)
+  assert.equal(range.bucketMs, SECOND_MS)
+  assert.match(dateTimeRange(end, start, now).error!, /before/)
+  assert.match(dateTimeRange(start, start, now).error!, /before/)
+  assert.match(dateTimeRange("bad", end, now).error!, /valid/)
+  assert.equal(dateTimeRange(start, new Date(now + DAY_MS).toISOString(), now).range!.end, now)
+})
+
+test("short and pasted ranges use finished request timestamps, never an entire aggregate hour", () => {
+  const snapshot = makeSnapshot(now)
+  const original = snapshot.history.recent_requests[0]!
+  snapshot.history.recent_requests = [-60_001, -60_000, -30_000, -1, 0].map((offset, index) => ({
+    ...original, id: `precise-${index}`, sequence: index + 1, host: index === 2 ? "beta" : "alpha",
+    finished_at: new Date(now + offset).toISOString(), state: "completed",
+    transfer: { ...original.transfer, body_bytes: 1000, request_body_bytes_sent: 100 },
+  }))
+  const range = lastRange(60, "seconds", now).range!
+  const data = trafficData(snapshot, range)
+  assert.equal(data.source, "requests")
+  assert.equal(data.totals.requests, 3, "start is inclusive and end is exclusive")
+  assert.equal(data.totals.body, 3000)
+  assert.equal(data.totals.encoded, 300)
+  assert.equal(data.totals.saved, 2700)
+  assert.equal(data.points.reduce((sum, point) => sum + point.requests, 0), 3)
+  assert.equal(trafficData(snapshot, range, "alpha").totals.requests, 2)
+  const pasted = dateTimeRange(new Date(range.start).toISOString(), new Date(range.end).toISOString(), now).range!
+  assert.deepEqual(trafficData(snapshot, pasted).totals, data.totals)
+  snapshot.history.dropped_requests = 5
+  assert.equal(trafficData(snapshot, range).incomplete, true)
+})
+
+test("local pasted dates validate daylight-saving transitions and explicit offsets disambiguate repeated times", () => {
+  const previous = process.env.TZ
+  try {
+    process.env.TZ = "America/New_York"
+    assert.equal(parseDateTime("2026-03-08 02:30:00"), null, "nonexistent local wall-clock time")
+    assert.equal(parseDateTime("2026-03-08 03:30:00"), Date.parse("2026-03-08T07:30:00Z"))
+    const first = parseDateTime("2026-11-01T01:30:00-04:00")!
+    const repeated = parseDateTime("2026-11-01T01:30:00-05:00")!
+    assert.equal(repeated - first, HOUR_MS)
+  } finally {
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  }
 })
 
 test("custom ranges validate dates without a retention window", () => {

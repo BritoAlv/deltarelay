@@ -1,11 +1,13 @@
 import { fetchSnapshot } from "../lib/api.js"
 import { historyHosts, relativeTime, trackedSessionCount } from "../lib/metrics.js"
+import { overviewData } from "../lib/overview.js"
 import { createPoller } from "../lib/polling.js"
 import { observationConnection, systemObservations, type DashboardViewState } from "../lib/state.js"
 import { readParams, replaceParams, syncHostLinks } from "../lib/url-state.js"
 import { requiredById } from "./dom.js"
 import { mountHeader, type HeaderView } from "./features/header.js"
 import { mountHealth } from "./features/health.js"
+import { mountOverviewRange } from "./features/overview-range.js"
 import { mountSessions } from "./features/sessions.js"
 import { mountStats } from "./features/stats.js"
 import { mountTraffic } from "./features/traffic.js"
@@ -71,6 +73,8 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   })
   const stats = statsRoot ? mountStats(statsRoot) : null
   const traffic = trafficRoot ? mountTraffic(trafficRoot) : null
+  const rangeRoot = doc.getElementById("overview-range")
+  const range = rangeRoot ? mountOverviewRange(rangeRoot, render) : null
   const sessions = sessionsRoot && dialog ? mountSessions(sessionsRoot, dialog, { onHostChange: setHost }) : null
   const health = healthRoot ? mountHealth(healthRoot) : null
   const unsubscribe = systemObservations.subscribe((system) => {
@@ -102,8 +106,10 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
       syncHostLinks(doc, "")
     }
     header.render(headerView())
-    stats?.render(state)
-    traffic?.render(state)
+    const selectedRange = range?.render(state.snapshot)
+    const overview = state.snapshot && selectedRange ? overviewData(state.snapshot, selectedRange, state.host) : null
+    stats?.render(state, overview)
+    traffic?.render(state, overview)
     sessions?.render(state)
     health?.render(state)
     if (navCount) navCount.textContent = state.snapshot ? String(trackedSessionCount(state.snapshot, state.host)) : "—"
@@ -159,6 +165,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
       poller.stop()
       unsubscribe()
       traffic?.destroy()
+      range?.destroy()
     },
     get paused() { return state.paused },
   }
