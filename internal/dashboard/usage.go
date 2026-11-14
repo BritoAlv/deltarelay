@@ -24,7 +24,7 @@ type AllowanceMeter struct {
 	ResetsAt time.Time `json:"resets_at"`
 }
 
-// GoAllowance is the OpenCode Go usage shown on the Provider forwarding card.
+// GoAllowance is the OpenCode Go usage shown on the Provider details card.
 // Stale means the last successful observation is still displayed after a
 // failed refresh; the rest of the system status remains usable.
 type GoAllowance struct {

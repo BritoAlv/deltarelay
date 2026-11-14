@@ -1620,7 +1620,7 @@ test("system health combines gateway diagnostics with supervisor network state",
   assert.equal(doc.querySelector("#stat-sessions"), null)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard", "/api/system"])
   const auth = doc.querySelector("#provider-auth")!
-  assert.equal(auth.closest("article")?.querySelector("h3")?.textContent, "Provider forwarding")
+  assert.equal(auth.closest("article")?.querySelector("h3")?.textContent, "Provider details")
   assert.equal(auth.querySelector("#auth-state")?.textContent, "Current token")
   assert.match(auth.querySelector("#auth-countdown")?.textContent ?? "", /59m|1h/)
   const disclosure = auth.querySelector<HTMLDetailsElement>("details")!
@@ -1642,7 +1642,7 @@ test("system health combines gateway diagnostics with supervisor network state",
   await page.close()
 })
 
-test("provider forwarding shows the OpenCode Go allowance and switches provider tabs", async () => {
+test("provider details shows the OpenCode Go allowance and switches provider tabs", async () => {
   const page = openPage("system")
   const snapshot = makeSnapshot(now)
   snapshot.providers = [
@@ -1671,6 +1671,10 @@ test("provider forwarding shows the OpenCode Go allowance and switches provider 
   const panel = (name: string) => doc.querySelector<HTMLElement>(`#system-cards [data-provider-panel="${name}"]`)
 
   assert.deepEqual(tabs().map((tab) => tab.textContent?.trim()), ["opencode-go", "openai"])
+  assert.ok(tabs()[0]?.querySelector("svg.provider-mark-opencode"))
+  assert.ok(tabs()[1]?.querySelector("svg.provider-mark-openai"))
+  assert.ok(panel("opencode-go")?.querySelector(".provider-name svg.provider-mark-opencode"))
+  assert.ok(panel("openai")?.querySelector(".provider-name svg.provider-mark-openai"))
   assert.equal(tabs()[0]?.getAttribute("aria-selected"), "true")
   assert.equal(panel("opencode-go")?.hidden, false)
   assert.equal(panel("openai")?.hidden, true)
@@ -1711,7 +1715,7 @@ test("provider forwarding shows the OpenCode Go allowance and switches provider 
   await page.close()
 })
 
-test("provider forwarding marks a limited Go allowance as attention", async () => {
+test("provider details marks a limited Go allowance as attention", async () => {
   const page = openPage("system")
   const snapshot = makeSnapshot(now)
   snapshot.providers = [{ name: "opencode", active: 5, last_status: 200, last_seen: new Date(now).toISOString() }]

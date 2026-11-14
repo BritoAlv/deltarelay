@@ -1,6 +1,7 @@
 ---
 import Icon from "./Icon.astro"
 import ProviderAuth from "./ProviderAuth.astro"
+import { providerMark } from "../lib/provider-marks"
 ---
 <section id="system" class="system-section" aria-labelledby="health-checks-title">
   <div class="section-heading">
@@ -25,19 +26,19 @@ import ProviderAuth from "./ProviderAuth.astro"
     </article>
     <article class="system-card">
       <div class="system-card-top"><span class="system-icon"><Icon name="globe" /></span><span class="status-pill neutral">Unobserved</span></div>
-      <h3>Provider forwarding</h3>
+      <h3>Provider details</h3>
       <p>No observations</p>
       <div class="provider-tabs" aria-hidden="true">
-        <span class="provider-tab" data-selected="true">opencode-go</span>
-        <span class="provider-tab">openai</span>
+        <span class="provider-tab" data-selected="true"><Fragment set:html={providerMark("opencode-go")} /><span class="provider-tab-label">opencode-go</span></span>
+        <span class="provider-tab"><Fragment set:html={providerMark("openai")} /><span class="provider-tab-label">openai</span></span>
       </div>
       <div class="provider-panels">
         <section class="provider-panel">
-          <div class="provider-panel-head"><div class="provider-name"><span class="provider-dot neutral"></span><span>opencode-go</span><span class="provider-go">GO</span></div><span class="status-pill neutral">Unobserved</span></div>
+          <div class="provider-panel-head"><div class="provider-name"><Fragment set:html={providerMark("opencode-go")} /><span class="provider-name-label">opencode-go</span><span class="provider-go">GO</span></div><span class="status-pill neutral">Unobserved</span></div>
           <div class="provider-usage-empty"><span class="status-pill neutral">Unavailable</span><p>Go usage is unavailable for this OpenCode profile.</p></div>
         </section>
         <section class="provider-panel" hidden>
-          <div class="provider-panel-head"><div class="provider-name"><span class="provider-dot neutral"></span><span>openai</span></div><span class="status-pill neutral">Unobserved</span></div>
+          <div class="provider-panel-head"><div class="provider-name"><Fragment set:html={providerMark("openai")} /><span class="provider-name-label">openai</span></div><span class="status-pill neutral">Unobserved</span></div>
           <ProviderAuth />
         </section>
       </div>
