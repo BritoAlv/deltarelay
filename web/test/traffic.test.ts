@@ -8,6 +8,7 @@ import {
   DAY_MS,
   formatBucketWindow,
   HOUR_MS,
+  lastRange,
   niceScale,
   presetRange,
   trafficData,
@@ -53,6 +54,31 @@ test("preset ranges align to local boundaries and choose readable bucket sizes",
   assert.equal(quarter.start, floorDay(now - 90 * DAY_MS))
   assert.equal(quarter.bucketMs, 3 * DAY_MS)
   assert.equal(chooseBucketMs(90 * DAY_MS), 3 * DAY_MS)
+})
+
+test("relative ranges accept any number of hours or days", () => {
+  const hours = lastRange(6, "hours", now)
+  assert.ok(hours.range)
+  assert.equal(hours.range.start, floorHour(now - 6 * HOUR_MS))
+  assert.equal(hours.range.end, now)
+  assert.equal(hours.range.bucketMs, HOUR_MS)
+  assert.equal(hours.range.preset, "last")
+  assert.equal(hours.range.label, "Last 6 hours")
+
+  const day = lastRange(1, "days", now)
+  assert.ok(day.range)
+  assert.equal(day.range.start, floorHour(now - DAY_MS))
+  assert.equal(day.range.label, "Last 1 day")
+
+  const days = lastRange(45, "days", now)
+  assert.ok(days.range)
+  assert.equal(days.range.bucketMs, chooseBucketMs(45 * DAY_MS))
+  assert.equal(days.range.label, "Last 45 days")
+
+  assert.match(lastRange(0, "hours", now).error ?? "", /greater than zero/)
+  assert.match(lastRange(-2, "days", now).error ?? "", /greater than zero/)
+  assert.match(lastRange(1.5, "hours", now).error ?? "", /whole number/)
+  assert.match(lastRange(4000, "days", now).error ?? "", /3,650 days/)
 })
 
 test("custom ranges validate dates without a retention window", () => {

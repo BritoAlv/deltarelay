@@ -9,10 +9,12 @@ import {
   formatAxisLabel,
   formatBucketWindow,
   formatDate,
+  lastRange as lookbackRange,
   niceScale,
   presetRange,
   trafficData,
   type TrafficData,
+  type TrafficLastUnit,
   type TrafficPoint,
   type TrafficPreset,
   type TrafficRange,
@@ -27,7 +29,7 @@ export interface TrafficFeature {
   destroy(): void
 }
 
-const validPresets: readonly TrafficPreset[] = ["24h", "7d", "30d", "90d", "custom"]
+const validPresets: readonly TrafficPreset[] = ["24h", "7d", "30d", "90d", "last", "custom"]
 
 interface ChartLayout {
   left: number
@@ -41,6 +43,10 @@ interface ChartLayout {
 
 export function mountTraffic(root: HTMLElement): TrafficFeature {
   const rangeSelect = requiredById<HTMLSelectElement>(root, "chart-range")
+  const relative = requiredById<HTMLElement>(root, "chart-relative")
+  const lastAmountInput = requiredById<HTMLInputElement>(root, "chart-last-amount")
+  const lastUnitSelect = requiredById<HTMLSelectElement>(root, "chart-last-unit")
+  const lastApplyButton = requiredById<HTMLButtonElement>(root, "chart-last-apply")
   const custom = requiredById<HTMLElement>(root, "chart-custom")
   const startInput = requiredById<HTMLInputElement>(root, "chart-start")
   const endInput = requiredById<HTMLInputElement>(root, "chart-end")
@@ -64,6 +70,9 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   let view: TrafficView = initial.get("view") === "trends" ? "trends" : "composition"
   let customStart = initial.get("start") ?? ""
   let customEnd = initial.get("end") ?? ""
+  const initialLastAmount = Number(initial.get("last"))
+  let lastAmount = Number.isSafeInteger(initialLastAmount) && initialLastAmount > 0 ? initialLastAmount : 6
+  let lastUnit: TrafficLastUnit = initial.get("unit") === "days" ? "days" : "hours"
   let lastData: TrafficData | null = null
   let lastRange: TrafficRange | null = null
   let layout: ChartLayout | null = null
@@ -124,8 +133,24 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     endInput.value = customEnd
   }
 
+  function syncLastInputs(): void {
+    lastAmountInput.value = String(lastAmount)
+    lastUnitSelect.value = lastUnit
+  }
+
+  function syncRangeVisibility(): void {
+    relative.hidden = preset !== "last"
+    custom.hidden = preset !== "custom"
+    root.classList.toggle("custom-open", preset === "last" || preset === "custom")
+  }
+
   function resolveRange(state: DashboardViewState): { range?: TrafficRange; error?: string } {
     const now = nowFor(state)
+    if (preset === "last") {
+      const result = lookbackRange(lastAmount, lastUnit, now)
+      if (!result.range) return { error: result.error ?? "Choose a valid lookback range." }
+      return { range: result.range }
+    }
     if (preset !== "custom") return { range: presetRange(preset, now) }
     const result = customRange(customStart, customEnd, now)
     if (!result.range) return { error: result.error ?? "Choose a valid custom range." }
@@ -136,6 +161,8 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     replaceParams(root.ownerDocument, {
       range: preset === "24h" ? null : preset,
       view: view === "composition" ? null : view,
+      last: preset === "last" ? String(lastAmount) : null,
+      unit: preset === "last" ? lastUnit : null,
       start: preset === "custom" ? customStart || null : null,
       end: preset === "custom" ? customEnd || null : null,
     })
@@ -401,12 +428,20 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     syncCustomBounds(now, state)
     const resolved = resolveRange(state)
     if (!resolved.range) {
-      reset("Choose a valid date range.")
-      startInput.setAttribute("aria-invalid", "true")
-      endInput.setAttribute("aria-invalid", "true")
-      showNotice(resolved.error ?? "Choose a valid custom range.")
+      reset("Choose a valid time range.")
+      if (preset === "last") {
+        lastAmountInput.setAttribute("aria-invalid", "true")
+        startInput.removeAttribute("aria-invalid")
+        endInput.removeAttribute("aria-invalid")
+      } else {
+        lastAmountInput.removeAttribute("aria-invalid")
+        startInput.setAttribute("aria-invalid", "true")
+        endInput.setAttribute("aria-invalid", "true")
+      }
+      showNotice(resolved.error ?? "Choose a valid range.")
       return
     }
+    lastAmountInput.removeAttribute("aria-invalid")
     startInput.removeAttribute("aria-invalid")
     endInput.removeAttribute("aria-invalid")
     const data = trafficData(state.snapshot, resolved.range, state.host)
@@ -422,16 +457,29 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
 
   rangeSelect.addEventListener("change", () => {
     preset = rangeSelect.value as TrafficPreset
-    if (preset === "custom") {
-      custom.hidden = false
-      const now = lastState ? nowFor(lastState) : Date.now()
-      ensureCustomDefaults(now)
-    } else {
-      custom.hidden = true
-      notice.hidden = true
-    }
-    root.classList.toggle("custom-open", preset === "custom")
+    const now = lastState ? nowFor(lastState) : Date.now()
+    if (preset === "last") syncLastInputs()
+    if (preset === "custom") ensureCustomDefaults(now)
+    notice.hidden = true
+    syncRangeVisibility()
     syncUrl()
+    if (lastState) render(lastState)
+  })
+
+  lastApplyButton.addEventListener("click", () => {
+    const amount = Number(lastAmountInput.value)
+    const unit: TrafficLastUnit = lastUnitSelect.value === "days" ? "days" : "hours"
+    const now = lastState ? nowFor(lastState) : Date.now()
+    const result = lookbackRange(amount, unit, now)
+    lastAmount = amount
+    lastUnit = unit
+    preset = "last"
+    if (result.range) {
+      lastAmountInput.removeAttribute("aria-invalid")
+      syncUrl()
+    } else {
+      lastAmountInput.setAttribute("aria-invalid", "true")
+    }
     if (lastState) render(lastState)
   })
 
@@ -446,11 +494,12 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     }
   })
 
-  for (const input of [startInput, endInput]) {
+  for (const input of [startInput, endInput, lastAmountInput]) {
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault()
-        applyButton.click()
+        if (input === lastAmountInput) lastApplyButton.click()
+        else applyButton.click()
       }
     })
   }
@@ -534,8 +583,8 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   }
 
   rangeSelect.value = preset
-  custom.hidden = preset !== "custom"
-  root.classList.toggle("custom-open", preset === "custom")
+  syncLastInputs()
+  syncRangeVisibility()
   compositionButton.setAttribute("aria-pressed", String(view === "composition"))
   trendsButton.setAttribute("aria-pressed", String(view === "trends"))
   if (preset === "custom") ensureCustomDefaults(Date.now())

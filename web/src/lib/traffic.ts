@@ -4,7 +4,9 @@ import type { Snapshot, Traffic, TrafficBucket, TrafficSeries } from "./types.js
 export const HOUR_MS = 3_600_000
 export const DAY_MS = 86_400_000
 
-export type TrafficPreset = "24h" | "7d" | "30d" | "90d" | "custom"
+export type TrafficPreset = "24h" | "7d" | "30d" | "90d" | "last" | "custom"
+export type TrafficFixedPreset = Exclude<TrafficPreset, "last" | "custom">
+export type TrafficLastUnit = "hours" | "days"
 export type TrafficView = "composition" | "trends"
 
 export interface TrafficRange {
@@ -58,7 +60,7 @@ export interface AxisScale {
   ticks: number[]
 }
 
-const presetConfig: Record<Exclude<TrafficPreset, "custom">, { span: number; bucketMs: number; label: string }> = {
+const presetConfig: Record<TrafficFixedPreset, { span: number; bucketMs: number; label: string }> = {
   "24h": { span: DAY_MS, bucketMs: HOUR_MS, label: "Last 24 hours" },
   "7d": { span: 7 * DAY_MS, bucketMs: 6 * HOUR_MS, label: "Last 7 days" },
   "30d": { span: 30 * DAY_MS, bucketMs: DAY_MS, label: "Last 30 days" },
@@ -88,15 +90,27 @@ export function chooseBucketMs(spanMs: number): number {
   return bucketCandidates.find((candidate) => spanMs / candidate <= 42) ?? 7 * DAY_MS
 }
 
-export function presetRange(preset: Exclude<TrafficPreset, "custom">, now: number): TrafficRange {
+export function presetRange(preset: TrafficFixedPreset, now: number): TrafficRange {
   const config = presetConfig[preset]
   const start = alignStart(now - config.span, config.bucketMs)
   return { start, end: now, bucketMs: config.bucketMs, preset, label: config.label }
 }
 
+const lastRangeLimit = 3650 * DAY_MS
+
 export interface CustomRangeResult {
   range?: TrafficRange
   error?: string
+}
+
+export function lastRange(amount: number, unit: TrafficLastUnit, now: number): CustomRangeResult {
+  if (!Number.isSafeInteger(amount) || amount < 1) return { error: "Choose a whole number of hours or days greater than zero." }
+  const span = amount * (unit === "days" ? DAY_MS : HOUR_MS)
+  if (span > lastRangeLimit) return { error: "Choose a lookback of 3,650 days or less." }
+  const bucketMs = chooseBucketMs(span)
+  const start = alignStart(now - span, bucketMs)
+  const singular = amount === 1 ? unit.slice(0, -1) : unit
+  return { range: { start, end: now, bucketMs, preset: "last", label: `Last ${amount} ${singular}` } }
 }
 
 export function customRange(startDate: string, endDate: string, now: number): CustomRangeResult {

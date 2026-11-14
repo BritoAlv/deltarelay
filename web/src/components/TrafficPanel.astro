@@ -16,8 +16,18 @@ import Icon from "./Icon.astro"
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
             <option value="90d">Last 90 days</option>
+            <option value="last">Last X hours/days…</option>
             <option value="custom">Custom range…</option>
           </select>
+          <div id="chart-relative" class="custom-range" hidden>
+            <label>Last <input type="number" id="chart-last-amount" name="traffic-last" min="1" step="1" inputmode="numeric" value="6" aria-describedby="chart-notice" /></label>
+            <label class="sr-only" for="chart-last-unit">Lookback unit</label>
+            <select id="chart-last-unit" name="traffic-last-unit" autocomplete="off" aria-describedby="chart-notice">
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+            <button type="button" class="text-button" id="chart-last-apply">Apply Range</button>
+          </div>
           <div id="chart-custom" class="custom-range" hidden>
             <label>From <input type="date" id="chart-start" name="traffic-start" autocomplete="off" aria-describedby="chart-notice" /></label>
             <label>To <input type="date" id="chart-end" name="traffic-end" autocomplete="off" aria-describedby="chart-notice" /></label>

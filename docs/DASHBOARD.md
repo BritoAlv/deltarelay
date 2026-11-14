@@ -39,10 +39,11 @@ infer a working connection merely because two processes are running.
   the requests. “All hosts” merges retained session rows with the same OpenCode
   session ID while keeping each host's measurements available when selected.
   The selection is deep-linkable with `?host=<profile>`.
-- Upload traffic over 24 hours, 7, 30, or 90 days, or a custom date range.
-  Composition and trend views plot bandwidth saved and relay cache reuse with a
-  legend, range summary, tooltips, and responsive axes. Cache reuse versus raw
-  uploaded chunks remains visible beside the chart.
+- Upload traffic over 24 hours, 7, 30, or 90 days, any custom number of
+  hours or days, or an absolute date range. Composition and trend views plot
+  bandwidth saved and relay cache reuse with a legend, range summary, tooltips,
+  and responsive axes. Cache reuse versus raw uploaded chunks remains visible
+  beside the chart.
 - Active requests, upstream, request kind (primary/title/compaction/generate),
   status, duration, and safe error codes in a session inspector.
 - A separate **Measurement** page traces any gateway-measured session with the

@@ -1191,12 +1191,39 @@ test("traffic ranges, views, and custom dates update the chart", async () => {
   assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /78 requests/)
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 5)
 
+  assert.equal(doc.querySelector<HTMLElement>("#chart-relative")?.hidden, true)
+  range.value = "last"
+  page.fire(range, "change")
+  assert.equal(doc.querySelector<HTMLElement>("#chart-relative")?.hidden, false)
+  assert.equal(doc.querySelector<HTMLElement>("#chart-custom")?.hidden, true)
+  const amount = doc.querySelector<HTMLInputElement>("#chart-last-amount")!
+  const unit = doc.querySelector<HTMLSelectElement>("#chart-last-unit")!
+  amount.value = "6"
+  unit.value = "hours"
+  doc.querySelector<HTMLButtonElement>("#chart-last-apply")!.click()
+  assert.match(chart.getAttribute("aria-label") ?? "", /Last 6 hours/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("last"), "6")
+  assert.equal(new URL(page.window.location.href).searchParams.get("unit"), "hours")
+  amount.value = "3"
+  unit.value = "days"
+  doc.querySelector<HTMLButtonElement>("#chart-last-apply")!.click()
+  assert.match(chart.getAttribute("aria-label") ?? "", /Last 3 days/)
+  amount.value = "0"
+  doc.querySelector<HTMLButtonElement>("#chart-last-apply")!.click()
+  assert.match(doc.querySelector("#chart-notice")?.textContent ?? "", /greater than zero/)
+  assert.equal(amount.getAttribute("aria-invalid"), "true")
+  amount.value = "3"
+  unit.value = "days"
+  doc.querySelector<HTMLButtonElement>("#chart-last-apply")!.click()
+  assert.match(chart.getAttribute("aria-label") ?? "", /Last 3 days/)
+
   trends.click()
   assert.ok(doc.querySelectorAll("#traffic-chart path.chart-gap-line").length > 0)
 
   range.value = "custom"
   page.fire(range, "change")
   assert.equal(doc.querySelector<HTMLElement>("#chart-custom")?.hidden, false)
+  assert.equal(doc.querySelector<HTMLElement>("#chart-relative")?.hidden, true)
   const start = doc.querySelector<HTMLInputElement>("#chart-start")!
   const end = doc.querySelector<HTMLInputElement>("#chart-end")!
   assert.ok(start.value)
@@ -1233,6 +1260,22 @@ test("traffic range and view are deep-linked through the URL", async () => {
   range.value = "30d"
   page.fire(range, "change")
   assert.equal(new URL(page.window.location.href).searchParams.get("range"), "30d")
+  dashboard.destroy()
+  await page.close()
+})
+
+test("relative traffic lookback is deep-linked through the URL", async () => {
+  const page = openPage()
+  page.window.history.replaceState(null, "", "/?range=last&last=18&unit=hours")
+  page.setFetch(() => json(makeSnapshot(now)))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector<HTMLSelectElement>("#chart-range")?.value, "last")
+  assert.equal(doc.querySelector<HTMLElement>("#chart-relative")?.hidden, false)
+  assert.equal(doc.querySelector<HTMLInputElement>("#chart-last-amount")?.value, "18")
+  assert.equal(doc.querySelector<HTMLSelectElement>("#chart-last-unit")?.value, "hours")
+  assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 18 hours/)
   dashboard.destroy()
   await page.close()
 })
