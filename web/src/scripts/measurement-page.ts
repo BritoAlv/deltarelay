@@ -1,4 +1,5 @@
 import { fetchOpenCodeSessions, fetchSnapshot } from "../lib/api.js"
+import { iconMarkup } from "../lib/icons.js"
 import { historyHosts, relativeTime } from "../lib/metrics.js"
 import { createPoller } from "../lib/polling.js"
 import type { DashboardViewState } from "../lib/state.js"
@@ -62,7 +63,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     pauseButton.setAttribute("aria-label", paused ? "Resume automatic refresh" : "Pause automatic refresh")
     pauseButton.title = paused ? "Resume automatic refresh" : "Pause automatic refresh"
     pauseButton.setAttribute("aria-pressed", String(paused))
-    pauseButton.innerHTML = paused ? '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 5 12 7-12 7V5z"/></svg>' : pauseIcon
+    pauseButton.innerHTML = paused ? iconMarkup("play", 17) : pauseIcon
     let message = ""
     if (state.error) message = `${state.error}${snapshot ? " Showing the last successful snapshot; measurement values may be stale." : ""}`
     else if (snapshot?.history.persistence_error) message = "Statistics could not be saved to disk. Live observations still work, but new history may be lost on restart. Check permissions and free space for the gateway’s --stats-file."

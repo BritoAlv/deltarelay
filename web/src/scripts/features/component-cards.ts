@@ -1,4 +1,5 @@
 import { supportsRemote, type SystemStatus } from "../../lib/system.js"
+import { iconMarkup, remoteHostIcon } from "../../lib/icons.js"
 import { nodePresentation, observationStale, type ComponentAction, type NodeID } from "../../lib/topology.js"
 import type { SortDirection } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
@@ -183,6 +184,11 @@ export function mountComponentCards(root: HTMLElement, onAction: (id: NodeID, ac
       const stopped = system?.topology?.intent.system === "stopped"
       for (const card of cards) {
         const id = card.dataset.componentId as NodeID
+        if (id === "remote") {
+          const icon = card.querySelector<HTMLElement>(".resource-icon")!
+          const name = remoteHostIcon(system?.remote)
+          if (icon.dataset.icon !== name) { icon.innerHTML = iconMarkup(name, 18); icon.dataset.icon = name }
+        }
         const node = system?.topology?.nodes.find((node) => node.id === id)
         const label = card.querySelector<HTMLElement>("[data-component-label]")!
         if (node) label.textContent = node.label
@@ -226,7 +232,7 @@ export function mountComponentCards(root: HTMLElement, onAction: (id: NodeID, ac
         else {
           const note = doc.createElement("span")
           note.className = "resource-managed"
-          note.textContent = !node ? "Waiting for supervisor" : id === "supervisor" ? "Managed by startup.sh" : node.owner === "user" ? "Open not configured" : actions.length ? "Host actions in ⋯" : "No advertised actions"
+          note.textContent = !node ? "Waiting for supervisor" : id === "supervisor" ? "Managed by startup.sh" : node.owner === "user" ? "Open not configured" : actions.length ? "Host actions in More actions" : "No advertised actions"
           main.append(note)
         }
         for (const action of actions.filter((action) => action !== primary).sort((a, b) => Number(a === "stop") - Number(b === "stop"))) secondary.append(button(action))

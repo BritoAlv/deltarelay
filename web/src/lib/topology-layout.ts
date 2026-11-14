@@ -6,10 +6,10 @@ export const mapWidth = 1330
 export const mapHeight = 1320
 export const nodeWidth = 190
 export const nodeHeight = 110
-export const mapNodes: { id: NodeID; label: string; icon: string; role: string; x: number; y: number }[] = [
-  { id: "vscode", label: "Varro in VS Code", icon: "code", role: "Editor", x: 55, y: 130 },
-  { id: "desktop", label: "OpenCode Desktop", icon: "desktop", role: "App", x: 55, y: 390 },
-  { id: "opencode", label: "OpenCode server", icon: "terminal", role: "Process", x: 305, y: 390 },
+export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").IconName; role: string; x: number; y: number }[] = [
+  { id: "vscode", label: "Varro in VS Code", icon: "vscode", role: "Editor", x: 55, y: 130 },
+  { id: "desktop", label: "OpenCode Desktop", icon: "opencode", role: "App", x: 55, y: 390 },
+  { id: "opencode", label: "OpenCode server", icon: "opencode", role: "Process", x: 305, y: 390 },
   { id: "plugin", label: "DeltaRelay plugin", icon: "plugin", role: "Module", x: 535, y: 390 },
   { id: "gate", label: "Varro health gate", icon: "gate", role: "Process", x: 305, y: 130 },
   { id: "gateway", label: "Local gateway", icon: "shield", role: "Process", x: 795, y: 390 },

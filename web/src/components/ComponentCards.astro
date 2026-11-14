@@ -50,7 +50,7 @@ for (const component of controlComponents) {
         <header class="resource-top">
           <span class="resource-icon"><Icon name={node.icon} size={18} /></span>
           <div><p class="resource-category">{component.category}</p><h4 id={`component-${component.id}-title`} data-component-label>{node.label}</h4></div>
-          <details class="resource-more" hidden><summary aria-label={`More actions for ${node.label}`}>⋯</summary><div class="resource-menu" data-secondary-actions></div></details>
+          <details class="resource-more" hidden><summary aria-label={`More actions for ${node.label}`}><Icon name="more" size={18} /></summary><div class="resource-menu" data-secondary-actions></div></details>
         </header>
         <div class="resource-body">
           <p class="resource-observation neutral" data-component-status>Not verified</p>

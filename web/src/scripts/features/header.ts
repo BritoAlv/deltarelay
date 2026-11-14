@@ -1,4 +1,5 @@
 import { requiredById } from "../dom.js"
+import { iconMarkup } from "../../lib/icons.js"
 
 export interface HeaderView {
   label: string
@@ -23,7 +24,7 @@ export interface HeaderFeature {
   render(view: HeaderView): void
 }
 
-const playIcon = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m8 5 12 7-12 7V5z"/></svg>'
+const playIcon = iconMarkup("play", 17)
 
 // Shared heading controls for dashboard-backed and supervisor-backed pages.
 // Each page has one header and one poller, so pausing or refreshing never

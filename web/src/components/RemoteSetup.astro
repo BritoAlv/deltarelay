@@ -1,3 +1,6 @@
+---
+import Icon from "./Icon.astro"
+---
 <article id="remote-setup" class="panel control-panel" aria-labelledby="remote-setup-title" hidden>
   <div class="control-heading"><h3 id="remote-setup-title">Set up remote host</h3><span id="setup-state" class="status-pill warning">Setup required</span></div>
   <p>Install DeltaRelay on your existing Linux remote host over SSH, whether it is a computer, VPS, or Codespace. This dashboard builds the relay, transfers private credentials, starts it, verifies its identity, and saves your connection configuration.</p>
@@ -9,13 +12,15 @@
     <label>Remote relay port<input id="setup-remote-port" name="remote_port" type="number" value="8787" min="1024" max="65535" required /></label>
     <div><button id="setup-submit" class="button" type="submit" disabled>Set up remote host…</button></div>
   </form>
-  <p id="setup-provider-requirements" class="control-detail">SSH requires an existing key/agent and trusted host key. No GitHub account or CLI is required.</p>
+  <p class="control-detail setup-provider-detail"><span id="setup-provider-icon"><Icon name="terminal" size={16} /></span><span id="setup-provider-requirements">SSH requires an existing key/agent and trusted host key. No GitHub account or CLI is required.</span></p>
   <p class="control-detail">Remote Linux amd64/arm64 with Python 3 and local Go are required. No sudo, public listener, machine creation, or model request.</p>
   <p class="control-detail">Existing deployments are never overwritten. An interrupted setup can only resume the same selected destination; credentials and identity are retained.</p>
   <p id="setup-detail" class="control-detail" role="status">Waiting for fresh setup status…</p>
 </article>
 
 <style>
+  .setup-provider-detail { display: flex; align-items: center; gap: .5rem; }
+  #setup-provider-icon { display: inline-flex; flex-shrink: 0; }
   .remote-setup-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1.25rem 0; }
   .remote-setup-form label { display: flex; flex-direction: column; gap: .4rem; font-size: .875rem; }
   .remote-setup-form input, .remote-setup-form select { width: 100%; height: auto; min-height: 41.5px; padding: .6rem; border: 1px solid var(--border); border-radius: .5rem; background: var(--surface); color: inherit; font: inherit; }

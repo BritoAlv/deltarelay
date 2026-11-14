@@ -7,7 +7,7 @@ interface Props {
 const { current = "overview" } = Astro.props
 ---
 <aside class="sidebar">
-  <a class="brand" href="/" title="DeltaRelay overview" translate="no"><span class="brand-symbol" aria-hidden="true">Δ</span><span class="brand-name">delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span><span class="sr-only">DeltaRelay overview</span></a>
+  <a class="brand" href="/" title="DeltaRelay overview" translate="no"><span class="brand-symbol"><Icon name="deltarelay" size={26} /></span><span class="brand-name">delta<span class="brand-light">relay</span><span class="brand-dot">.</span></span><span class="sr-only">DeltaRelay overview</span></a>
   <nav class="sidebar-nav" aria-label="Monitor">
     <p class="nav-label" aria-hidden="true">MONITOR</p>
     <a class:list={["nav-link", { selected: current === "overview" }]} href="/" aria-current={current === "overview" ? "page" : undefined} title="Overview"><Icon name="overview" size={18} /><span>Overview</span></a>

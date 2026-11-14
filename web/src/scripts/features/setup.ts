@@ -1,6 +1,7 @@
 import { type SetupStatus } from "../../lib/setup.js"
 import { controlError, sendControl, type SystemStatus } from "../../lib/system.js"
 import { requiredById } from "../dom.js"
+import { iconMarkup } from "../../lib/icons.js"
 
 export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: () => void = () => undefined) {
   const form = requiredById<HTMLFormElement>(root, "remote-setup-form")
@@ -27,6 +28,7 @@ export function mountSetup(root: HTMLElement, onRefresh: () => void, onAction: (
     submit.textContent = status?.busy || pending ? "Setting up remote host…" : status?.target ? "Resume remote setup…" : "Set up remote host…"
     badge.textContent = status?.busy ? "Installing…" : status?.last_error ? "Setup failed" : "Setup required"
     requiredById(root, "setup-target-label").textContent = provider.value === "codespaces" ? "Existing Codespace name" : "SSH alias or user@host"
+    requiredById(root, "setup-provider-icon").innerHTML = iconMarkup(provider.value === "codespaces" ? "github" : "terminal", 16)
     requiredById<HTMLElement>(root, "setup-ssh-port-label").hidden = provider.value === "codespaces"
     requiredById(root, "setup-provider-requirements").textContent = provider.value === "codespaces" ? "Codespaces requires an authenticated GitHub CLI and may resume compute billing." : "SSH requires an existing key/agent and trusted host key. No GitHub account or CLI is required."
     detail.textContent = stale ? "Setup status is stale. Refresh before installing anything." : status?.busy ? "Setup is running independently of this page. Component recovery appears on the map after installation." : message || (status?.last_error ? controlError(status.last_error) : status?.target ? "A previous setup was interrupted. Resume uses the same credentials, identity, and remote destination." : "Select a host, then confirm installation. Nothing remote is changed before confirmation.")

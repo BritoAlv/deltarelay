@@ -1,4 +1,5 @@
 import { connectionState, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../../lib/system.js"
+import { iconMarkup, remoteHostIcon } from "../../lib/icons.js"
 import { edgeChannel, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
 import { edgePath, responsePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
 import { escapeHtml as escape } from "../../lib/html.js"
@@ -155,6 +156,11 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
 
     cards.update(system, stale, disabled)
     for (const button of buttons) {
+      if (button.dataset.nodeId === "remote") {
+        const icon = button.querySelector<HTMLElement>("[data-node-icon]")!
+        const name = remoteHostIcon(system?.remote)
+        if (icon.dataset.icon !== name) { icon.innerHTML = iconMarkup(name, 22); icon.dataset.icon = name }
+      }
       const node = topology?.nodes.find((item) => item.id === button.dataset.nodeId)
       button.setAttribute("aria-pressed", String(button.dataset.nodeId === selected))
       const label = button.querySelector<HTMLElement>("[data-node-label]")!
