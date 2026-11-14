@@ -15,7 +15,8 @@ their accompanying text or control labels provide the accessible name.
   (MIT), used for the VS Code editor component.
 - OpenCode and OpenAI: the existing provider identity SVGs in
   `web/src/lib/provider-marks.ts`, reused without changing their geometry.
-- DeltaRelay: the existing delta identity, drawn as an SVG instead of a font glyph.
+- DeltaRelay: the original typographic Δ identity is intentionally preserved in
+  the sidebar and header; it is a brand letterform, not a functional UI icon.
 
 Brand marks identify their respective products; they do not imply endorsement.
 

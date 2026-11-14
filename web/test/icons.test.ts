@@ -38,7 +38,12 @@ test("dashboard icon controls use SVG instead of text glyphs on all routes", asy
   for (const route of ["index", "sessions", "measurement", "controls", "system"] as const) {
     const page = openPage(route)
     try {
-      for (const selector of [".brand-symbol", ".topbar-brand", ".page-footer a", ".icon-button", ".mobile-tab"]) {
+      for (const selector of [".brand-symbol", ".topbar-brand"]) {
+        const logo = page.document.querySelector(selector)!
+        assert.equal(logo.textContent, "Δ", `${route}: original DeltaRelay identity`)
+        assert.equal(logo.getAttribute("aria-hidden"), "true")
+      }
+      for (const selector of [".page-footer a", ".icon-button", ".mobile-tab"]) {
         for (const element of page.document.querySelectorAll(selector)) assert.ok(element.querySelector("svg"), `${route}: ${selector}`)
       }
       if (route === "controls") {
