@@ -227,7 +227,7 @@ test("all operational components use single table rows with descriptions and inl
   await app.refresh()
   assert.equal(gatewayActions.querySelector('[data-component-action="restart"]'), action, "polling does not replace unchanged actions")
   assert.equal(doc.activeElement, action)
-  assert.equal(doc.querySelector('[data-component-id="supervisor"] [data-component-actions]')?.textContent, "No advertised actions")
+  assert.equal(doc.querySelector('[data-component-id="supervisor"] [data-component-actions]')?.textContent, "")
   assert.equal(doc.querySelector('[data-component-id="vscode"] [data-component-actions]')?.textContent, "Open not configured")
   assert.doesNotMatch(doc.body.textContent ?? "", /Managed by startup\.sh|Host actions in More actions/)
   doc.querySelector<HTMLButtonElement>('[data-component-detail="gateway"]')!.click()

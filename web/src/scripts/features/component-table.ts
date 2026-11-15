@@ -300,10 +300,10 @@ export function mountComponentTable(root: HTMLElement, onAction: (id: NodeID, ac
         }
         actionsCell.replaceChildren()
         if (primary) actionsCell.append(button(primary))
-        else if (!node || node.owner === "user" || !actions.length) {
+        else if (!node || node.owner === "user") {
           const note = doc.createElement("span")
           note.className = "component-action-note"
-          note.textContent = !node ? "Waiting for supervisor" : node.owner === "user" ? "Open not configured" : "No advertised actions"
+          note.textContent = !node ? "Waiting for supervisor" : "Open not configured"
           actionsCell.append(note)
         }
         for (const action of actions.filter((action) => action !== primary).sort((a, b) => Number(a === "stop") - Number(b === "stop"))) actionsCell.append(button(action))
