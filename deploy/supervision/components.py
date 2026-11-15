@@ -32,7 +32,7 @@ class LocalComponent:
         if name == 'gate':
             if name in s.config['components']:
                 readiness = s.probes.gate()
-                detail = 'Local listener and supervisor token verified; backend readiness is shown separately.'
+                detail = 'Local listener and supervisor token verified; local access and relay readiness are shown separately.'
             else:
                 detail = 'Not configured. Add components.gate to run Varro attach-only through the supervisor.'
         elif name == 'gateway':

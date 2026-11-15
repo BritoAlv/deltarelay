@@ -203,19 +203,26 @@ ownership is deliberately split:
 
 - **Listener/process readiness** comes from the gate's local `/livez` endpoint,
   authenticated with the supervisor's local token. It performs no backend probe.
-- **Backend readiness** is derived from the supervisor's existing observations:
-  gateway readiness and relay forwarding, the OpenCode `/api/info` check, and,
-  when `opencode_directory` is configured, the DeltaRelay plugin check. Gate
-  backend reasons are ordered `gateway_down`, then `service_down`, then
+- **Local access readiness** is derived from the OpenCode `/api/info` check and,
+  when `opencode_directory` is configured, the DeltaRelay plugin check. It gates
+  Varro's forwarded requests, so local sessions remain available during a relay
+  outage. Local reasons are `service_down` and `plugin_unavailable`.
+- **Complete model-path readiness** adds gateway readiness and relay forwarding.
+  It is reported by the gate's `/healthz` and the `gate → gateway` edge. Relay
+  reasons are ordered `gateway_down`, then `service_down`, then
   `plugin_unavailable`.
 
 Supervisor repair policy is gate-only: start a stopped gate; restart a running
 gate whose `/livez` check fails; never restart a healthy listener merely because
-the backend returns 503. Backend failure is shown on the gate card and on the
-`gate → OpenCode` edge, while the listener remains **Ready**. An unknown
-`/livez` response (401/403/404 or a version mismatch) is reported as unknown, not
-used as proof that a restart would help. An unrecognized port owner is reported
-and never killed.
+the relay is unavailable or `/healthz` returns 503. Local service/plugin failure
+is shown on the gate card and on the `gate → OpenCode` edge with the listener
+**Ready**. During a relay outage the gate and `gate → OpenCode` stay ready;
+`gate → gateway` is not ready, and the card explains that Varro can open
+sessions while, with the local gateway running, prompts wait for recovery. An
+unknown `/livez`
+response (401/403/404 or a version mismatch) is reported as unknown, not used as
+proof that a restart would help. An unrecognized port owner is reported and
+never killed.
 
 `Start system` starts the gate after the dashboard and before the backend
 components. `Shut down system` stops the gate first, then the existing

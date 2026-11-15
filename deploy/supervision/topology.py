@@ -59,19 +59,15 @@ def shutdown_blockers(state):
             not (spec.get('command') or spec.get('stop_command'))]
 
 
-def gate_backend(state, by_id):
-    """Derive gate backend readiness from existing supervisor observations.
+def gate_local(state, by_id):
+    """Derive gate access readiness from local OpenCode/plugin observations.
 
     Returns (ready, reason): ready is True/False, or None when an independent
-    observation is still unknown. This never probes the gateway or OpenCode.
+    observation is still unknown. Relay availability is deliberately excluded:
+    it gates model requests inside the gateway, not local session access.
     """
-    gateway = by_id['gateway']['readiness']
     opencode = by_id['opencode']['readiness']
     plugin = by_id['plugin']['readiness']
-    if gateway in ('not_ready', 'blocked') or state.relay_state not in ('connected', 'unknown'):
-        return False, 'gateway_down'
-    if gateway != 'ready' or state.relay_state != 'connected':
-        return None, ''
     if opencode in ('not_ready', 'blocked'):
         return False, 'service_down'
     if opencode != 'ready':
@@ -82,6 +78,20 @@ def gate_backend(state, by_id):
         if plugin != 'ready':
             return None, ''
     return True, ''
+
+
+def gate_backend(state, by_id):
+    """Derive complete model-request readiness from existing observations.
+
+    Returns (ready, reason): ready is True/False, or None when an independent
+    observation is still unknown. This never probes the gateway or OpenCode.
+    """
+    gateway = by_id['gateway']['readiness']
+    if gateway in ('not_ready', 'blocked') or state.relay_state not in ('connected', 'unknown'):
+        return False, 'gateway_down'
+    if gateway != 'ready' or state.relay_state != 'connected':
+        return None, ''
+    return gate_local(state, by_id)
 
 
 def snapshot(state):
@@ -192,6 +202,7 @@ def snapshot(state):
     by_id = {node['id']: node for node in nodes}
     gate_configured = bool(state._managed.get('gate', False))
     backend_ready, backend_reason = gate_backend(state, by_id)
+    local_ready, local_reason = gate_local(state, by_id)
     gate = by_id['gate']
     if not gate_configured:
         gate.update(lifecycle='unmanaged', readiness='unknown', managed=False,
@@ -202,9 +213,16 @@ def snapshot(state):
     elif gate['readiness'] == 'ready':
         if backend_ready is True:
             gate['detail'] = 'Listener ready. Backend ready: gateway forwarding, OpenCode service, and plugin verified.'
-        elif backend_ready is False:
-            gate['detail'] = (f'Listener ready. Backend unavailable: {backend_reason}. '
+        elif local_ready is False:
+            gate['detail'] = (f'Listener ready. Local backend unavailable: {local_reason}. '
                               'Varro will receive 503; the gate is not restarted.')
+        elif backend_ready is False and local_ready is True:
+            gate['detail'] = (f'Listener and local backend ready. Relay unavailable: {backend_reason}. '
+                              'Varro can open sessions; while the local gateway is running, prompts wait for relay '
+                              'recovery within its retry window. The gate is not restarted.')
+        elif backend_ready is False:
+            gate['detail'] = (f'Listener ready. Relay unavailable: {backend_reason}. '
+                              'Local readiness is not yet verified; the gate is not restarted.')
         else:
             gate['detail'] = 'Listener ready. Backend readiness not yet verified by independent probes.'
     else:
@@ -223,9 +241,9 @@ def snapshot(state):
             else:
                 status = 'not_ready'
         elif (source, target) == ('gate', 'opencode'):
-            if not gate_configured or gate['readiness'] == 'unknown' or backend_ready is None:
+            if not gate_configured or gate['readiness'] == 'unknown' or local_ready is None:
                 status = 'unknown'
-            elif gate['readiness'] == 'ready' and backend_ready:
+            elif gate['readiness'] == 'ready' and local_ready:
                 status = 'ready'
             else:
                 status = 'not_ready'

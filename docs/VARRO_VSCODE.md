@@ -91,8 +91,9 @@ uv run ./deltarelay start --config /private/supervisor.json
 The supervisor starts the gate on `gate_url` (default
 `http://127.0.0.1:18789`) without starting or restarting OpenCode, Desktop, the
 relay, or the tunnel. Gate
-liveness is checked locally by `GET /livez` with the private local token; the
-gate's backend checks still run on Varro requests and `/healthz`. The map shows
+liveness is checked locally by `GET /livez` with the private local token.
+Varro requests check the local OpenCode service and plugin; `/healthz` also
+checks gateway forwarding. The map shows
 `Varro in VS Code → Varro health gate → OpenCode server` alongside the existing
 Desktop path. The gate card supports start, stop, restart, and recover.
 
@@ -121,11 +122,21 @@ backend. It remains available when `--password-file` protects Varro traffic.
   map. This never starts or stops the backend.
 - **Listener failed, backend healthy:** the supervisor may restart the gate
   process. This is the only automatic gate restart policy.
-- **Backend unavailable with a healthy listener:** the gate returns 503 with
-  `gateway_down`, `service_down`, or `plugin_unavailable`. The gate stays
-  running and is **not** restarted; fix the relay/plugin/OpenCode service
-  independently. The map keeps the gate Ready and marks `gate → OpenCode` not
-  ready.
+- **Local service or plugin unavailable with a healthy listener:** the gate
+  returns 503 with `service_down`, `plugin_unavailable`, or
+  `registration_invalid`. The gate stays running and is **not** restarted; fix
+  the OpenCode service or plugin independently. The map marks
+  `gate → OpenCode` not ready.
+- **Relay/VPS or gateway unavailable with a healthy local service:** the gate
+  keeps forwarding Varro's local session, history, event, filesystem, and prompt
+  requests, so Varro can open and browse sessions even though `/healthz` reports
+  503 `gateway_down`. If the relay is down while the local gateway is running,
+  the gateway holds the submitted prompt in its existing recovery window, stays
+  loading until forwarding resumes, and returns 503 if that window expires. If
+  the local gateway itself is down, prompts fail at the plugin (OpenCode retries
+  are intentionally disabled), but local sessions still open. The gate is
+  **not** restarted. The map keeps the gate and `gate → OpenCode` ready and marks
+  `gate → gateway` not ready.
 - **Unknown `/livez`** (401/403/404 or version mismatch): shown as unknown, not
   as proof that a restart helps.
 - **Port occupied by an unknown owner:** reported, never killed or replaced.
@@ -283,28 +294,32 @@ curl -fsS http://127.0.0.1:18789/api/info | jq .version
 }
 ```
 
-Each new request/stream/upgrade is gated on authenticated gateway readiness and
-VPS forwarding, service `/api/info` v2 readiness, and optional workspace plugin
-activation. Failure returns JSON HTTP 503, with `ready: false`,
-`error: "backend_unavailable"`, a recovery message, and one of:
+`/healthz` combines relay and local readiness. Each forwarded
+request/stream/upgrade is gated only on local registration validity, service
+`/api/info` v2 readiness, and optional workspace plugin activation. A relay
+outage therefore does not block Varro from opening or browsing local sessions;
+it is visible on `/healthz`. While the local gateway is running, model requests
+wait for its recovery window instead of failing at the gate. A local failure
+returns JSON HTTP 503 with
+`ready: false`, `error: "backend_unavailable"`, a recovery message, and one of
+`registration_invalid`, `service_down`, or `plugin_unavailable`. `/healthz`
+uses the same shape and additionally reports `gateway_down` when the gateway is
+unreachable, unready, or the VPS is not forwarding.
 
-- `registration_invalid`: missing/invalid/unsafe registration
-- `gateway_down`: gateway unreachable, unready, or VPS not forwarding
-- `service_down`: service unreachable, incompatible, or unauthorized
-- `plugin_unavailable`: plugin missing, inactive, or unverifiable
+Local success and full `/healthz` success are cached independently for 2s by
+default; failures are not cached. Registration is validated on every request
+even during that cache window. For fresher local or health observations use
+**`--health-cache 0s`**; the default permits an observation up to 2s old.
+Existing streams are not killed on health changes. The existing DeltaRelay
+plugin fails closed for generation.
 
-Success is cached for 2s by default; failures are not cached. Registration is
-validated on every request even during that cache window. For immediate
-relay-down detection on the next request use **`--health-cache 0s`**; the default
-permits a readiness observation up to 2s old. Existing streams are not killed
-on health changes. The existing DeltaRelay plugin fails closed for generation.
-
-Concurrent requests share an in-progress health probe, including with caching
-disabled. Network checks never hold the gate's state lock; a burst of editor
-requests waits for one bounded probe rather than queueing separate relay round
-trips. Canceled waiting requests return promptly. Forwarded requests have no
-response-header timeout, so long generation can run until the client cancels.
-The 5s health deadline applies only to readiness probes.
+Concurrent requests share an in-progress local probe, and `/healthz` requests
+share a full probe, including with caching disabled. Network checks never hold
+the gate's state lock; a burst of editor requests waits for one bounded local
+probe rather than queueing separate round trips. Canceled waiting requests
+return promptly. Forwarded requests have no response-header timeout, so long
+generation can run until the client cancels. The 5s health deadline applies only
+to readiness probes.
 
 Health GET probes re-read registration and retry once after connection/auth
 failure. Forwarded requests are **never replayed**, including GETs and requests
@@ -331,9 +346,10 @@ Desktop/TUI backend**):
 1. Backend up: health ready, Varro connected, same workspace sessions, OpenAI
    and OpenCode Go models available. A short prompt increments gateway/dashboard
    counters; file edits open native diffs and file links open in VS Code.
-2. Relay down, service up: after cache expiry (or with caching disabled), gate
-   returns 503 `gateway_down`; reloaded Varro cannot connect/submit prompts.
-   No direct provider request and no new server process.
+2. Relay down, service up: gate `/healthz` returns 503 `gateway_down`, while
+   Varro still opens and browses local sessions. A submitted prompt stays
+   loading through the gateway's recovery window and completes after the relay
+   returns. No direct provider request and no new server process.
 3. Service down: 503 `service_down` or `registration_invalid`; Varro must not
    start a server. With both down, repeat and confirm no new process.
 4. Restart service/rotate password: gate follows the new registration, then

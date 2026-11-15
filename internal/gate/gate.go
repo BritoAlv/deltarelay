@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const unavailableMessage = "DeltaRelay backend is not available. Start the relay and OpenCode service, then retry."
+const unavailableMessage = "DeltaRelay's local OpenCode service is not available. Start the OpenCode service, then retry."
 
 type Config struct {
 	ServiceFile        string
@@ -39,15 +39,19 @@ type registration struct {
 }
 
 type Gate struct {
-	config    Config
-	client    *http.Client
-	transport *http.Transport
-	mu        sync.Mutex
-	checked   time.Time
-	cached    Status
-	identity  registration
-	flight    *healthFlight
-	logMu     sync.Mutex
+	config        Config
+	client        *http.Client
+	transport     *http.Transport
+	mu            sync.Mutex
+	checked       time.Time
+	cached        Status
+	identity      registration
+	flight        *healthFlight
+	localChecked  time.Time
+	localCached   Status
+	localIdentity registration
+	localFlight   *healthFlight
+	logMu         sync.Mutex
 }
 
 // ValidateListen requires a literal loopback address, avoiding DNS rebinding.
@@ -134,8 +138,8 @@ func (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.log(r, 401, time.Since(started), "authentication_required")
 		return
 	}
-	status, identity := g.health(r.Context())
 	if r.Method == http.MethodGet && r.URL.Path == "/healthz" {
+		status, _ := g.health(r.Context())
 		writeStatus(w, status)
 		code := http.StatusOK
 		if !status.Ready {
@@ -144,6 +148,12 @@ func (g *Gate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.log(r, code, time.Since(started), status.Reason)
 		return
 	}
+	// Attach-only means Varro must reach the same local sessions as Desktop/TUI.
+	// Relay readiness gates model requests inside the gateway, not session
+	// creation, history, events, or filesystem operations. Probing the gateway
+	// here would turn a relay outage into a Varro-wide 503 before the existing
+	// recovery window can keep a submitted prompt waiting.
+	status, identity := g.localHealth(r.Context())
 	if !status.Ready {
 		writeStatus(w, status)
 		g.log(r, 503, time.Since(started), status.Reason)

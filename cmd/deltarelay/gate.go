@@ -22,7 +22,7 @@ func gateCommand(ctx context.Context, args []string, stderr io.Writer) error {
 	gateway := flags.String("gateway", "http://127.0.0.1:18788", "loopback DeltaRelay gateway origin")
 	localFile := flags.String("local-token-file", os.Getenv("DELTARELAY_LOCAL_TOKEN_FILE"), "private gateway token file; otherwise DELTARELAY_LOCAL_TOKEN")
 	workspace := flags.String("workspace-directory", "", "optional directory whose DeltaRelay plugin must be active")
-	cache := flags.Duration("health-cache", 2*time.Second, "successful health cache lifetime; 0 disables caching")
+	cache := flags.Duration("health-cache", 2*time.Second, "successful local/full health cache lifetime; 0 disables caching")
 	passwordFile := flags.String("password-file", "", "optional private gate Basic-auth password file (username opencode)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

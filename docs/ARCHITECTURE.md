@@ -40,7 +40,7 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
 | `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, and shutdown. |
 | `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
-| `internal/gate` | Attach-only Varro/VS Code health gate: local `/livez` supervisor proof, backend readiness checks, fail-closed 503 responses, and authenticated HTTP/SSE/WebSocket forwarding to the shared OpenCode service. It is a health/authorization shim, never a provider proxy or service owner. |
+| `internal/gate` | Attach-only Varro/VS Code health gate: local `/livez` supervisor proof, local service/plugin checks for forwarded requests, full relay-aware `/healthz`, fail-closed 503 responses for local failures, and authenticated HTTP/SSE/WebSocket forwarding to the shared OpenCode service. It is a health/authorization shim, never a provider proxy or service owner. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
@@ -126,11 +126,14 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   unmanaged, or does not support the action.
 - Varro/VS Code attaches through the supervised loopback gate to the **same**
   shared OpenCode service Desktop/TUI use. The gate's `/livez` endpoint is a
-  local token check only; backend checks run on `/healthz` and actual requests
-  and cover gateway forwarding, OpenCode v2 API, and the optional workspace
-  plugin. The gate forwards HTTP/SSE/WebSocket with the service password and
-  fails closed with 503. It never starts or restarts the service, gateway, relay,
-  tunnel, or provider, and it is not a provider proxy.
+  local token check only. Forwarded requests are gated on the OpenCode v2 API
+  and optional workspace plugin, not relay readiness; `/healthz` additionally
+  checks gateway forwarding. The gate forwards HTTP/SSE/WebSocket with the
+  service password and fails closed with 503 when the local service is
+  unavailable. During a relay outage, local sessions remain accessible; while
+  the local gateway is running, prompts wait inside its existing recovery
+  window. The gate never starts or restarts the service, gateway, relay, tunnel,
+  or provider, and it is not a provider proxy.
 - The supervisor composes configuration, process ownership, probes, recovery
   policy, provider plugins, and the control API in `deploy/supervision`.
   Startup requires an explicit executable-provider configuration or the

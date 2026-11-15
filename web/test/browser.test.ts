@@ -2258,14 +2258,15 @@ test("architecture roles stay independent of live health, which remains availabl
   await page.close()
 })
 
-test("a healthy gate listener with an unavailable backend stays running while its request edge is not ready", async () => {
+test("a healthy gate keeps local sessions available during a relay outage while relay readiness is not ready", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   const gate = status.topology!.nodes.find((node) => node.id === "gate")!
   gate.lifecycle = "running"
   gate.readiness = "ready"
-  gate.detail = "Listener ready. Backend unavailable: gateway_down. Varro will receive 503; the gate is not restarted."
-  status.topology!.edges.find((edge) => edge.id === "gate_opencode")!.state = "not_ready"
+  gate.detail = "Listener and local backend ready. Relay unavailable: gateway_down. Varro can open sessions; while the local gateway is running, prompts wait for relay recovery within its retry window. The gate is not restarted."
+  status.topology!.edges.find((edge) => edge.id === "gate_opencode")!.state = "ready"
+  status.topology!.edges.find((edge) => edge.id === "gate_gateway")!.state = "not_ready"
   page.setFetch(() => json(status))
   const system = startSystemStatus(page.document, { autoStart: false })
   await system.refresh()
@@ -2274,9 +2275,10 @@ test("a healthy gate listener with an unavailable backend stays running while it
   assert.equal(card.querySelector("[data-component-status]")?.textContent, "Ready")
   assert.equal(card.querySelector("[data-component-lifecycle]")?.textContent, "Running")
   doc.querySelector<HTMLButtonElement>('[data-component-detail="gate"]')!.click()
-  assert.match(doc.querySelector("#node-inspector-detail")?.textContent ?? "", /Backend unavailable: gateway_down/)
-  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Varro health gate → OpenCode server.*Not ready/s)
-  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "backend failure never triggers a gate action")
+  assert.match(doc.querySelector("#node-inspector-detail")?.textContent ?? "", /Relay unavailable: gateway_down/)
+  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Varro health gate → OpenCode server.*Ready/s)
+  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Varro health gate → Local gateway.*Not ready/s)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "relay failure never triggers a gate action")
   system.destroy()
   await page.close()
 })

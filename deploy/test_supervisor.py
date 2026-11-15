@@ -992,9 +992,14 @@ class SupervisorTest(unittest.TestCase):
                 subject.state.observe('plugin', control.Observation('unknown', 'ready', ''))
                 subject.state.record_relay('connected')
                 subject.state.observe(node, control.Observation('running', state, ''))
-                self.assertIn(f'Backend unavailable: {reason}.', gate()['detail'])
+                if reason == 'gateway_down':
+                    self.assertIn('Relay unavailable: gateway_down.', gate()['detail'])
+                    self.assertIn('Varro can open sessions', gate()['detail'])
+                else:
+                    self.assertIn(f'Local backend unavailable: {reason}.', gate()['detail'])
                 self.assertEqual(gate()['readiness'], 'ready')
-                self.assertEqual(edge('gate_opencode')['state'], 'not_ready')
+                self.assertEqual(edge('gate_opencode')['state'],
+                                 'ready' if reason == 'gateway_down' else 'not_ready')
                 self.assertEqual(edge('vscode_gate')['state'], 'ready')
                 self.assertEqual(edge('supervisor_gate')['state'], 'ready')
                 self.assertEqual(edge('gate_gateway')['state'],

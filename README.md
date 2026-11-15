@@ -164,7 +164,10 @@ On PCs that use VS Code, Varro attaches through the supervisor-managed loopback
 health gate to the **same** shared OpenCode service as Desktop/TUI:
 `VS Code/Varro → gate → OpenCode service`, alongside
 `Desktop/TUI → OpenCode service`. The gate is default-on and never starts,
-restarts, or replaces the backend. Install Varro in a dedicated profile, keep
+restarts, or replaces the backend. If the relay is unavailable, Varro can still
+open and browse local sessions; while the local gateway is running, a submitted
+prompt stays loading inside the gateway's recovery window. Install Varro in a
+dedicated profile, keep
 `varro.server.port` at `18789` with `autoStart` and `autoUpdate` off, then launch
 that profile. See the [Varro quick
 integration](docs/VARRO_VSCODE.md#quick-integration) for the full sequence.

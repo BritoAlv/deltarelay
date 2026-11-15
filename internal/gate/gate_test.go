@@ -134,14 +134,11 @@ func TestProxy(t *testing.T) {
 	}
 }
 
-func TestUnhealthy(t *testing.T) {
+func TestLocalFailuresFailClosed(t *testing.T) {
 	for _, tc := range []struct {
 		name, reason string
 		change       func(*testing.T, *fixture)
 	}{
-		{"gateway", "gateway_down", func(t *testing.T, f *fixture) { f.gatewayReady.Store(false) }},
-		{"gateway unreachable", "gateway_down", func(t *testing.T, f *fixture) { f.gateway.Close() }},
-		{"forwarding", "gateway_down", func(t *testing.T, f *fixture) { f.forwarding.Store(false) }},
 		{"service", "service_down", func(t *testing.T, f *fixture) { f.service.Close() }},
 		{"plugin", "plugin_unavailable", func(t *testing.T, f *fixture) { f.plugin.Store(false) }},
 		{"missing", "registration_invalid", func(t *testing.T, f *fixture) { os.Remove(f.file) }},
@@ -166,6 +163,72 @@ func TestUnhealthy(t *testing.T) {
 				t.Fatal("not JSON")
 			}
 		})
+	}
+}
+
+func TestRelayOutageKeepsLocalSessionsAvailable(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*testing.T, *fixture)
+	}{
+		{"gateway unready", func(t *testing.T, f *fixture) { f.gatewayReady.Store(false) }},
+		{"gateway unreachable", func(t *testing.T, f *fixture) { f.gateway.Close() }},
+		{"forwarding disabled", func(t *testing.T, f *fixture) { f.forwarding.Store(false) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t, nil)
+			tc.change(t, f)
+			// Session discovery, creation, history, events, and prompt submission
+			// all stay reachable locally. The unchanged gateway owns relay
+			// waiting so a submitted prompt can keep loading through recovery.
+			for _, target := range []struct {
+				method, path string
+				body         io.Reader
+			}{
+				{"GET", "/api/session", nil},
+				{"POST", "/api/session", strings.NewReader(`{"title":"local"}`)},
+				{"GET", "/api/session/active", nil},
+				{"GET", "/api/event", nil},
+				{"POST", "/api/session/s/prompt", strings.NewReader("prompt")},
+			} {
+				r := httptest.NewRequest(target.method, target.path, target.body)
+				w := httptest.NewRecorder()
+				f.g.ServeHTTP(w, r)
+				if w.Code != 200 || w.Body.String() != "proxied" {
+					t.Fatalf("%s %s was blocked by relay readiness: %d %s", target.method, target.path, w.Code, w.Body)
+				}
+			}
+			if f.calls.Load() != 5 {
+				t.Fatalf("local requests did not reach OpenCode: %d", f.calls.Load())
+			}
+			// /healthz remains the complete readiness probe used by supervisors
+			// and operators; it still reports the relay outage.
+			w := request(f.g, "/healthz")
+			var s Status
+			json.Unmarshal(w.Body.Bytes(), &s)
+			if w.Code != 503 || s.Ready || s.Reason != "gateway_down" || s.Error != "backend_unavailable" {
+				t.Fatalf("relay readiness hidden from /healthz: %d %s", w.Code, w.Body)
+			}
+		})
+	}
+}
+
+func TestLocalHealthCacheDoesNotProbeRelay(t *testing.T) {
+	f := setup(t, nil)
+	f.g.config.HealthCache = time.Hour
+	for range 2 {
+		if w := request(f.g, "/api/session"); w.Code != 200 {
+			t.Fatalf("local request failed: %d %s", w.Code, w.Body)
+		}
+	}
+	if f.calls.Load() != 2 || f.infoCalls.Load() != 1 {
+		t.Fatalf("local cache missed or request blocked: calls=%d info=%d", f.calls.Load(), f.infoCalls.Load())
+	}
+	if f.healthCalls.Load() != 0 {
+		t.Fatal("local request probed the relay")
+	}
+	if w := request(f.g, "/healthz"); w.Code != 200 || f.healthCalls.Load() != 1 {
+		t.Fatalf("full health did not probe the relay: %d probes=%d", w.Code, f.healthCalls.Load())
 	}
 }
 
@@ -491,22 +554,35 @@ func TestGatePassword(t *testing.T) {
 	}
 }
 
-func TestConcurrentRequestsShareHealthProbe(t *testing.T) {
+func TestConcurrentRequestsShareLocalHealthProbe(t *testing.T) {
 	f := setup(t, nil)
+	f.service.Close()
 	var probes atomic.Int32
-	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		probes.Add(1)
-		// Model the relay round trip. Startup requests should pay this once,
-		// concurrently, not once per request while holding a shared lock.
-		select {
-		case <-time.After(150 * time.Millisecond):
-		case <-r.Context().Done():
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, password, ok := r.BasicAuth()
+		if !ok || user != "opencode" || password != "service-secret" {
+			w.WriteHeader(401)
 			return
 		}
-		io.WriteString(w, `{"ready":true,"vps":{"forwarding":true}}`)
+		switch r.URL.Path {
+		case "/api/info":
+			probes.Add(1)
+			// Model the local service probe. Startup requests should pay this
+			// once, concurrently, not once per request while holding a lock.
+			select {
+			case <-time.After(150 * time.Millisecond):
+			case <-r.Context().Done():
+				return
+			}
+			io.WriteString(w, `{"version":"2.2.6"}`)
+		case "/api/plugin":
+			io.WriteString(w, `{"data":[{"id":"deltarelay","state":{"status":"active"}}]}`)
+		default:
+			io.WriteString(w, "proxied")
+		}
 	}))
-	defer gateway.Close()
-	f.g.config.Gateway = gateway.URL
+	defer service.Close()
+	f.register(t, service.URL, "service-secret")
 	const count = 24
 	start := make(chan struct{})
 	var ready, done sync.WaitGroup
@@ -530,11 +606,15 @@ func TestConcurrentRequestsShareHealthProbe(t *testing.T) {
 	close(start)
 	done.Wait()
 	if got := probes.Load(); got != 1 {
-		t.Fatalf("startup health probes serialized or duplicated: got %d, want 1", got)
+		t.Fatalf("startup local probes serialized or duplicated: got %d, want 1", got)
+	}
+	if f.healthCalls.Load() != 0 {
+		t.Fatal("local startup requests probed the relay")
 	}
 	// Sharing in-flight work must not become caching when configured as zero.
-	if request(f.g, "/healthz").Code != 200 || probes.Load() != 2 {
-		t.Fatal("completed health result was cached")
+	// Unlike local access, /healthz still probes the relay on every uncached call.
+	if request(f.g, "/healthz").Code != 200 || f.healthCalls.Load() != 1 {
+		t.Fatalf("full health did not probe: probes=%d", f.healthCalls.Load())
 	}
 }
 
