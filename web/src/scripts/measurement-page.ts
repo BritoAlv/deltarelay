@@ -9,6 +9,7 @@ import { mountMeasurement } from "./features/measurement.js"
 
 export interface MeasurementPageOptions {
   autoStart?: boolean
+  onPauseChange?: (paused: boolean) => void
 }
 
 export interface MeasurementPageApp {
@@ -120,6 +121,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     state = { ...state, paused: !state.paused }
     if (state.paused) poller.pause()
     else poller.resume()
+    options.onPauseChange?.(state.paused)
     render()
   }
 

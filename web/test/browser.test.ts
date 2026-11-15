@@ -4,6 +4,7 @@ import { json, openPage } from "./browser.js"
 import { startDashboard } from "../src/scripts/dashboard.js"
 import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemStatus } from "../src/scripts/system.js"
+import { renderBrandStatus } from "../src/scripts/features/brand-status.js"
 import { makeOpenCodeSessions, makeSnapshot, makeSystemHistory } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue, presetRange, trafficData } from "../src/lib/traffic.js"
@@ -15,6 +16,30 @@ import { mapLayerSegments, mapNodes, nodeHeight, nodeWidth } from "../src/lib/to
 import { readContract } from "./contracts.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
+
+test("brand and favicon update together on every dashboard page", async () => {
+  for (const name of ["index", "sessions", "measurement", "controls", "system"] as const) {
+    const page = openPage(name)
+    try {
+      const brand = page.document.querySelector<HTMLElement>(".brand")!
+      const favicon = page.document.querySelector('link[rel="icon"]')!
+      const connected = systemStatus()
+      for (const [system, stale, expected] of [
+        [connected, false, "connected"],
+        [{ ...connected, recovery: { ...connected.recovery, busy: true } }, false, "recovering"],
+        [{ ...connected, relay_state: "unreachable", remote: { ...connected.remote, host_state: "stopped" } }, false, "stopped"],
+        [connected, true, "unknown"],
+      ] as const) {
+        renderBrandStatus(page.document, system, stale)
+        assert.equal(brand.dataset.status, expected)
+        assert.match(brand.getAttribute("aria-label")!, new RegExp(expected === "unknown" ? "Status unavailable" : expected, "i"))
+        assert.equal(favicon.getAttribute("href"), expected === "unknown" ? "/favicon.svg" : `/_astro/favicon-${expected}.svg`)
+      }
+    } finally {
+      await page.close()
+    }
+  }
+})
 
 async function waitForText(node: Element | null, pattern: RegExp, label: string): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt++) {

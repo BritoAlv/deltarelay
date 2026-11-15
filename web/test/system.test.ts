@@ -1,6 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../src/lib/system.js"
+import { brandStatus } from "../src/scripts/features/brand-status.js"
 
 const status: SystemStatus = {
   version: 2, managed: true, collected_at: "2026-10-28T12:00:00Z", csrf_token: "a".repeat(64),
@@ -10,6 +11,18 @@ const status: SystemStatus = {
   components: [{ id: "gateway", label: "Gateway", state: "stopped", can_start: true, can_restart: true }],
   auth: { state: "valid", stale: false, expires_at: "2026-10-28T13:00:00Z" },
 }
+
+test("brand status reflects verified connection, recovery, shutdown, and unavailable observations", () => {
+  assert.equal(brandStatus(null, false), "unknown")
+  assert.equal(brandStatus({ ...status, relay_state: "connected" }, true), "unknown")
+  assert.equal(brandStatus({ ...status, error: "supervisor_unavailable" }, false), "unknown")
+  assert.equal(brandStatus({ ...status, relay_state: "connected" }, false), "connected")
+  assert.equal(brandStatus({ ...status, recovery: { ...status.recovery, busy: true } }, false), "recovering")
+  assert.equal(brandStatus({ ...status, recovery: { ...status.recovery, next_retry_at: "2026-10-28T12:01:00Z" } }, false), "recovering")
+  assert.equal(brandStatus(status, false), "stopped")
+  assert.equal(brandStatus({ ...status, remote: { ...status.remote, host_state: "running" }, recovery: { ...status.recovery, last_error: "system_stopped" } }, false), "stopped")
+  assert.equal(brandStatus({ ...status, remote: { ...status.remote, host_state: "running" } }, false), "disconnected")
+})
 
 test("countdown is absolute, clamps expired tokens, and handles long lifetimes", () => {
   const now = Date.parse("2026-10-28T12:00:00Z")

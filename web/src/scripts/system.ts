@@ -7,6 +7,7 @@ import { mountHeader } from "./features/header.js"
 import { fetchSetup, type SetupStatus } from "../lib/setup.js"
 import { mountSetup } from "./features/setup.js"
 import { mountAuth } from "./features/auth.js"
+import { renderBrandStatus } from "./features/brand-status.js"
 
 export interface SystemOptions {
   autoStart?: boolean
@@ -77,6 +78,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
 
   function render() {
     if (destroyed) return
+    renderBrandStatus(doc, system, stale)
     controls?.update(system, stale, receivedAt)
     auth?.update(system, stale, receivedAt)
     setup?.update(setupStatus, system, stale || setupStale)
