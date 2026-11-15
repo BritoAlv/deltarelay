@@ -110,6 +110,7 @@ class ProfileTest(FixtureTest):
         self.assertTrue(remote.ensure_relay(self.root, IDENTITY)['started'])
         args = popen.call_args.args[0]
         self.assertEqual(args[args.index('--data') + 1], str(data))
+        self.assertEqual(args[args.index('--max-journal-records') + 1], '100000')
         self.assertIn(str(self.root / 'relay.token'), args)
         self.assertNotIn('test-token', args)
         self.assertEqual((self.root / 'server.pid').read_text(), '123456\n')
@@ -198,6 +199,7 @@ class RealRelayTest(FixtureTest):
         with patch.object(remote.subprocess, 'Popen', side_effect=track):
             self.assertTrue(remote.ensure_relay(self.root, IDENTITY, port)['started'])
         self.assertFalse(remote.ensure_relay(self.root, IDENTITY, port)['started'])
+        self.assertEqual(remote.relay_info(port, 'test-token', IDENTITY)['max_journal_records'], 100000)
         warm = json.loads(subprocess.run(sync, capture_output=True, text=True, check=True, timeout=30).stdout)
         self.assertEqual(warm['uploaded_chunks'], 0)
         self.assertEqual(warm['hash'], cold['hash'])

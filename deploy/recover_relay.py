@@ -135,7 +135,9 @@ def ensure_relay(root, expected, port=18787):
             str(binary), 'serve', '--listen', f'127.0.0.1:{port}',
             '--data', str(data), '--token-file', str(root / 'relay.token'),
             '--upstreams', str(root / 'upstreams.json'),
-            '--max-cache-bytes', str(2 << 30), '--max-journal-records', '10000',
+            # Match serve's normal journal capacity; recovery must not impose
+            # a smaller lifetime request cap. Existing claims are never erased.
+            '--max-cache-bytes', str(2 << 30), '--max-journal-records', '100000',
         ]
         fd = os.open(root / 'recovery-server.log', os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'ab') as log:

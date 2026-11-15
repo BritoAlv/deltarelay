@@ -429,7 +429,7 @@ Common checks:
 | 403 | Original API origin/path must match both allowlists |
 | 415 | A provider/model/variant still sends unsupported request encoding |
 | 409 | Used request ID or an upload budget; inspect metadata-only error code |
-| 507 | Explicit cache or request-journal limit reached |
+| 507 | Cache, response storage, or request-journal limit reached. Check byte usage and `--max-journal-records`: retained request claims can fill the journal even with free disk space. Raise the limit; never delete claims to make room. |
 | Midstream error | Provider/network disconnect or idle timeout; output is aborted, not replaced with fake SSE |
 | No gateway counters | Wrong provider ID, plugin load failure, or a different OpenCode server |
 | Provider 401/403 | Original account credential, region, model entitlement, or VPS IP restriction |

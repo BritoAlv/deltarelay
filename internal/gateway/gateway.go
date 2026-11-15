@@ -311,7 +311,13 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		}
 		result.ErrorCode = "relay_failure"
 		var httpErr *client.HTTPError
-		if errors.As(err, &httpErr) && (httpErr.Status == http.StatusConflict || httpErr.Status == http.StatusInsufficientStorage || httpErr.Status == http.StatusForbidden) {
+		if errors.As(err, &httpErr) && httpErr.Status == http.StatusInsufficientStorage {
+			result.Status = http.StatusInsufficientStorage
+			result.ErrorCode = "relay_storage_full"
+			gatewayError(w, result.Status, "DeltaRelay VPS storage or request-journal limit reached (HTTP 507); check cache/response usage and --max-journal-records. Preserve request claims when increasing capacity. No direct-provider fallback")
+			return
+		}
+		if httpErr != nil && (httpErr.Status == http.StatusConflict || httpErr.Status == http.StatusForbidden) {
 			result.Status = httpErr.Status
 			if httpErr.Code == "state_mismatch" {
 				result.ErrorCode = "relay_state_changed"
