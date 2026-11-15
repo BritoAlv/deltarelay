@@ -48,8 +48,9 @@ def save_json(path, value):
 
 
 class SupervisorState:
-    def __init__(self, config, settings, metadata, journal=None):
+    def __init__(self, config, settings, metadata, journal=None, on_change=None):
         self.journal = journal
+        self.on_change = on_change
         self.lock = threading.RLock()
         self.settings_lock = threading.Lock()
         self.settings = dict(settings)
@@ -116,8 +117,16 @@ class SupervisorState:
         self._changed('Provider metadata', previous, self.metadata, 'provider')
 
     def _changed(self, name, previous, value, component=None):
-        if self.journal and previous != value:
+        if previous == value:
+            return
+        if self.journal:
             self.journal.write('event', f'{name}: {previous} -> {value}', component=component)
+        if self.on_change:
+            try:
+                self.on_change()
+            except Exception as error:
+                if self.journal:
+                    self.journal.write('error', f'State history update failed: {type(error).__name__}', component='state')
 
     def snapshot(self):
         with self.lock:
@@ -156,7 +165,20 @@ class SupervisorState:
 
     def set_intent(self, value):
         with self.lock:
+            previous = self.intent
             self.intent = copy.deepcopy(value)
+        self._changed('System intent', previous, self.intent)
+
+    def history_observation(self):
+        """Copy only the facts that classify one system-state interval."""
+        with self.lock:
+            return {
+                'intent': self.intent['system'],
+                'busy': self.recovery['busy'],
+                'relay_state': self.relay_state,
+                'host_state': self.host_state,
+                'internet_state': self.internet_state,
+            }
 
     def wanted(self, name):
         with self.lock:

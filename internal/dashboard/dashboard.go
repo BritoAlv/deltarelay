@@ -171,6 +171,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.journal(w, r)
 		return
 	}
+	if r.URL.Path == "/api/system/history" {
+		h.stateHistory(w, r)
+		return
+	}
 	if h.files != nil {
 		path := r.URL.Path
 		if path == "/favicon.svg" || strings.HasPrefix(path, "/_astro/") && !strings.HasSuffix(path, "/") {

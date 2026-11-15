@@ -17,7 +17,7 @@ import urllib.request
 import uuid
 from unittest.mock import Mock, patch
 
-from supervision.control import Handler, Server, controller_status, startup_components
+from supervision.control import Handler, Server, control_request, controller_status, startup_components
 from test_support import configure_provider
 import supervision.supervisor as control
 import supervision.supervisor as supervisor_impl
@@ -756,6 +756,14 @@ class SupervisorTest(unittest.TestCase):
             self.addCleanup(server.shutdown)
             status = controller_status(path)
             self.assertTrue(status['managed'])
+            now = int(time.time())
+            history_status, history = control_request(path, 'GET', f'/history?start={now - 60}&end={now}&bucket=60')
+            self.assertEqual(history_status, 200)
+            self.assertEqual(history['version'], 1)
+            self.assertIn(history['current']['state'], ('unknown', 'recovering', 'unreachable', 'host_stopped', 'no_internet', 'stopped', 'connected', 'off'))
+            self.assertEqual(len(history['buckets']), 1)
+            bad_status, bad = control_request(path, 'GET', '/history?start=10&end=20')
+            self.assertEqual((bad_status, bad), (400, {'error': 'invalid_request'}))
             connection = http.client.HTTPConnection('localhost')
             connection.sock = socket.socket(socket.AF_UNIX)
             connection.sock.connect(str(path))
@@ -1046,6 +1054,21 @@ class StateOwnershipTest(unittest.TestCase):
         self.addCleanup(result.close)
         result.prepare_provider()
         return result
+
+    def test_state_history_tracks_connection_and_recovery_without_exposing_private_data(self):
+        subject = self.supervisor()
+        path = subject.directory / 'state-history.jsonl'
+        self.assertTrue(path.exists())
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        subject.state.record_relay('connected')
+        subject.state.begin_operation('restart_gateway')
+        now = int(time.time())
+        history = subject.history.query(now - 60, now + 1, 61)
+        self.assertEqual(history['version'], 1)
+        self.assertEqual(history['current']['state'], 'recovering')
+        self.assertGreaterEqual(history['totals']['connected'], 0)
+        self.assertNotIn('relay-secret', json.dumps(history))
+        self.assertNotIn(str(self.root), json.dumps(history))
 
     def test_snapshot_returns_copies_of_all_observable_state(self):
         subject = self.supervisor()

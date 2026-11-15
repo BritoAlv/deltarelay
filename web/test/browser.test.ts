@@ -4,7 +4,7 @@ import { json, openPage } from "./browser.js"
 import { startDashboard } from "../src/scripts/dashboard.js"
 import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemStatus } from "../src/scripts/system.js"
-import { makeOpenCodeSessions, makeSnapshot } from "./fixture.js"
+import { makeOpenCodeSessions, makeSnapshot, makeSystemHistory } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue, presetRange, trafficData } from "../src/lib/traffic.js"
 import { sessionDayKey } from "../src/lib/session-catalog.js"
@@ -126,10 +126,77 @@ test("initial overview state loads without presenting fabricated diagnostics", a
   assert.equal(page.document.querySelector("#connection-label")?.textContent, "Connecting…")
   assert.equal(page.document.querySelector("#stat-sessions")?.textContent, "—")
   assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /Waiting for local data/)
+  assert.match(page.document.querySelector("#state-lanes")?.textContent ?? "", /Waiting for supervisor history/)
+  assert.match(page.document.querySelector("#state-ring")?.textContent ?? "", /Waiting/)
   assert.equal(page.document.querySelector("#session-rows"), null)
   assert.equal(page.document.querySelector("#system-cards"), null)
   dashboard.destroy()
   await page.close()
+})
+
+test("system states follow the selected range and render lanes and composition", async () => {
+  const page = openPage()
+  const doc = page.document
+  page.setFetch((url) => {
+    const parsed = new URL(url, "http://127.0.0.1:8790")
+    if (parsed.pathname === "/api/dashboard") return json(makeSnapshot(now))
+    if (parsed.pathname === "/api/system/history") {
+      const start = Number(parsed.searchParams.get("start"))
+      const end = Number(parsed.searchParams.get("end"))
+      const bucket = Number(parsed.searchParams.get("bucket"))
+      return json(makeSystemHistory(start, end, bucket))
+    }
+    return json({ error: "unexpected" }, 404)
+  })
+  const dashboard = startDashboard(doc, { autoStart: false })
+  try {
+    await dashboard.refresh()
+    await waitForText(doc.querySelector("#state-current-pill"), /Connected/, "state current pill")
+    assert.equal(doc.querySelector("#state-lanes-range")?.textContent, "Last 30 days")
+    assert.equal(doc.querySelector("#state-ring-range")?.textContent, "Last 30 days")
+    assert.ok(doc.querySelectorAll("#state-lanes .state-lane-segment").length > 0)
+    assert.ok(doc.querySelector("#state-ring svg"))
+    assert.match(doc.querySelector("#state-legend")?.textContent ?? "", /Connected/)
+    assert.match(doc.querySelector("#state-legend")?.textContent ?? "", /100%/)
+    assert.notEqual(doc.querySelector("#state-ring-total")?.textContent, "—")
+    assert.match(doc.querySelector("#state-coverage")?.textContent ?? "", /100% observed/)
+    assert.match(doc.querySelector("#state-current-since")?.textContent ?? "", /for/)
+    const histories = () => page.fetchCalls.filter((call) => call.url.startsWith("/api/system/history"))
+    assert.equal(histories().length, 1)
+    const select = doc.getElementById("chart-range") as HTMLSelectElement
+    select.value = "24h"
+    page.fire(select, "change")
+    for (let attempt = 0; attempt < 200 && histories().length < 2; attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.equal(histories().length, 2)
+    assert.notEqual(histories()[0]!.url, histories()[1]!.url)
+    await waitForText(doc.querySelector("#state-lanes-range"), /Last 24 hours/, "state lanes range did not follow the period")
+    assert.equal(doc.querySelector("#state-ring-range")?.textContent, "Last 24 hours")
+  } finally {
+    dashboard.destroy()
+    await page.close()
+  }
+})
+
+test("system states show an unavailable notice instead of pretending a stale value is live", async () => {
+  const page = openPage()
+  const doc = page.document
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(makeSnapshot(now))
+    if (url.startsWith("/api/system/history?")) return json({ error: "supervisor_unavailable" }, 503)
+    return json({ error: "unexpected" }, 404)
+  })
+  const dashboard = startDashboard(doc, { autoStart: false })
+  try {
+    await dashboard.refresh()
+    await waitForText(doc.querySelector("#state-notice"), /local supervisor is unavailable/, "unavailable history notice")
+    assert.equal(doc.querySelector("#state-current-pill")?.textContent, "Unavailable")
+    assert.match(doc.querySelector("#state-lanes")?.textContent ?? "", /local supervisor is unavailable/)
+    assert.match(doc.querySelector("#state-ring")?.textContent ?? "", /Unavailable/)
+    assert.equal(doc.querySelector("#state-legend")?.textContent, "")
+  } finally {
+    dashboard.destroy()
+    await page.close()
+  }
 })
 
 test("controls keep primary actions separate and architecture details always expanded", async () => {
@@ -925,8 +992,12 @@ test("overview refresh renders stats and an accessible chart without session or 
   const page = openPage()
   const snapshot = makeSnapshot(now)
   page.setFetch((url) => {
-    assert.equal(url, "/api/dashboard")
-    return json(snapshot)
+    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/system/history?")) {
+      const parsed = new URL(url, "http://127.0.0.1:8790")
+      return json(makeSystemHistory(Number(parsed.searchParams.get("start")), Number(parsed.searchParams.get("end")), Number(parsed.searchParams.get("bucket"))))
+    }
+    throw new Error(`Unexpected URL ${url}`)
   })
   const dashboard = startDashboard(page.document, { autoStart: false })
   await dashboard.refresh()
@@ -944,10 +1015,13 @@ test("overview refresh renders stats and an accessible chart without session or 
   assert.match(doc.querySelector<HTMLElement>("#reuse-meter-reuse")?.style.width ?? "", /%/)
   assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /101 requests · 2 failed · 1 cancelled/)
   assert.ok(doc.querySelectorAll("#traffic-chart rect.chart-bar-upload").length > 1)
+  await waitForText(doc.querySelector("#state-current-pill"), /Connected/, "system state history did not load")
+  assert.ok(doc.querySelectorAll("#state-lanes .state-lane-segment").length > 0)
+  assert.ok(doc.querySelector("#state-ring svg"))
   assert.equal(doc.querySelector("#session-rows"), null)
   assert.equal(doc.querySelector("#system-summary"), null)
   assert.equal(doc.querySelector<HTMLButtonElement>("#refresh-button")?.disabled, false)
-  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard"])
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url.split("?")[0]))].sort(), ["/api/dashboard", "/api/system/history"])
   dashboard.destroy()
   await page.close()
 })

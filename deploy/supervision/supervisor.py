@@ -29,6 +29,7 @@ from .process import ProcessManager, process
 from .probes import RelayProbe
 from .recovery import RecoveryPolicy
 from .state import SupervisorState, save_json, stamp
+from .state_history import StateHistory, classify
 from .onboarding import RemoteSetup
 from .contracts import Observation
 from .coordinator import Coordinator
@@ -107,6 +108,9 @@ class Supervisor:
                     any(name not in COMPONENTS or type(value) is not bool for name, value in intent['components'].items())):
                 raise ControlError('configuration_error')
             self.state.set_intent(intent)
+        self.history = StateHistory(self.directory / 'state-history.jsonl', journal=self.journal)
+        self.state.on_change = self._observe_history
+        self.history.start(classify(self.state.history_observation()))
         self.coordinator = Coordinator(self)
         self.network_wakeup = threading.Event()
         self.network_monitor = NetworkMonitor(self.network_changed, self.stop)
@@ -133,11 +137,15 @@ class Supervisor:
     def snapshot(self):
         return self.state.snapshot()
 
+    def _observe_history(self):
+        self.history.observe(self.state.history_observation())
+
     def close(self):
         self.stop.set()
         for thread in (self.observer_thread, self.network_thread):
             if thread and thread is not threading.current_thread():
                 thread.join(timeout=10)
+        self.history.close()
         self.journal.close()
 
     def persist_intent(self, intent):
@@ -739,5 +747,6 @@ class Supervisor:
         self.observer_thread.start()
         while not self.stop.is_set():
             self.tick()
+            self.history.tick()
             self.network_wakeup.wait(5)
             self.network_wakeup.clear()

@@ -36,14 +36,25 @@ infer a working connection merely because two processes are running.
   and recorded as completed when the full response was delivered. Requests
   recorded before final-state reconciliation are kept in a separate **legacy**
   bucket because their outcome is unknown.
+- A **System states** area on Overview shows observed time in connected,
+  recovering, unreachable, host stopped (system down), no internet, intentionally
+  stopped, off (the tool was not running), and unknown states for the selected
+  time range. The local supervisor records transitions and periodic heartbeats
+  even while no browser is open. **State lanes** show exact state periods;
+  **Composition** shows the same period as a ring and sorted totals. Both use the
+  selected Overview range, and the area shows the current state plus coverage.
+  A gap with no supervisor heartbeat is labeled **Off** instead of pretending the
+  previous state continued. Time before the history began is left unobserved, not
+  invented.
 - A **Host** selector in the page header filters the overview totals, traffic
   chart, session table, and measurement browser by the remote host that carried
   the requests. “All hosts” merges retained session rows with the same OpenCode
   session ID while keeping each host's measurements available when selected.
   The selection is deep-linkable with `?host=<profile>`.
 - One **Time range** control above the Overview cards scopes upload reduction,
-  bandwidth saved, tracked sessions, model requests, upload traffic, and cache
-  reuse together. It defaults to **Last 30 days**, with 24-hour, 7-day, and
+  bandwidth saved, tracked sessions, model requests, upload traffic, cache
+  reuse, state lanes, and the composition ring together. It defaults to **Last
+  30 days**, with 24-hour, 7-day, and
   90-day presets, any custom number of **seconds, minutes, hours, or days**, or
   an absolute date range. Relative windows use exact boundaries against the
   latest snapshot (automatic refresh remains every ten seconds; pause freezes

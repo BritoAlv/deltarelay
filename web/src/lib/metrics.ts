@@ -25,6 +25,19 @@ export function duration(ms: number): string {
   return `${Math.floor(seconds / 60)}m\u00A0${seconds % 60}s`
 }
 
+/** Longer spans for uptime totals, where "152m 0s" is not readable. */
+export function span(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "—"
+  seconds = Math.max(0, Math.round(seconds))
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor(seconds % 86_400 / 3_600)
+  const minutes = Math.floor(seconds % 3_600 / 60)
+  if (days) return `${days}d ${hours}h`
+  if (hours) return `${hours}h ${minutes}m`
+  if (minutes) return `${minutes}m ${seconds % 60}s`
+  return `${seconds}s`
+}
+
 export function relativeTime(value: string, now = Date.now()): string {
   const seconds = Math.max(0, (now - Date.parse(value)) / 1000)
   if (!Number.isFinite(seconds)) return "—"

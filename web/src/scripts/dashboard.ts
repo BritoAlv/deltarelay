@@ -10,6 +10,7 @@ import { mountHealth } from "./features/health.js"
 import { mountOverviewRange } from "./features/overview-range.js"
 import { mountSessions } from "./features/sessions.js"
 import { mountStats } from "./features/stats.js"
+import { mountSystemStates } from "./features/system-states.js"
 import { mountTraffic } from "./features/traffic.js"
 
 export interface DashboardOptions {
@@ -40,10 +41,11 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const view = doc.defaultView ?? globalThis
   const statsRoot = doc.getElementById("stats-grid")
   const trafficRoot = doc.getElementById("traffic-panel")
+  const statesRoot = doc.getElementById("system-states")
   const sessionsRoot = doc.getElementById("sessions")
   const healthRoot = doc.getElementById("system")
-  if (!statsRoot && !trafficRoot && !sessionsRoot && !healthRoot) {
-    throw new Error("Dashboard page has no overview, traffic, sessions, or system section")
+  if (!statsRoot && !trafficRoot && !statesRoot && !sessionsRoot && !healthRoot) {
+    throw new Error("Dashboard page has no overview, traffic, system states, sessions, or system section")
   }
   const dialog = sessionsRoot ? requiredById<HTMLDialogElement>(doc, "session-dialog") : null
   const navCount = doc.getElementById("nav-session-count")
@@ -54,6 +56,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, host: initialHost }
   let generation = 0
   let destroyed = false
+  const systemStates = statesRoot ? mountSystemStates(statesRoot) : null
 
   function setHost(host: string): void {
     if (!hostScoped) return
@@ -67,7 +70,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const header = mountHeader({
     doc,
     refreshNote,
-    onRefresh: () => void refresh(),
+    onRefresh: () => { systemStates?.refresh(); void refresh() },
     onPauseToggle: () => togglePause(),
     onHostChange: setHost,
   })
@@ -110,6 +113,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
     const overview = state.snapshot && selectedRange ? overviewData(state.snapshot, selectedRange, state.host) : null
     stats?.render(state, overview)
     traffic?.render(state, overview)
+    systemStates?.render(state.snapshot ? selectedRange ?? null : null, state.paused)
     sessions?.render(state)
     health?.render(state)
     if (navCount) navCount.textContent = state.snapshot ? String(trackedSessionCount(state.snapshot, state.host)) : "—"
@@ -165,6 +169,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
       poller.stop()
       unsubscribe()
       traffic?.destroy()
+      systemStates?.destroy()
       range?.destroy()
     },
     get paused() { return state.paused },

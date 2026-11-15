@@ -7,6 +7,7 @@ endpoints were sampled. Dates and IDs are fixed so tests do not depend on clocks
 | --- | --- |
 | `dashboard-*.json` | Go dashboard/history/transfer serialization; TypeScript `isSnapshot` |
 | `supervisor-*.json`, `system-*.json` | Python supervisor snapshot; Go validation, enrichment, and serialization; TypeScript `isSystemStatus` and action routing |
+| `state-history-*.json` | Python supervisor aggregate producer; Go bounded validation/proxy decoding; TypeScript `isSystemHistory` |
 | `provider-*.json` | Python executable-provider response consumer and bundled-provider request consumer; published-schema field/enum/limit parity |
 | `fingerprints.json` | Byte-exact JSON and SHA-256 goldens, checked against actual persisted request claims |
 
@@ -42,6 +43,12 @@ Active contract distinctions:
   empty.
 - Only current supervisor status is accepted, with `remote`, independent internet
   probe fields, and version 2. Unsupported versions fail validation.
+- State history is version 1 with a fixed eight-state order, nonnegative integer
+  seconds, at most 2,000 buckets, contiguous bucket starts, at most 6,000 exact
+  intervals, and totals equal to the bucket sums. When `intervals_complete` is
+  true the intervals must also sum to the totals; when false they must only be a
+  subset. Missing aggregates, unknown state keys, or inconsistent totals are
+  rejected; unknown root fields are stripped at the Go boundary.
 - Counters are nonnegative integers. Encoded upload overhead can exceed raw body
   bytes; negative **calculated savings** are valid and remain separately tested.
 - The provider schema is not a runtime dependency. Tests extend the existing

@@ -93,8 +93,56 @@ export function makeSnapshot(now = Date.now()): Snapshot {
   }
 }
 
-export function makeOpenCodeSessions(now = Date.now()): OpenCodeSessions {
-  const titles = ["Relay dashboard measurement", "API refactor", "Test suite", "Docs update", "Cache worker", "Release check"]
+export interface FixtureHistory {
+  version: 1
+  tracking_since: string
+  generated_at: string
+  start: string
+  end: string
+  bucket_seconds: number
+  states: string[]
+  buckets: { start: string; seconds: Record<string, number> }[]
+  intervals: { start: string; end: string; state: string }[]
+  intervals_complete: boolean
+  totals: Record<string, number>
+  current: { state: string; since: string }
+  persistent: boolean
+  storage_error: boolean
+}
+
+// Test-only state-history response for a requested bounded window. The real
+// supervisor derives the same buckets and exact intervals from its transition log.
+export function makeSystemHistory(startSeconds: number, endSeconds: number, bucketSeconds: number, state = "connected"): FixtureHistory {
+  const states = ["connected", "recovering", "unreachable", "host_stopped", "no_internet", "stopped", "off", "unknown"]
+  const count = Math.ceil((endSeconds - startSeconds) / bucketSeconds)
+  const totals = Object.fromEntries(states.map((name) => [name, 0]))
+  const buckets = []
+  for (let index = 0; index < count; index++) {
+    const start = startSeconds + index * bucketSeconds
+    const seconds = Math.min(bucketSeconds, endSeconds - start)
+    const values = Object.fromEntries(states.map((name) => [name, name === state ? seconds : 0]))
+    totals[state] = (totals[state] ?? 0) + seconds
+    buckets.push({ start: new Date(start * 1000).toISOString(), seconds: values })
+  }
+  return {
+    version: 1,
+    tracking_since: new Date(startSeconds * 1000).toISOString(),
+    generated_at: new Date(endSeconds * 1000).toISOString(),
+    start: new Date(startSeconds * 1000).toISOString(),
+    end: new Date(endSeconds * 1000).toISOString(),
+    bucket_seconds: bucketSeconds,
+    states,
+    buckets,
+    intervals: [{ start: new Date(startSeconds * 1000).toISOString(), end: new Date(endSeconds * 1000).toISOString(), state }],
+    intervals_complete: true,
+    totals,
+    current: { state, since: new Date(startSeconds * 1000).toISOString() },
+    persistent: true,
+    storage_error: false,
+  }
+}
+
+export function makeOpenCodeSessions(now = Date.now()): OpenCodeSessions {  const titles = ["Relay dashboard measurement", "API refactor", "Test suite", "Docs update", "Cache worker", "Release check"]
   const sessions: OpenCodeSession[] = ["ses_7fd82a_relay-dashboard", "ses_a93f10_api-refactor", "ses_2c817d_test-suite", "ses_8b12e6_docs-update", "ses_4d903a_cache-worker", "ses_1e77b4_release-check"].map((id, index) => ({
     id,
     title: titles[index],

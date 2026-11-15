@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "tracking_since": "2026-11-01T00:00:00Z",
+  "generated_at": "2026-11-01T12:00:00Z",
+  "start": "2026-11-01T10:00:00Z",
+  "end": "2026-11-01T12:00:00Z",
+  "bucket_seconds": 3600,
+  "states": [
+    "connected",
+    "recovering",
+    "unreachable",
+    "host_stopped",
+    "no_internet",
+    "stopped",
+    "off",
+    "unknown"
+  ],
+  "buckets": [
+    {
+      "start": "2026-11-01T10:00:00Z",
+      "seconds": {
+        "connected": 3600,
+        "recovering": 0,
+        "unreachable": 0,
+        "host_stopped": 0,
+        "no_internet": 0,
+        "stopped": 0,
+        "off": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "start": "2026-11-01T11:00:00Z",
+      "seconds": {
+        "connected": 3000,
+        "recovering": 600,
+        "unreachable": 0,
+        "host_stopped": 0,
+        "no_internet": 0,
+        "stopped": 0,
+        "off": 0,
+        "unknown": 0
+      }
+    }
+  ],
+  "intervals": [
+    {
+      "start": "2026-11-01T10:00:00Z",
+      "end": "2026-11-01T11:00:00Z",
+      "state": "connected"
+    },
+    {
+      "start": "2026-11-01T11:00:00Z",
+      "end": "2026-11-01T11:10:00Z",
+      "state": "recovering"
+    },
+    {
+      "start": "2026-11-01T11:10:00Z",
+      "end": "2026-11-01T12:00:00Z",
+      "state": "connected"
+    }
+  ],
+  "intervals_complete": true,
+  "totals": {
+    "connected": 6600,
+    "recovering": 600,
+    "unreachable": 0,
+    "host_stopped": 0,
+    "no_internet": 0,
+    "stopped": 0,
+    "off": 0,
+    "unknown": 0
+  },
+  "current": {
+    "state": "connected",
+    "since": "2026-11-01T11:10:00Z"
+  },
+  "persistent": true,
+  "storage_error": false
+}

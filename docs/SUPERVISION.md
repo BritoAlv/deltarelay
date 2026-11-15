@@ -331,6 +331,17 @@ are invalid, the map reports the actual blocker instead of bypassing it.
 - The private, bounded supervisor journal remains at
   `<profile>/control/activity.jsonl` for offline diagnostics and the cursor-only
   `GET /api/system/journal` endpoint. The browser no longer renders it.
+- The supervisor also writes a private, bounded `state-history.jsonl` transition
+  log (mode 600, transitions plus periodic heartbeats, 8 MiB plus one backup;
+  transitions older than 90 days are pruned on startup).
+  `GET /api/system/history` exposes only a bounded aggregate — per-bucket seconds,
+  totals, exact transition intervals (at most 6,000), coverage, and the current
+  state — for the dashboard's **State lanes** and **Composition** charts. Its only
+  accepted inputs are integer `start`, `end`, and `bucket`
+  seconds; it rejects spans over 3,660 days and more than 2,000 buckets. It
+  contains no commands, paths, credentials, or probe output. A missing heartbeat
+  gap is recorded as **off**; a previously observed state is never extended
+  across a period when the supervisor was not running.
 - Stale supervisor status disables lifecycle actions and marks observed evidence
   stale. Manual refresh still works. An unavailable dashboard→supervisor edge
   does not make an otherwise reachable relay look healthy.

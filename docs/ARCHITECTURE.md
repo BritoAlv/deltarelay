@@ -44,7 +44,7 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
-| `deploy/supervision` | Importable Python configuration, component lifecycle contracts, sanitized topology, observable state, process ownership, probes, network-change hints, incremental recovery coordination, and control API. |
+| `deploy/supervision` | Importable Python configuration, component lifecycle contracts, sanitized topology, observable state, process ownership, probes, network-change hints, incremental recovery coordination, bounded local state history, and control API. |
 | `deploy/*.py`, `deploy/providers` | Supervisor launchers, provider plugins, remote recovery helpers, and provider contract checking. |
 | `integration/opencode` | OpenCode V2 plugin that routes selected providers through the local gateway without automatic retries. |
 | `web` | Static Astro dashboard, feature controllers, pure library helpers, and DOM-level browser tests. |
@@ -120,9 +120,10 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   counts, permissions, and full paths never cross that boundary. The catalog is
   optional and failure falls back to gateway-retained sessions.
 - `/api/system` and approved control POSTs go to the optional private supervisor
-  Unix socket. They do not depend on gateway availability. Controls remain
-  disabled when the supervisor is absent, stale, unmanaged, or does not support
-  the action.
+  Unix socket. They do not depend on gateway availability. `/api/system/history`
+  is a bounded read-only aggregate of the supervisor's local state timeline, not
+  a file proxy. Controls remain disabled when the supervisor is absent, stale,
+  unmanaged, or does not support the action.
 - Varro/VS Code attaches through the supervised loopback gate to the **same**
   shared OpenCode service Desktop/TUI use. The gate's `/livez` endpoint is a
   local token check only; backend checks run on `/healthz` and actual requests
@@ -190,6 +191,7 @@ no worker and no lock.
 | Supervisor status | Only current version 2 status with `remote` metadata and remote-host actions is accepted. Optional sanitized `topology` is contract version 1. |
 | Recovery run/topology | Bounded node/edge/action/readiness vocabulary, recovery checkpoints, network generation, and intent. Diagnostics only; never a command queue or relay contract. |
 | Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates and per-host attribution/totals. Optional `capture_id` links identify retained request evidence. |
+| System state history | Private supervisor transition log and a version 1 bounded aggregate response for the dashboard. Timestamps and fixed state names only; no command output or credentials. |
 | Request inspection | Optional and enabled by default. A gateway with an empty `--capture-dir` omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
 | Persisted state | Mailbox identity/records/frames, exclusive journal markers, client relay pin, download checkpoints, and cancellation outbox use their existing formats. No storage migration is planned. |
 | Launchers | `deploy/start_supervisor.py` launches `deploy/supervisor.py`; `deploy/supervision/build.py` owns offline builds. |

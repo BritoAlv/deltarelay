@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { addTotals, bytes, duration, emptyTotals, filterSessions, percentage, relativeTime, savings, sessionState } from "../src/lib/metrics.js"
+import { addTotals, bytes, duration, emptyTotals, filterSessions, percentage, relativeTime, savings, sessionState, span } from "../src/lib/metrics.js"
 import { makeOpenCodeSessions, makeSnapshot } from "./fixture.js"
 import { fetchOpenCodeSessions, fetchSnapshot, isOpenCodeSessions, isSnapshot } from "../src/lib/api.js"
 
@@ -15,6 +15,11 @@ test("savings include encoded overhead and retain negative reductions", () => {
   assert.equal(duration(1200), "1.2\u00A0s")
   assert.equal(duration(119999), "2m\u00A00s")
   assert.equal(duration(-1000), "0\u00A0ms")
+  assert.equal(span(59), "59s")
+  assert.equal(span(125), "2m 5s")
+  assert.equal(span(3_725), "1h 2m")
+  assert.equal(span(183_600), "2d 3h")
+  assert.equal(span(-1), "0s")
 })
 
 test("session filtering is case insensitive and active has priority", () => {

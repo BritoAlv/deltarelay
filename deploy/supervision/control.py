@@ -20,6 +20,7 @@ from activity import operation_id
 from remote_provider import ProviderError as ControlError, private_json
 
 from .contracts import Observation
+from .state_history import parse_query
 from .supervisor import Supervisor
 
 
@@ -88,6 +89,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply(200, supervisor.snapshot())
         elif self.path == '/setup':
             self.reply(200, self.server.supervisor.setup_status())
+        elif self.path.split('?', 1)[0] == '/history':
+            try:
+                parsed = urllib.parse.urlsplit(self.path)
+                start, end, bucket = parse_query(parsed.query)
+                self.reply(200, self.server.supervisor.history.query(start, end, bucket))
+            except ValueError:
+                self.reply(400, {'error': 'invalid_request'})
         elif self.path.split('?', 1)[0] == '/journal':
             try:
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True, strict_parsing=True)
