@@ -2,7 +2,6 @@ import { escapeHtml } from "../../lib/html.js"
 import { percentage, span } from "../../lib/metrics.js"
 import {
   fetchSystemHistory,
-  historyCoverage,
   historyStateLabels,
   historyStates,
   historyTrackedSeconds,
@@ -10,7 +9,7 @@ import {
   type SystemHistory,
   type SystemHistoryInterval,
 } from "../../lib/system-history.js"
-import { formatAxisLabel, formatDate, formatDateTime, type TrafficRange } from "../../lib/traffic.js"
+import { formatAxisLabel, formatDateTime, type TrafficRange } from "../../lib/traffic.js"
 import { requiredById } from "../dom.js"
 
 export interface SystemStatesFeature {
@@ -21,23 +20,8 @@ export interface SystemStatesFeature {
 
 const REFRESH_MS = 30_000
 
-const tone: Record<HistoryState, string> = {
-  connected: "good",
-  recovering: "neutral",
-  unreachable: "bad",
-  host_stopped: "warning",
-  no_internet: "warning",
-  stopped: "neutral",
-  off: "neutral",
-  unknown: "neutral",
-}
-
 function rangeKey(range: TrafficRange): string {
   return `${range.start}:${range.end}:${range.bucketMs}`
-}
-
-function stateTone(state: HistoryState): string {
-  return tone[state]
 }
 
 function percentageOf(value: number, total: number): string {
@@ -49,9 +33,6 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
   const ring = requiredById<HTMLElement>(root, "state-ring")
   const legend = requiredById<HTMLElement>(root, "state-legend")
   const notice = requiredById<HTMLElement>(root, "state-notice")
-  const coverage = requiredById<HTMLElement>(root, "state-coverage")
-  const currentPill = requiredById<HTMLElement>(root, "state-current-pill")
-  const currentSince = requiredById<HTMLElement>(root, "state-current-since")
   const lanesRange = requiredById<HTMLElement>(root, "state-lanes-range")
   const ringRange = requiredById<HTMLElement>(root, "state-ring-range")
   const ringTotal = requiredById<HTMLElement>(root, "state-ring-total")
@@ -80,11 +61,7 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
   function reset(message = "Waiting for supervisor history…"): void {
     resetLanes(message)
     resetRing("Waiting…")
-    coverage.textContent = "No data"
     ringTotal.textContent = "—"
-    currentPill.textContent = "Waiting…"
-    currentPill.className = "status-pill neutral"
-    currentSince.textContent = ""
   }
 
   function setRangeLabels(range: TrafficRange | null): void {
@@ -103,17 +80,6 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
     if (notice.textContent !== text) notice.textContent = text
   }
 
-  function updateCurrent(history: SystemHistory): void {
-    const state = history.current.state
-    currentPill.textContent = historyStateLabels[state]
-    currentPill.className = `status-pill ${stateTone(state)}`
-    const since = Date.parse(history.current.since)
-    const generated = Date.parse(history.generated_at)
-    currentSince.textContent = Number.isFinite(since) && Number.isFinite(generated) && generated >= since
-      ? `for ${span((generated - since) / 1000)}`
-      : ""
-  }
-
   function axisLabels(start: number, end: number): string[] {
     return [start, start + (end - start) / 2, end].map((at) => formatAxisLabel(at, end - start))
   }
@@ -124,7 +90,6 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
     const spanMs = Math.max(1, end - start)
     if (history.intervals.length === 0) {
       resetLanes("No tracked time in this range.")
-      coverage.textContent = "No tracked time"
       return
     }
     const rows: string[] = []
@@ -144,15 +109,13 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
         const width = (to - from) / spanMs * 100
         return `<i class="state-lane-segment state-${state}" title="${escapeHtml(`${formatDateTime(from)} → ${formatDateTime(to)} · ${historyStateLabels[state]}: ${span((to - from) / 1000)}`)}" style="left:${left.toFixed(3)}%;width:${Math.max(width, .12).toFixed(3)}%"></i>`
       }).join("")
-      rows.push(`<span class="state-lane-label"><i class="state-dot" aria-hidden="true"></i>${escapeHtml(historyStateLabels[state])}</span><span class="state-lane-track">${segments}</span>`)
+      rows.push(`<span class="state-lane-label state-${state}"><i class="state-dot" aria-hidden="true"></i>${escapeHtml(historyStateLabels[state])}</span><span class="state-lane-track">${segments}</span>`)
     }
     const labels = axisLabels(start, end)
     lanes.innerHTML = `<div class="state-lanes-grid">${rows.join("")}<span class="state-lane-axis"><span>${escapeHtml(labels[0]!)}</span><span>${escapeHtml(labels[1]!)}</span><span>${escapeHtml(labels[2]!)}</span></span></div>`
     const summary = historyStates.filter((state) => history.totals[state] > 0)
       .map((state) => `${historyStateLabels[state]} ${span(history.totals[state])}`).join(", ")
     lanes.setAttribute("aria-label", `${currentRange?.label ?? "Selected period"}: ${summary || "no tracked time"}. Exact state transitions.`)
-    const observed = historyCoverage(history)
-    coverage.textContent = `${observed === null ? "Coverage unknown" : `${percentage(observed)} observed`} · tracking since ${formatDate(Date.parse(history.tracking_since))}`
   }
 
   function renderRing(history: SystemHistory): void {
@@ -191,16 +154,11 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
       if (error) {
         resetLanes(error)
         resetRing("Unavailable")
-        coverage.textContent = "Unavailable"
         ringTotal.textContent = "—"
-        currentPill.textContent = "Unavailable"
-        currentPill.className = "status-pill neutral"
-        currentSince.textContent = ""
       }
       updateNotice(null)
       return
     }
-    updateCurrent(data)
     renderLanes(data)
     renderRing(data)
     updateNotice(data)
@@ -259,11 +217,7 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
     if (dataKey !== currentKey) {
       resetLanes(paused ? "Refresh paused" : "Loading state history…")
       resetRing(paused ? "Paused" : "Loading…")
-      coverage.textContent = paused ? "Paused" : "Loading…"
       ringTotal.textContent = paused ? "Paused" : "Loading…"
-      currentPill.textContent = paused ? "Paused" : "Loading…"
-      currentPill.className = "status-pill neutral"
-      currentSince.textContent = ""
     }
     renderData()
   }

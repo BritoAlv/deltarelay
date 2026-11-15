@@ -116,9 +116,6 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
 
   function updateNotice(data: TrafficData): void {
     const messages: string[] = []
-    if (data.truncated && data.coverageStart !== null) {
-      messages.push(`Recorded traffic starts ${dataValue(formatDate(data.coverageStart))}; this range has partial coverage.`)
-    }
     if (data.incomplete) messages.push("Older history discarded some request timestamps. Exact-range totals include retained requests only.")
     if (data.totals.requests === 0) messages.push("No finished requests in this range. Widen the range or wait for new traffic.")
     const text = messages.join(" ")

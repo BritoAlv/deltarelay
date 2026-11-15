@@ -1,26 +1,15 @@
----
-import Icon from "./Icon.astro"
----
 <section id="system-states" class="state-overview" aria-label="System states">
   <article class="panel state-lanes-panel" aria-labelledby="state-lanes-title">
-    <div class="panel-heading state-heading">
+    <div class="panel-heading">
       <div>
         <h2 id="state-lanes-title">State lanes</h2>
         <p>Exact state changes in <span id="state-lanes-range">the selected period</span></p>
-      </div>
-      <div class="state-current">
-        <span class="status-pill neutral" id="state-current-pill">Waiting…</span>
-        <span id="state-current-since"></span>
       </div>
     </div>
     <div id="state-lanes" class="state-lanes" role="img" aria-label="State lane timeline awaiting supervisor history">
       <div class="chart-placeholder">Waiting for supervisor history…</div>
     </div>
     <div id="state-notice" class="chart-notice" role="status" hidden></div>
-    <div class="panel-bottom">
-      <span><Icon name="info" size={14} /> Recorded by the local supervisor · exact transitions</span>
-      <span id="state-coverage">No data</span>
-    </div>
   </article>
 
   <article class="panel state-ring-panel" aria-labelledby="state-ring-title">

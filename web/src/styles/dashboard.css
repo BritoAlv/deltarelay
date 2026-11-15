@@ -1375,17 +1375,6 @@
   }
   .state-lanes-panel,
   .state-ring-panel { min-width: 0; }
-  .state-heading { align-items: flex-start; }
-  .state-current {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-    min-width: 0;
-    color: var(--subtle);
-    font-size: 10.5px;
-    font-variant-numeric: tabular-nums;
-  }
   .state-lanes { margin: 14px 20px 0; min-height: 150px; }
   .state-lanes-grid {
     display: grid;
@@ -1405,6 +1394,12 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
+  .state-lane-label.state-connected { color: var(--success); }
+  .state-lane-label.state-recovering { color: var(--accent); }
+  .state-lane-label.state-unreachable { color: var(--danger); }
+  .state-lane-label.state-host_stopped { color: var(--warning); }
+  .state-lane-label.state-no_internet { color: var(--chart-original); }
+  .state-lane-label.state-stopped { color: var(--chart-reuse); }
   .state-lane-track {
     position: relative;
     height: 16px;
@@ -1429,7 +1424,7 @@
     font-variant-ligatures: none;
     font-variant-numeric: tabular-nums;
   }
-  .state-lanes-panel .panel-bottom { margin-top: 10px; }
+  .state-lanes-panel { padding-bottom: 16px; }
   .state-lanes-panel .chart-notice { margin-inline: 20px; }
   .state-ring-panel {
     display: flex;
@@ -2490,8 +2485,6 @@
   }
 
   @media (max-width: 760px) {
-    .state-heading { flex-direction: column; gap: 8px; }
-    .state-current { align-items: flex-start; }
     .state-lanes { margin-inline: 14px; }
     .state-lanes-panel .chart-notice { margin-inline: 14px; }
     .state-ring { width: 186px; }
@@ -2502,6 +2495,32 @@
     .state-ring-layout { grid-template-columns: 1fr; justify-items: center; }
     .state-ring { width: 186px; }
     .state-legend { width: 100%; }
+  }
+
+  /* ----------------------------------------------------------- full width -- */
+
+  /* Full-width traffic and state lanes, with cache reuse and composition
+     sharing the last row (cache reuse keeps most of the width). */
+  @media (min-width: 1181px) {
+    #overview {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    #overview > .overview-grid,
+    #overview > .state-overview { display: contents; }
+    #overview > .overview-range { margin: 20px 0 0; }
+    #overview > .stats-grid { margin: 0; }
+    #overview > .stats-note { margin: 0; }
+    #overview > .overview-range,
+    #overview > .stats-grid,
+    #overview > .stats-note,
+    .overview-grid > .traffic-panel,
+    .state-overview > .state-lanes-panel { grid-column: 1 / -1; }
+    .state-overview > .state-lanes-panel { order: 1; }
+    .overview-grid > .efficiency-panel { order: 2; }
+    .state-overview > .state-ring-panel { order: 3; }
   }
 
   /* ---------------------------------------------------- narrow containers -- */
