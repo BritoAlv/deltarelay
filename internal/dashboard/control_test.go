@@ -267,6 +267,7 @@ func TestOAuthExpiryMetadataNeverLeaksSecretsOrRefreshes(t *testing.T) {
 			if value.Auth.ExpiresAt != nil && value.Auth.ExpiresAt.UnixMilli() != expires {
 				t.Fatal("expiry units changed")
 			}
+			waitForUsageRefresh(t, h)
 			before := calls.Load()
 			_ = h.authStatus(context.Background())
 			if calls.Load() != before {

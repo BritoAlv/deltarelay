@@ -51,43 +51,48 @@ type usageLimitsPayload struct {
 	} `json:"data"`
 }
 
-// goAllowance returns the cached Go allowance. A missing subscription or a
-// profile that is not signed in returns nil rather than an error so the card
-// can stay neutral.
+// goAllowance returns immediately with the cached allowance, refreshing expired
+// observations in the background. Usage service latency must never delay system
+// status, including concurrent requests while a refresh is already in flight.
 func (h *Handler) goAllowance(ctx context.Context) *GoAllowance {
 	if h.config.OpenCodeServiceFile == "" {
 		return nil
 	}
 	h.usageMu.Lock()
 	defer h.usageMu.Unlock()
-	if time.Now().Before(h.usageNext) {
-		if h.usageCache == nil {
-			return nil
-		}
-		cached := *h.usageCache
-		cached.Stale = h.usageErr != nil
-		return &cached
+	expired := !time.Now().Before(h.usageNext)
+	if expired && !h.usageRefreshing {
+		h.usageRefreshing = true
+		go h.refreshGoAllowance(context.WithoutCancel(ctx))
 	}
+	if h.usageCache == nil {
+		return nil
+	}
+	cached := *h.usageCache
+	cached.Stale = expired || h.usageErr != nil
+	return &cached
+}
+
+func (h *Handler) refreshGoAllowance(ctx context.Context) {
 	usage, err := h.readGoAllowance(ctx)
+	h.usageMu.Lock()
+	defer h.usageMu.Unlock()
+	h.usageRefreshing = false
 	h.usageNext = time.Now().Add(goUsageCacheTTL)
 	if err != nil {
 		h.usageErr = err
-		if h.usageCache != nil {
-			cached := *h.usageCache
-			cached.Stale = true
-			return &cached
+		if h.usageCache == nil {
+			log.Printf("dashboard Go usage unavailable: %v (credentials and response bodies omitted)", err)
 		}
-		log.Printf("dashboard Go usage unavailable: %v (credentials and response bodies omitted)", err)
-		return nil
+		return
 	}
 	h.usageErr = nil
 	if usage == nil {
 		h.usageCache = nil
-		return nil
+		return
 	}
 	usage.CheckedAt, usage.Stale = time.Now().UTC(), false
 	h.usageCache = usage
-	return usage
 }
 
 func (h *Handler) readGoAllowance(ctx context.Context) (*GoAllowance, error) {
