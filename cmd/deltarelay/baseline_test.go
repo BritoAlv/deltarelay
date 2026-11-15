@@ -56,13 +56,13 @@ func TestCLIBaselineDefaults(t *testing.T) {
 		defaults map[string]string
 	}{
 		{[]string{"serve"}, map[string]string{
-			"listen": `"127.0.0.1:8787"`, "data": `"./data"`, "concurrency": "8", "max-body-bytes": "268435456",
+			"listen": `"127.0.0.1:8787"`, "data": `"./data"`, "concurrency": "16", "max-body-bytes": "268435456",
 			"max-cache-bytes": "10737418240", "max-journal-records": "100000", "header-timeout": "5m0s", "idle-timeout": "15m0s",
 			"response-retention": "24h0m0s", "max-response-bytes": "268435456", "max-response-storage-bytes": "4294967296", "max-runtime": "2h0m0s",
 			"token-file": "", "upstreams": "", "allow-private-upstreams": "",
 		}},
 		{[]string{"gateway"}, map[string]string{
-			"listen": `"127.0.0.1:8788"`, "server": `"http://127.0.0.1:8787"`, "workers": "4", "batch-bytes": "262144", "concurrency": "8",
+			"listen": `"127.0.0.1:8788"`, "server": `"http://127.0.0.1:8787"`, "workers": "4", "batch-bytes": "262144", "concurrency": "16",
 			"max-body-bytes": "268435456", "max-upload-bytes": "-1", "request-timeout": "", "header-timeout": "2m0s", "stats-file": `".runtime/dashboard-stats.json"`,
 			"capture-dir": `".runtime/dashboard-captures"`, "capture-max-bytes": "", "capture-max-request-bytes": "", "capture-max-requests": "", "capture-max-age": "",
 		}},

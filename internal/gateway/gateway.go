@@ -26,7 +26,7 @@ import (
 
 // DefaultMaxConcurrent is the gateway's default provider-request admission
 // limit. The CLI registers its flag from this value.
-const DefaultMaxConcurrent = 8
+const DefaultMaxConcurrent = 16
 
 // statusClientClosedRequest records a client that stopped reading the response.
 // The relay remains the source of truth for whether generation had completed.

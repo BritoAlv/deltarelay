@@ -29,7 +29,7 @@ import (
 // Defaults are owned by the server because they define its execution limits.
 // The CLI and constructor normalization share these values.
 const (
-	DefaultMaxConcurrent     = 8
+	DefaultMaxConcurrent     = 16
 	DefaultHeaderTimeout     = 5 * time.Minute
 	DefaultIdleTimeout       = 15 * time.Minute
 	DefaultMaxJournalRecords = 100000
