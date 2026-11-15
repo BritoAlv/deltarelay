@@ -23,8 +23,10 @@ infer a working connection merely because two processes are running.
   **Settings** tabs. It shows the request paths Desktop/TUI → OpenCode server →
   plugin → gateway → transport → relay → provider, and VS Code/Varro → Varro
   health gate → the same shared OpenCode server, plus the separate
-  dashboard/supervisor control plane. Component cards expose evidence and
-  configured lifecycle actions; the architecture map highlights connections when
+  dashboard/supervisor control plane. The component table shows type, description,
+  status, lifecycle, location and configured actions, with search and per-column
+  filters like Sessions. On narrow screens it scrolls horizontally with component
+  names pinned, rather than stacking each item. The architecture map highlights connections when
   you select a node. The current automatic recovery step is highlighted in the
   Controls view.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and

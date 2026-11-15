@@ -55,6 +55,13 @@ function openColumnFilter(doc: Document, key: string): HTMLElement {
   return popover
 }
 
+function openComponentFilter(doc: Document, key: string): HTMLElement {
+  doc.querySelector<HTMLButtonElement>(`#component-table-scroll button[data-filter-key="${key}"]`)!.click()
+  const popover = doc.querySelector<HTMLElement>("#component-filter-popover")!
+  assert.equal(popover.hidden, false)
+  return popover
+}
+
 function ascending(values: number[]): boolean {
   return values.every((value, index) => index === 0 || values[index - 1]! <= value)
 }
@@ -157,7 +164,7 @@ test("controls keep primary actions separate and architecture details always exp
   await page.close()
 })
 
-test("polling updates card details without opening the architecture or moving its camera", async () => {
+test("polling updates component details without opening the architecture or moving its camera", async () => {
   const page = openPage("controls")
   page.setFetch(() => json(systemStatus()))
   const status = startSystemStatus(page.document, { autoStart: false })
@@ -180,134 +187,159 @@ test("polling updates card details without opening the architecture or moving it
   await page.close()
 })
 
-test("all operational components use the same cards, with filtering and stable action menus", async () => {
+test("all operational components use single table rows with descriptions and inline actions", async () => {
   const page = openPage("controls")
   page.setFetch(() => json(systemStatus()))
   const app = startSystemStatus(page.document, { autoStart: false })
   await app.refresh()
   const doc = page.document
-  const cards = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
-  assert.equal(cards.length, 11)
-  for (const id of ["dashboard", "supervisor", "remote_provider"]) {
-    const card = doc.querySelector<HTMLElement>(`[data-component-id="${id}"]`)!
-    assert.equal(card.parentElement?.className, "resource-grid")
-    assert.equal(card.hidden, false)
-    assert.equal(card.closest("details"), null)
+  const rows = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
+  assert.equal(rows.length, 11)
+  assert.equal(doc.querySelector(".resource-grid, .resource-card, .component-columns, [data-component-group], [data-component-more], .component-action-menu"), null)
+  assert.deepEqual([...doc.querySelectorAll("#component-table-scroll th")].map((th) => th.textContent?.trim()), ["Component", "Type", "Description", "Status", "Lifecycle", "Location", "Actions"])
+  for (const row of rows) {
+    assert.equal(row.tagName, "TR")
+    assert.equal(row.parentElement?.id, "component-rows")
+    assert.equal(row.children.length, 7)
+    assert.equal(row.hidden, false)
+    const description = row.querySelector<HTMLElement>("[data-component-description]")!
+    assert.ok(description.textContent)
+    assert.equal(description.title, description.textContent)
+    assert.equal(row.querySelector<HTMLButtonElement>("[data-component-detail]")?.tagName, "BUTTON", "the component name opens details")
   }
   const filter = doc.querySelector<HTMLInputElement>("#component-filter")!
   filter.value = "background"
   page.fire(filter, "input")
-  assert.equal(cards.filter((card) => !card.hidden).length, 3)
-  assert.deepEqual([...doc.querySelectorAll<HTMLElement>("[data-component-group]")].filter((group) => !group.hidden).map((group) => group.dataset.componentGroup), ["Background services"])
-  assert.equal(doc.querySelector('[data-component-group="Background services"] [data-group-count]')?.textContent, "03")
+  assert.equal(rows.filter((row) => !row.hidden).length, 3)
   await app.refresh()
-  assert.equal(cards.filter((card) => !card.hidden).length, 3, "polling preserves the filter")
+  assert.equal(rows.filter((row) => !row.hidden).length, 3, "polling preserves the filter")
   filter.value = "no such component"
   page.fire(filter, "input")
   assert.equal(doc.querySelector<HTMLElement>("#component-empty")!.hidden, false)
-  assert.ok([...doc.querySelectorAll<HTMLElement>("[data-component-group]")].every((group) => group.hidden))
+  assert.equal(doc.querySelector<HTMLElement>("#component-table-scroll")!.hidden, false, "column filters remain reachable with no matches")
   filter.value = ""
   page.fire(filter, "input")
-  const menu = doc.querySelector<HTMLDetailsElement>('[data-component-id="gateway"] .resource-more')!
-  menu.open = true
-  const action = menu.querySelector('[data-component-action="restart"]')
-  assert.ok(action)
+  const gatewayActions = doc.querySelector<HTMLElement>('[data-component-id="gateway"] [data-component-actions]')!
+  assert.deepEqual([...gatewayActions.querySelectorAll<HTMLButtonElement>("[data-component-action]")].map((button) => button.dataset.componentAction), ["recover", "start", "restart"])
+  assert.equal(gatewayActions.querySelector('[data-component-action="restart"]')!.closest("[data-component-id]")?.getAttribute("data-component-id"), "gateway")
+  const action = gatewayActions.querySelector<HTMLButtonElement>('[data-component-action="restart"]')!
+  action.focus()
   await app.refresh()
-  assert.equal(menu.open, true)
-  assert.equal(menu.querySelector('[data-component-action="restart"]'), action, "polling does not replace unchanged actions")
-  page.fire(doc.querySelector(".resource-heading")!, "click")
-  assert.equal(menu.open, false)
+  assert.equal(gatewayActions.querySelector('[data-component-action="restart"]'), action, "polling does not replace unchanged actions")
+  assert.equal(doc.activeElement, action)
+  assert.equal(doc.querySelector('[data-component-id="supervisor"] [data-component-actions]')?.textContent, "No advertised actions")
+  assert.equal(doc.querySelector('[data-component-id="vscode"] [data-component-actions]')?.textContent, "Open not configured")
+  assert.doesNotMatch(doc.body.textContent ?? "", /Managed by startup\.sh|Host actions in More actions/)
+  doc.querySelector<HTMLButtonElement>('[data-component-detail="gateway"]')!.click()
+  assert.equal(doc.querySelector<HTMLDialogElement>("#node-inspector")!.open, true)
+  assert.match(doc.querySelector("#node-inspector-title")?.textContent ?? "", /gateway/i)
   assert.equal(doc.querySelector("#node-inspector [data-component-action]"), null, "diagnostic dialog is read-only")
   assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
   app.destroy()
+  assert.equal(doc.querySelector("body > #component-filter-popover"), null, "destroy removes portaled UI and listeners")
   await page.close()
 })
 
-test("component inventory filters by category and sorts inside each group", async () => {
+test("component column filters combine with search and sort the entire table", async () => {
   const page = openPage("controls")
   page.setFetch(() => json(systemStatus()))
   const app = startSystemStatus(page.document, { autoStart: false })
   await app.refresh()
   const doc = page.document
-  const cards = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
-  const groupHeaders = [...doc.querySelectorAll<HTMLElement>("[data-component-group]")]
-  const chips = [...doc.querySelectorAll<HTMLButtonElement>("#component-category-chips [data-component-category]")]
+  const rows = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
   const filter = doc.querySelector<HTMLInputElement>("#component-filter")!
   const sortSelect = doc.querySelector<HTMLSelectElement>("#component-sort")!
   const total = doc.querySelector("#component-count")!
   const summary = doc.querySelector("#component-summary")!
-  const labelsByGroup = () => groupHeaders.map((group) => {
-    const labels: string[] = []
-    let node = group.nextElementSibling
-    while (node && !node.matches("[data-component-group]")) {
-      if (node.matches("[data-component-id]")) labels.push(node.querySelector("[data-component-label]")?.textContent ?? "")
-      node = node.nextElementSibling
-    }
-    return labels
-  })
-  const defaultLabels = labelsByGroup()
-
-  assert.equal(chips.length, 4)
-  assert.deepEqual(chips.map((chip) => chip.dataset.componentCategory), ["all", "Applications", "Connection", "Background services"])
-  assert.equal(chips[0]!.getAttribute("aria-pressed"), "true")
-  chips[0]!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event)
-  assert.equal(doc.activeElement, chips[1], "category chips support arrow-key navigation")
-
-  const applications = chips.find((chip) => chip.dataset.componentCategory === "Applications")!
-  applications.click()
-  assert.equal(applications.getAttribute("aria-pressed"), "true")
-  assert.equal(cards.filter((card) => !card.hidden).length, 3)
-  assert.deepEqual(groupHeaders.filter((group) => !group.hidden).map((group) => group.dataset.componentGroup), ["Applications"])
-  assert.equal(groupHeaders.find((group) => group.dataset.componentGroup === "Applications")?.querySelector("[data-group-count]")?.textContent, "03")
+  const labels = () => [...doc.querySelectorAll("#component-rows [data-component-label]")].map((element) => element.textContent ?? "")
+  const defaultLabels = labels()
+  const popover = openComponentFilter(doc, "type")
+  assert.deepEqual([...popover.querySelectorAll<HTMLInputElement>("input")].map((input) => input.value), ["", "Applications", "Connections", "Background services"])
+  const applications = popover.querySelector<HTMLInputElement>('input[value="Applications"]')!
+  applications.checked = true
+  page.fire(applications, "change")
+  assert.equal(rows.filter((row) => !row.hidden).length, 3)
+  assert.equal(doc.querySelector('button[data-filter-key="type"]')?.getAttribute("data-active"), "true")
   assert.equal(total.textContent, "3")
-  assert.match(summary.textContent ?? "", /3 of 11 components in Applications · default order/)
+  assert.match(summary.textContent ?? "", /3 of 11 components · 1 filter active · default order/)
+  assert.equal(new URL(page.window.location.href).searchParams.get("type"), "Applications")
 
   filter.value = "OpenCode"
   page.fire(filter, "input")
-  assert.equal(cards.filter((card) => !card.hidden).length, 2, "category and search filters combine")
+  assert.equal(rows.filter((row) => !row.hidden).length, 3, "type and search filters combine across names and descriptions")
   filter.value = "remote-host"
   page.fire(filter, "input")
-  assert.equal(cards.filter((card) => !card.hidden).length, 0)
+  assert.equal(rows.filter((row) => !row.hidden).length, 0)
   assert.equal(doc.querySelector<HTMLElement>("#component-empty")!.hidden, false)
-  assert.ok(groupHeaders.every((group) => group.hidden))
-
-  filter.value = ""
-  page.fire(filter, "input")
-  const connection = chips.find((chip) => chip.dataset.componentCategory === "Connection")!
-  connection.click()
-  assert.equal(cards.filter((card) => !card.hidden).length, 5)
-  assert.match(summary.textContent ?? "", /5 of 11 components in Connection/)
-  chips[0]!.click()
-  assert.equal(cards.filter((card) => !card.hidden).length, 11)
+  doc.querySelector<HTMLButtonElement>("#clear-component-filters-empty")!.click()
+  assert.equal(rows.filter((row) => !row.hidden).length, 11)
+  assert.equal(filter.value, "")
+  assert.equal(new URL(page.window.location.href).searchParams.has("type"), false)
 
   const componentHeader = doc.querySelector<HTMLElement>('th[data-sort-key="component"]')!
   const componentButton = componentHeader.querySelector<HTMLButtonElement>("button")!
   componentButton.click()
   assert.equal(componentHeader.getAttribute("aria-sort"), "ascending")
   assert.equal(sortSelect.value, "component")
-  const ascendingLabels = labelsByGroup()
-  ascendingLabels.forEach((labels, index) => assert.deepEqual(labels, [...defaultLabels[index]!].sort((a, b) => a.localeCompare(b))))
-  assert.deepEqual(groupHeaders.map((group) => group.dataset.componentGroup), ["Applications", "Connection", "Background services"], "groups stay in their original order")
-  assert.equal(groupHeaders[0]?.querySelector("[data-group-count]")?.textContent, "03")
+  assert.deepEqual(labels(), [...defaultLabels].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })))
 
   componentButton.click()
   assert.equal(componentHeader.getAttribute("aria-sort"), "descending")
-  labelsByGroup().forEach((labels, index) => assert.deepEqual(labels, [...defaultLabels[index]!].sort((a, b) => b.localeCompare(a))))
+  assert.deepEqual(labels(), [...defaultLabels].sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" })))
 
   const lifecycleHeader = doc.querySelector<HTMLElement>('th[data-sort-key="lifecycle"]')!
   lifecycleHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(lifecycleHeader.getAttribute("aria-sort"), "ascending")
   assert.equal(componentHeader.getAttribute("aria-sort"), "none")
   assert.equal(sortSelect.value, "lifecycle")
-  for (const group of groupHeaders) {
-    const values: string[] = []
-    let node = group.nextElementSibling
-    while (node && !node.matches("[data-component-group]")) {
-      if (node.matches("[data-component-id]")) values.push(node.querySelector("[data-component-lifecycle]")?.textContent ?? "")
-      node = node.nextElementSibling
-    }
-    assert.ok(values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) <= 0), "lifecycle sorting stays inside each group")
-  }
+  const values = [...doc.querySelectorAll("#component-rows [data-component-lifecycle]")].map((cell) => cell.textContent ?? "")
+  assert.ok(values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) <= 0), "lifecycle sorting spans the whole table")
+  sortSelect.value = "default"
+  page.fire(sortSelect, "change")
+  assert.deepEqual(labels(), defaultLabels)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#component-sort-direction")!.disabled, true)
+  app.destroy()
+  await page.close()
+})
+
+test("component filters restore from URLs, expose description text, and close with keyboard and scroll", async () => {
+  const page = openPage("controls")
+  page.window.history.replaceState(null, "", "/controls?type=Connections&location=Remote+host&sort=component&dir=desc")
+  page.setFetch(() => json(systemStatus()))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  const visible = () => [...doc.querySelectorAll<HTMLElement>("#component-rows tr")].filter((row) => !row.hidden)
+  assert.equal(visible().length, 2)
+  assert.equal(doc.querySelector('th[data-sort-key="component"]')?.getAttribute("aria-sort"), "descending")
+  const popover = openComponentFilter(doc, "description")
+  const description = popover.querySelector<HTMLInputElement>("input")!
+  description.value = "persistent cache"
+  page.fire(description, "input")
+  assert.equal(visible().length, 1)
+  assert.equal(visible()[0]!.dataset.componentId, "relay")
+  await app.refresh()
+  assert.equal(doc.activeElement, description, "polling preserves text-filter focus")
+  assert.equal(description.value, "persistent cache")
+  description.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }) as unknown as Event)
+  assert.equal(popover.hidden, true)
+  assert.equal(doc.activeElement, doc.querySelector('button[data-filter-key="description"]'))
+  openComponentFilter(doc, "description")
+  page.fire(doc.querySelector("#component-table-scroll")!, "scroll")
+  assert.equal(popover.hidden, true)
+  doc.querySelector<HTMLButtonElement>("#clear-component-filters")!.click()
+  assert.equal(visible().length, 11)
+  openComponentFilter(doc, "lifecycle").querySelector<HTMLInputElement>('input[value="Running"]')!.click()
+  assert.ok(visible().every((row) => row.querySelector("[data-component-lifecycle]")?.textContent === "Running"))
+  doc.querySelector<HTMLButtonElement>("#clear-component-filter")!.click()
+  assert.equal(visible().length, 11)
+  openComponentFilter(doc, "status").querySelector<HTMLInputElement>('input[value="Ready"]')!.click()
+  assert.ok(visible().every((row) => row.querySelector("[data-component-status]")?.textContent === "Ready"))
+  doc.querySelector<HTMLButtonElement>("#clear-component-filters")!.click()
+  const row = doc.querySelector('[data-component-id="vscode"]')!
+  row.querySelector<HTMLButtonElement>("[data-component-detail]")!.click()
+  assert.equal(doc.querySelector("#node-inspector-description")?.textContent, row.querySelector("[data-component-description]")?.textContent)
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
   app.destroy()
   await page.close()
 })
@@ -2047,7 +2079,7 @@ test("transport boundary switches between a tunnel process and a direct HTTPS pa
   await page.close()
 })
 
-test("controls show component cards separately from the read-only map and poll only the supervisor", async () => {
+test("controls show the component table separately from the read-only map and poll only the supervisor", async () => {
   const page = openPage("controls")
   const status = systemStatus()
   page.setFetch((url) => {
@@ -2074,10 +2106,10 @@ test("controls show component cards separately from the read-only map and poll o
   assert.ok(doc.querySelector('[data-component-id="dashboard"]'))
   assert.ok(doc.querySelector('[data-component-id="gate"]'), "gate lifecycle controls are present")
   const editor = doc.querySelector<HTMLElement>('[data-component-id="vscode"]')!
-  assert.equal(editor.querySelector(".resource-category")?.textContent, "Applications")
+  assert.equal(editor.querySelector("[data-component-type]")?.textContent, "Applications")
   assert.equal(editor.querySelector("[data-component-status]")?.textContent, "Not observed")
   assert.equal(editor.querySelector("[data-component-lifecycle]")?.textContent, "Unmanaged")
-  assert.equal(editor.querySelector("[data-primary-action]")?.textContent, "Open not configured")
+  assert.equal(editor.querySelector("[data-component-actions]")?.textContent, "Open not configured")
   assert.equal(editor.querySelectorAll("[data-component-action]").length, 0, "the user-launched editor has no start, restart or stop controls")
   doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
   assert.equal(doc.querySelector<HTMLElement>("#system-controls-view")!.hidden, true)

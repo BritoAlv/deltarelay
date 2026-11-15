@@ -1,0 +1,78 @@
+---
+import Icon from "./Icon.astro"
+import { controlComponents } from "../lib/component-controls"
+import { mapNodes } from "../lib/topology-layout"
+
+const columns = [
+  { key: "component", label: "Component" },
+  { key: "type", label: "Type" },
+  { key: "description", label: "Description" },
+  { key: "status", label: "Status" },
+  { key: "lifecycle", label: "Lifecycle" },
+  { key: "location", label: "Location" },
+] as const
+---
+<article class="panel data-panel components-panel" aria-labelledby="components-title">
+  <div class="table-toolbar">
+    <h3 id="components-title">Components</h3>
+    <div class="search-field">
+      <Icon name="search" size={17} />
+      <label class="sr-only" for="component-filter">Search components</label>
+      <input id="component-filter" type="search" placeholder="Search components…" autocomplete="off" spellcheck="false" />
+    </div>
+    <button class="text-button clear-filters-button" id="clear-component-filters" type="button" hidden><Icon name="close" size={13} />Clear filters</button>
+    <span class="count-badge" id="component-count" aria-hidden="true">{controlComponents.length}</span>
+    <div class="compact-sort" id="component-sort-controls">
+      <label class="compact-sort-field"><span>Sort</span><select id="component-sort" aria-label="Sort components by">
+        <option value="default">Default</option>
+        {columns.map((column) => <option value={column.key}>{column.label}</option>)}
+      </select></label>
+      <button class="compact-sort-direction" id="component-sort-direction" type="button" aria-label="Sort direction unavailable in default order" title="Choose a column to sort" disabled><Icon name="chevron" size={12} /></button>
+    </div>
+  </div>
+  <div class="table-scroll" id="component-table-scroll" role="region" aria-label="Component controls, scroll horizontally for more columns" tabindex="0">
+    <table>
+      <caption class="sr-only">Components with type, description, observed status, lifecycle, location and available actions. Sort and filter from the column headers. The table scrolls horizontally on narrow screens; component names stay visible.</caption>
+      <colgroup>
+        <col class="component-name-column" /><col class="component-type-column" /><col class="component-description-column" /><col class="component-status-column" /><col class="component-lifecycle-column" /><col class="component-location-column" /><col class="component-actions-column" />
+      </colgroup>
+      <thead>
+        <tr>
+          {columns.map((column) => <th scope="col" data-sort-key={column.key} aria-sort="none">
+            <div class="th-tools">
+              <button class="table-sort" type="button" data-sort-key={column.key} aria-label={`Sort by ${column.key}`}><span>{column.label}</span><span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span></button>
+              <button class="column-filter" type="button" data-filter-key={column.key} aria-label={`Filter by ${column.key}`} aria-haspopup="dialog" aria-expanded="false" aria-controls="component-filter-popover" title={`Filter by ${column.key}`}><Icon name="filter" size={11} /></button>
+            </div>
+          </th>)}
+          <th scope="col">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="component-rows">
+        {controlComponents.map((component) => {
+          const node = mapNodes.find((candidate) => candidate.id === component.id)!
+          return <tr data-component-id={component.id}>
+            <td><button type="button" class="component-name" data-component-detail={component.id} aria-label={`Details for ${node.label}`}><span class="component-icon"><Icon name={node.icon} size={16} /></span><span data-component-label title={node.label}>{node.label}</span></button></td>
+            <td data-component-type>{component.category}</td>
+            <td><span class="component-description" data-component-description title={component.description}>{component.description}</span></td>
+            <td><span class="component-status neutral" data-component-status>Not verified</span></td>
+            <td data-component-lifecycle>Unknown</td>
+            <td data-component-location>Not verified</td>
+            <td><div class="component-actions" aria-label={`Actions for ${node.label}`} data-component-actions><span class="component-action-note">Waiting for supervisor</span></div></td>
+          </tr>
+        })}
+      </tbody>
+    </table>
+  </div>
+  <div class="empty-state" id="component-empty" hidden>
+    <h3>No matching components</h3>
+    <p>Change the search or column filters.</p>
+    <button class="text-button empty-clear-button" id="clear-component-filters-empty" type="button"><Icon name="close" size={13} />Clear filters</button>
+  </div>
+  <div class="table-footer"><span id="component-summary" role="status" aria-live="polite">{controlComponents.length} components</span></div>
+</article>
+<div class="filter-popover" id="component-filter-popover" role="dialog" aria-modal="false" aria-labelledby="component-filter-popover-title" hidden>
+  <span class="filter-popover-caret" id="component-filter-caret" aria-hidden="true"></span>
+  <div class="filter-popover-head"><h3 id="component-filter-popover-title">Filter</h3><button class="filter-popover-close" id="close-component-filter" type="button" aria-label="Close filter"><Icon name="close" size={15} /></button></div>
+  <div class="filter-popover-body" id="component-filter-popover-body"></div>
+  <div class="filter-popover-foot"><button class="text-button" id="clear-component-filter" type="button">Clear</button><button class="text-button filter-done" id="done-component-filter" type="button">Done</button></div>
+</div>

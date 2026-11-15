@@ -4,9 +4,10 @@ import { edgeChannel, observationStale, type ComponentAction, type NodeID, type 
 import { edgePath, responsePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
 import { escapeHtml as escape } from "../../lib/html.js"
 import { dataValue } from "../../lib/presentation.js"
+import { controlComponents } from "../../lib/component-controls.js"
 import { requiredById } from "../dom.js"
 import { mountMapNavigation } from "./map-navigation.js"
-import { mountComponentCards } from "./component-cards.js"
+import { mountComponentTable } from "./component-table.js"
 
 export interface ControlsOptions {
   root: HTMLElement
@@ -80,7 +81,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   let inspected: NodeID | null = null
   let edgeSignature = ""
   let destroyed = false
-  const cards = mountComponentCards(root, (id, action) => void actionRequest(id, action), (id) => {
+  const components = mountComponentTable(root, (id, action) => void actionRequest(id, action), (id) => {
     inspected = id
     renderInspector(system?.topology?.nodes.find((node) => node.id === id))
     if (!inspector.open) inspector.showModal()
@@ -88,6 +89,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
 
   function renderInspector(node: TopologyNode | undefined) {
     setText("node-inspector-title", node?.label ?? "Waiting for component contracts")
+    setText("node-inspector-description", controlComponents.find((component) => component.id === inspected)?.description ?? "")
     requiredById(root, "node-inspector-status").innerHTML = node ? `${stale || observationStale(node, system!.collected_at) ? `${dataValue("Stale observation")} ` : ""}${dataValue(`State: ${node.lifecycle.replaceAll("_", " ")}`)} ${dataValue(`Readiness: ${node.readiness.replaceAll("_", " ")}`)}` : "An updated supervisor publishes the complete topology and supported actions."
     setText("node-inspector-detail", node?.detail ?? "No component state or connectivity will be invented while the supervisor is unavailable.")
     const meta = requiredById(root, "node-inspector-meta")
@@ -154,7 +156,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       setText("shutdown-blockers", topology?.shutdown_blockers.length ? `Configure stop_command for: ${topology.shutdown_blockers.join(", ")}. No services will be stopped until these commands are configured.` : "")
     }
 
-    cards.update(system, stale, disabled)
+    components.update(system, stale, disabled)
     for (const button of buttons) {
       if (button.dataset.nodeId === "remote") {
         const icon = button.querySelector<HTMLElement>("[data-node-icon]")!
@@ -297,6 +299,6 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
 
   return {
     update(status, nextStale, nextReceivedAt) { if (status) system = status; stale = nextStale; receivedAt = nextReceivedAt ?? receivedAt; render() },
-    destroy() { destroyed = true; navigation.destroy(); cards.destroy(); inspector.close() },
+    destroy() { destroyed = true; navigation.destroy(); components.destroy(); inspector.close() },
   }
 }

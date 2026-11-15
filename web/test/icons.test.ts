@@ -52,7 +52,7 @@ test("dashboard icon controls use SVG instead of text glyphs on all routes", asy
         for (const element of page.document.querySelectorAll(selector)) assert.ok(element.querySelector("svg"), `${route}: ${selector}`)
       }
       if (route === "controls") {
-        for (const selector of ["#map-zoom-in", "#map-zoom-out", ".resource-more summary", "#node-inspector-close"]) {
+        for (const selector of ["#map-zoom-in", "#map-zoom-out", ".component-name", "#node-inspector-close"]) {
           for (const element of page.document.querySelectorAll(selector)) assert.ok(element.querySelector("svg"), selector)
         }
       }
@@ -68,7 +68,7 @@ test("controls initialize and poll status while updating remote host icons", asy
     assert.ok(isSystemStatus(system))
     page.setFetch(() => json(system))
     app = startSystemStatus(page.document, { autoStart: false })
-    const cardIcon = page.document.querySelector<HTMLElement>('[data-component-id="remote"] .resource-icon')!
+    const cardIcon = page.document.querySelector<HTMLElement>('[data-component-id="remote"] .component-icon')!
     const mapIcon = page.document.querySelector<HTMLElement>('[data-node-id="remote"] [data-node-icon]')!
     assert.equal(cardIcon.dataset.icon, "system", "initial render works without supervisor data")
     assert.equal(mapIcon.dataset.icon, "system")
