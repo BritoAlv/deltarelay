@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from supervision.state_history import (
-    MAX_FILE_BYTES, OFF_GAP_SECONDS, StateHistory, classify, parse_query,
+    OFF_GAP_SECONDS, StateHistory, classify, parse_query, stamp,
 )
 
 
@@ -143,15 +143,56 @@ class StateHistoryTest(unittest.TestCase):
         history.tracking_since = epoch('2026-11-01T00:00:00Z')
         self.assertEqual(history.query(epoch('2026-11-01T10:00:00Z'), self.now, 3600), fixture)
 
-    def test_rotation_keeps_the_backup_readable(self):
+    def test_old_transitions_survive_restarts(self):
+        history = self.subject()
+        started = self.now
+        history.start('connected')
+        self.now += 91 * 86400
+        history.observe(observation(busy=True))
+        history.close()
+        restarted = StateHistory(self.root / 'state-history.jsonl', clock=lambda: self.now)
+        self.addCleanup(restarted.close)
+        restarted.start('recovering')
+        result = restarted.query(started, self.now, 86400)
+        self.assertEqual(result['tracking_since'], stamp(started))
+        self.assertEqual(result['totals']['connected'], 91 * 86400)
+        self.assertEqual(result['current']['state'], 'recovering')
+
+    def test_legacy_backup_is_still_read(self):
+        path = self.root / 'state-history.jsonl'
+        backup = Path(str(path) + '.1')
+        backup.write_text('[1699999000,"connected"]\n[1699999060]\n')
+        backup.chmod(0o600)
+        history = StateHistory(path, clock=lambda: self.now)
+        self.addCleanup(history.close)
+        history.start('connected')
+        result = history.query(1_699_999_000, self.now, 60)
+        self.assertEqual(result['totals']['connected'], 60)
+        self.assertEqual(result['totals']['off'], self.now - 1_699_999_060)
+
+    def test_large_file_is_loaded_without_size_or_record_limits(self):
+        path = self.root / 'state-history.jsonl'
+        path.write_bytes(b'[1699999000,"connected"]\n' + b'[1699999999]\n' * 650_000)
+        path.chmod(0o600)
+        self.assertGreater(path.stat().st_size, 8 << 20)
+        history = StateHistory(path, clock=lambda: self.now)
+        self.addCleanup(history.close)
+        history.start('connected')
+        self.assertFalse(history.storage_error)
+        result = history.query(1_699_999_000, self.now, 60)
+        self.assertEqual(result['tracking_since'], stamp(1_699_999_000))
+        self.assertEqual(result['totals']['connected'], 1000)
+
+    def test_large_file_is_appended_without_rotation(self):
         history = self.subject()
         history.start('connected')
-        with open(self.root / 'state-history.jsonl', 'ab') as file:
-            file.truncate(MAX_FILE_BYTES - 10)
+        path = self.root / 'state-history.jsonl'
+        with open(path, 'ab') as file:
+            file.truncate(9 << 20)
         self.now += 10
         history.observe(observation(busy=True))
-        self.assertTrue((self.root / 'state-history.jsonl.1').exists())
-        self.assertEqual((self.root / 'state-history.jsonl.1').stat().st_mode & 0o777, 0o600)
+        self.assertFalse((self.root / 'state-history.jsonl.1').exists())
+        self.assertGreater(path.stat().st_size, 9 << 20)
 
 
 if __name__ == '__main__':

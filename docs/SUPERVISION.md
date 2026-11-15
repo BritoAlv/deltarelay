@@ -338,9 +338,10 @@ are invalid, the map reports the actual blocker instead of bypassing it.
 - The private, bounded supervisor journal remains at
   `<profile>/control/activity.jsonl` for offline diagnostics and the cursor-only
   `GET /api/system/journal` endpoint. The browser no longer renders it.
-- The supervisor also writes a private, bounded `state-history.jsonl` transition
-  log (mode 600, transitions plus periodic heartbeats, 8 MiB plus one backup;
-  transitions older than 90 days are pruned on startup).
+- The supervisor also writes a private `state-history.jsonl` transition log
+  (mode 600, transitions plus periodic heartbeats) without an age, record-count,
+  or file-size limit, so its full timeline survives restarts. A legacy `.1`
+  backup from earlier bounded versions is still read.
   `GET /api/system/history` exposes only a bounded aggregate — per-bucket seconds,
   totals, exact transition intervals (at most 6,000), coverage, and the current
   state — for the dashboard's **State lanes** and **Composition** charts. Its only

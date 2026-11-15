@@ -44,7 +44,7 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
-| `deploy/supervision` | Importable Python configuration, component lifecycle contracts, sanitized topology, observable state, process ownership, probes, network-change hints, incremental recovery coordination, bounded local state history, and control API. |
+| `deploy/supervision` | Importable Python configuration, component lifecycle contracts, sanitized topology, observable state, process ownership, probes, network-change hints, incremental recovery coordination, persistent local state history, and control API. |
 | `deploy/*.py`, `deploy/providers` | Supervisor launchers, provider plugins, remote recovery helpers, and provider contract checking. |
 | `integration/opencode` | OpenCode V2 plugin that routes selected providers through the local gateway without automatic retries. |
 | `web` | Static Astro dashboard, feature controllers, pure library helpers, and DOM-level browser tests. |

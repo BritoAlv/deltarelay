@@ -1,4 +1,4 @@
-"""Bounded, private timeline of the supervisor's observed system state.
+"""Persistent, private timeline of the supervisor's observed system state.
 
 The dashboard is a viewer, not the recorder: this history keeps running while
 no browser is open and can distinguish an intact supervisor from a period when
@@ -28,12 +28,9 @@ STATES = ('connected', 'recovering', 'unreachable', 'host_stopped',
           'no_internet', 'stopped', 'off', 'unknown')
 HEARTBEAT_SECONDS = 60
 OFF_GAP_SECONDS = 30
-RETENTION_SECONDS = 90 * 86400
 MAX_BUCKETS = 2000
 MAX_INTERVALS = 6000
 MAX_SPAN_SECONDS = 3660 * 86400
-MAX_FILE_BYTES = 8 << 20
-MAX_RECORDS = 400000
 
 
 def stamp(seconds):
@@ -138,7 +135,7 @@ class StateHistory:
         with os.fdopen(fd, 'r', encoding='utf-8') as file:
             info = os.fstat(file.fileno())
             if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or
-                    info.st_mode & 0o077 or info.st_size > MAX_FILE_BYTES + 65536):
+                    info.st_mode & 0o077):
                 self._load_error = True
                 if path == self.path:
                     self._log('error', 'State history file failed the private-file checks; it was not imported.')
@@ -163,8 +160,6 @@ class StateHistory:
         records = self._read(self.backup) + self._read(self.path)
         if self._load_error:
             self._mark_storage_error()
-        if len(records) > MAX_RECORDS:
-            records = records[-MAX_RECORDS:]
         return records
 
     def start(self, initial_state):
@@ -172,18 +167,13 @@ class StateHistory:
         with self.lock:
             now = int(self.clock())
             records = self._records
-            cutoff = now - RETENTION_SECONDS
-            if records:
-                # Retain the last transition before the cutoff so the state at
-                # the start of the retained window is not lost.
-                keep = 0
-                for index, (at, state) in enumerate(records):
-                    if state is not None and at <= cutoff:
-                        keep = index
-                records = records[keep:]
             transitions = [(at, state) for at, state in records
                            if state is not None and at <= now]
             last_seen = max((at for at, _ in records if at <= now), default=None)
+            # Only actual transitions are needed after startup. Releasing the
+            # loaded heartbeat tuples keeps memory proportional to state changes
+            # rather than to the full history.
+            self._records = []
             self.transitions = transitions
             if not transitions:
                 self.tracking_since = now
@@ -195,7 +185,7 @@ class StateHistory:
                 self._append([now])
                 return
             self.current = transitions[-1][1]
-            self.tracking_since = max(cutoff, transitions[0][0])
+            self.tracking_since = transitions[0][0]
             if last_seen is None or last_seen < transitions[-1][0]:
                 last_seen = transitions[-1][0]
             self.last_seen = last_seen
@@ -223,14 +213,6 @@ class StateHistory:
             info = self.path.lstat() if self.path.exists() or self.path.is_symlink() else None
             if info is not None and (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077):
                 raise OSError('unsafe state history file')
-            if info is not None and info.st_size + len(data) > MAX_FILE_BYTES:
-                if self.backup.exists() or self.backup.is_symlink():
-                    backup = self.backup.lstat()
-                    if (not stat.S_ISREG(backup.st_mode) or backup.st_uid != os.getuid() or
-                            backup.st_mode & 0o077):
-                        raise OSError('unsafe state history backup')
-                    self.backup.unlink()
-                os.replace(self.path, self.backup)
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
             try:
                 info = os.fstat(fd)

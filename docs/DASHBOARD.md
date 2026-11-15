@@ -341,6 +341,9 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
   This normalization is one-time, idempotent, and does not rewrite traffic
   aggregates. The overview note shows the legacy count and separates failures
   on the active host from failures on historical hosts.
+- Supervisor state history is also retained indefinitely: `state-history.jsonl`
+  has no age, record-count, or file-size limit. A legacy `.1` backup from earlier
+  bounded versions is still read.
 - Byte totals appear after a request finishes; active requests still show their
   IDs, kinds, upstreams, and elapsed time. They are local gateway states, not a
   list of all saved VPS jobs or OpenCode's current agent/tool states.
