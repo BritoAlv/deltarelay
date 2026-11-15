@@ -88,6 +88,9 @@
   .button:hover { background: color-mix(in srgb, var(--text) 6%, var(--surface-raised)); }
   .button[aria-busy="true"] svg { animation: refresh-spin 1s linear infinite; }
   @keyframes refresh-spin { to { transform: rotate(360deg); } }
+  .loading-indicator { display: inline-flex; align-items: center; gap: 6px; color: var(--subtle); }
+  .loading-spinner { display: inline-block; flex: none; width: 11px; height: 11px; border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; border-radius: 50%; animation: refresh-spin .9s linear infinite; }
+  .loading-spinner.large { width: 18px; height: 18px; border-width: 2px; }
   .button-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 25%, transparent); background: color-mix(in srgb, var(--danger) 4%, transparent); }
   .button-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 9%, transparent); }
   .text-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; background: none; padding: 8px 7px; color: var(--muted); font-size: 13px; border-radius: 4px; }
@@ -345,6 +348,8 @@
   .status-pill.warning, .status-pill.attention { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 12%, transparent); background: color-mix(in srgb, var(--warning) 4%, transparent); }
   .status-pill.bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 4%, transparent); border-color: color-mix(in srgb, var(--danger) 15%, transparent); }
   .status-pill.neutral, .status-pill.idle { color: var(--muted); background: color-mix(in srgb, var(--muted) 4%, transparent); border-color: color-mix(in srgb, var(--muted) 9%, transparent); }
+  .status-pill.loading { color: var(--muted); background: color-mix(in srgb, var(--muted) 4%, transparent); border-color: color-mix(in srgb, var(--muted) 9%, transparent); }
+  .status-pill.loading::before { content: ""; width: 8px; height: 8px; border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; border-radius: 50%; animation: refresh-spin .9s linear infinite; }
   .system-card h3 { font-size: 14px; }
   .system-card > p { color: var(--subtle); font-size: 12px; margin-top: 5px; line-height: 1.65; }
   .system-card .system-meta { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; color: var(--subtle); font: 12px var(--mono); overflow-wrap: anywhere; }

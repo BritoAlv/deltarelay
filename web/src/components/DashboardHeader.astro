@@ -23,7 +23,7 @@ const id = (name: string) => `${idPrefix}${name}`
   <div class="topbar-actions">
     <div class="topbar-status">
       <span class="live-badge" id={id("connection-badge")} role="status" aria-live="polite"><span class="tiny-dot" aria-hidden="true"></span><span id={id("connection-label")}>Connecting…</span></span>
-      <span id={id("updated-at")} class="topbar-updated">Waiting for local data…</span>
+      <span id={id("updated-at")} class="topbar-updated">Loading local data…</span>
       <span class="refresh-note" id={id("refresh-note")}>{refreshNote}</span>
     </div>
     {showHostFilter && (

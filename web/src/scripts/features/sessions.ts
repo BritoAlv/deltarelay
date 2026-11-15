@@ -4,7 +4,7 @@ import { escapeHtml as escape } from "../../lib/html.js"
 import { bytes, displaySessions, duration, filterSessions, historyHosts, percentage, relativeTime, savings, sessionRequests, sessionState, type SessionView } from "../../lib/metrics.js"
 import { dataValue } from "../../lib/presentation.js"
 import { activeColumnFilterCount, compileSessionFilters, emptySessionFilters, filterSessionViews, isColumnFilterActive, parseByteSize, parseDateBound, parseFilterNumber, readSessionFilters, sessionFilterParams, type SessionFilterInput } from "../../lib/session-filters.js"
-import type { DashboardViewState } from "../../lib/state.js"
+import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import type { Snapshot } from "../../lib/types.js"
 import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
 import { required, requiredById } from "../dom.js"
@@ -45,6 +45,8 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   const tableScroll = requiredById<HTMLElement>(root, "session-table-scroll")
   const summary = requiredById<HTMLElement>(root, "table-summary")
   const empty = requiredById<HTMLElement>(root, "sessions-empty")
+  const emptyIcon = required<HTMLElement>(empty, ".empty-icon")
+  const emptyIconMarkup = emptyIcon.innerHTML
   const previous = requiredById<HTMLButtonElement>(root, "previous-page")
   const next = requiredById<HTMLButtonElement>(root, "next-page")
   const pageSizeSelect = requiredById<HTMLSelectElement>(root, "session-page-size")
@@ -83,6 +85,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   search.value = initial.get("q") ?? ""
   const pageParam = Number(initial.get("page"))
   let state: DashboardViewState | null = null
+  let pendingPhase: "loading" | "unavailable" | null = null
   let page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1
   const rowsParam = initial.get("rows")
   let pageSize = pageSizes.find((size) => String(size) === rowsParam) ?? defaultPageSize
@@ -488,8 +491,41 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     renderSessions()
   }
 
+  function renderPending(phase: "loading" | "unavailable") {
+    const loading = phase === "loading"
+    pendingPhase = phase
+    empty.hidden = false
+    empty.classList.toggle("loading", loading)
+    emptyIcon.innerHTML = loading ? '<span class="loading-spinner large" aria-hidden="true"></span>' : emptyIconMarkup
+    required(empty, "h3").textContent = loading ? "Loading sessions…" : "Sessions unavailable"
+    required(empty, "p").textContent = loading
+      ? "Waiting for the local gateway to return retained sessions."
+      : "The local gateway did not respond. Retrying automatically."
+    clearFiltersEmpty.hidden = true
+    tableScroll.hidden = true
+    exportButton.disabled = true
+    previous.disabled = true
+    next.disabled = true
+    setText("session-count", "—")
+    setText("page-label", "Page 1 of 1")
+    summary.textContent = loading ? "Loading sessions…" : "Sessions unavailable"
+    root.setAttribute("aria-busy", String(loading))
+    root.dataset.phase = phase
+  }
+
   function renderSessions() {
     updateSortControls()
+    if (!state?.snapshot) {
+      renderPending(state && dataPhase(state) === "unavailable" ? "unavailable" : "loading")
+      return
+    }
+    if (pendingPhase) {
+      pendingPhase = null
+      empty.classList.remove("loading")
+      emptyIcon.innerHTML = emptyIconMarkup
+      root.setAttribute("aria-busy", "false")
+      root.dataset.phase = "ready"
+    }
     const allSessions = displaySessions(state?.snapshot ?? null, state?.host ?? "")
     const sessions = visibleSessions()
     const totalPages = Math.max(1, Math.ceil(sessions.length / pageSize))

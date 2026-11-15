@@ -14,7 +14,7 @@ import ComponentTable from "./ComponentTable.astro"
   <div id="control-notice" class="notice" role="status" hidden></div>
   <div id="system-controls-view" role="tabpanel" aria-labelledby="system-controls-tab">
   <div class="system-overview">
-    <div class="system-overview-copy"><h3 id="control-connection" class="status-pill neutral">Checking…</h3><p id="recovery-status" class="control-detail" role="status" aria-live="polite">Waiting for the independent local supervisor…</p><p class="system-overview-note">Automatic recovery runs independently of this page. Individual component states are shown below.</p></div>
+    <div class="system-overview-copy"><h3 id="control-connection" class="status-pill loading">Checking…</h3><p id="recovery-status" class="control-detail" role="status" aria-live="polite">Waiting for the independent local supervisor…</p><p class="system-overview-note">Automatic recovery runs independently of this page. Individual component states are shown below.</p></div>
     <div class="system-overview-actions">
       <button class="button" id="start-system" type="button" disabled title="Start missing components and recover the configured system connection."><Icon name="refresh" size={16} />Start / recover system</button>
       <button class="button button-danger" id="stop-system" type="button" disabled><Icon name="power" size={16} />Shut down system…</button>

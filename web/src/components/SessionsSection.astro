@@ -23,7 +23,7 @@ const columns = [
         <input id="session-search" name="session-search" type="search" placeholder="Search sessions or upstreams…" autocomplete="off" spellcheck="false" />
       </div>
       <button class="text-button clear-filters-button" id="clear-session-filters" type="button" hidden><Icon name="close" size={13} />Clear filters</button>
-      <span class="count-badge" id="session-count" aria-hidden="true">0</span>
+      <span class="count-badge" id="session-count" aria-hidden="true">—</span>
       <div class="compact-sort" id="session-sort-controls">
         <label class="compact-sort-field"><span>Sort</span><select id="session-sort" aria-label="Sort sessions by">
           <option value="session">Session</option>
@@ -63,12 +63,12 @@ const columns = [
     </div>
     <div class="empty-state" id="sessions-empty">
       <span class="empty-icon"><Icon name="sessions" size={28} /></span>
-      <h3>No sessions recorded</h3>
-      <p>Requests routed through the gateway will appear here.</p>
+      <h3>Loading sessions…</h3>
+      <p>Waiting for the local gateway to return retained sessions.</p>
       <button class="text-button empty-clear-button" id="clear-session-filters-empty" type="button" hidden><Icon name="close" size={13} />Clear filters</button>
     </div>
     <div class="table-footer">
-      <span id="table-summary" role="status" aria-live="polite">0 sessions</span>
+      <span id="table-summary" role="status" aria-live="polite">Loading sessions…</span>
       <div class="pagination">
         <label class="page-size-field"><span>Rows</span><select id="session-page-size" aria-label="Rows per page">
           {pageSizes.map((size) => <option value={size}>{size}</option>)}

@@ -6,6 +6,11 @@ export function dataValue(value: unknown): string {
   return `<span class="data-value">${escape(value)}</span>`
 }
 
+/** A spinner plus text for first-load placeholders. */
+export function loadingIndicator(label = "Loading…"): string {
+  return `<span class="loading-indicator"><span class="loading-spinner" aria-hidden="true"></span>${escape(label)}</span>`
+}
+
 export function facts(items: ReadonlyArray<readonly [string, unknown]>): string {
   return `<dl class="data-facts">${items.map(([label, value]) => `<div><dt>${escape(label)}</dt><dd>${escape(value)}</dd></div>`).join("")}</dl>`
 }

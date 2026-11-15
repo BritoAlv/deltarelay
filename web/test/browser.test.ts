@@ -148,13 +148,20 @@ test("every page marks exactly its own sidebar entry as current", async () => {
 test("initial overview state loads without presenting fabricated diagnostics", async () => {
   const page = openPage()
   const dashboard = startDashboard(page.document, { autoStart: false })
-  assert.equal(page.document.querySelector("#connection-label")?.textContent, "Connecting…")
-  assert.equal(page.document.querySelector("#stat-sessions")?.textContent, "—")
-  assert.match(page.document.querySelector("#traffic-chart")?.textContent ?? "", /Waiting for local data/)
-  assert.match(page.document.querySelector("#state-lanes")?.textContent ?? "", /Waiting for supervisor history/)
-  assert.match(page.document.querySelector("#state-ring")?.textContent ?? "", /Waiting/)
-  assert.equal(page.document.querySelector("#session-rows"), null)
-  assert.equal(page.document.querySelector("#system-cards"), null)
+  const doc = page.document
+  assert.equal(doc.querySelector("#connection-label")?.textContent, "Connecting…")
+  assert.equal(doc.querySelector("#stat-sessions")?.textContent, "—")
+  assert.equal(doc.querySelector("#stats-grid")?.getAttribute("aria-busy"), "true")
+  assert.match(doc.querySelector("#stat-saved-foot")?.textContent ?? "", /Loading/)
+  assert.match(doc.querySelector("#stat-sessions-foot")?.textContent ?? "", /Loading/)
+  assert.match(doc.querySelector("#stat-requests-foot")?.textContent ?? "", /Loading/)
+  assert.doesNotMatch(doc.querySelector("#stats-grid")?.textContent ?? "", /No data/)
+  assert.match(doc.querySelector("#traffic-chart")?.textContent ?? "", /Loading local traffic/)
+  assert.equal(doc.querySelector("#traffic-chart")?.getAttribute("aria-busy"), "true")
+  assert.match(doc.querySelector("#state-lanes")?.textContent ?? "", /Waiting for supervisor history/)
+  assert.match(doc.querySelector("#state-ring")?.textContent ?? "", /Waiting/)
+  assert.equal(doc.querySelector("#session-rows"), null)
+  assert.equal(doc.querySelector("#system-cards"), null)
   dashboard.destroy()
   await page.close()
 })
@@ -220,6 +227,112 @@ test("system states show an unavailable notice instead of pretending a stale val
     dashboard.destroy()
     await page.close()
   }
+})
+
+test("initial system health shows loading states instead of empty data", async () => {
+  const page = openPage("system")
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  const doc = page.document
+  const cards = doc.querySelector("#system-cards")!
+  assert.match(doc.querySelector("#system-summary")?.textContent ?? "", /Loading diagnostics/)
+  assert.equal(cards.getAttribute("aria-busy"), "true")
+  assert.match(cards.textContent ?? "", /Loading gateway diagnostics/)
+  assert.match(cards.textContent ?? "", /Loading storage and mailbox usage/)
+  assert.match(cards.textContent ?? "", /Loading provider observations/)
+  assert.ok(cards.querySelector('.system-card:nth-child(4) > .provider-panels > .provider-panel > #provider-auth'), "provider auth stays inside the provider panel grid")
+  assert.doesNotMatch(cards.textContent ?? "", /No data|No observations|Not checked|Not connected|Unobserved/)
+  assert.doesNotMatch(cards.textContent ?? "", /Go usage is unavailable for this OpenCode profile/)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("initial sessions page shows a loading state instead of an empty result", async () => {
+  const page = openPage("sessions")
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  const doc = page.document
+  const empty = doc.querySelector<HTMLElement>("#sessions-empty")!
+  assert.equal(empty.hidden, false)
+  assert.match(empty.textContent ?? "", /Loading sessions/)
+  assert.equal(doc.querySelector<HTMLElement>("#session-table-scroll")?.hidden, true)
+  assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /Loading sessions/)
+  assert.equal(doc.querySelector("#sessions")?.getAttribute("aria-busy"), "true")
+  dashboard.destroy()
+  await page.close()
+})
+
+test("initial measurement page distinguishes loading from a missing gateway", async () => {
+  const page = openPage("measurement")
+  const measurement = startMeasurementPage(page.document, { autoStart: false })
+  const doc = page.document
+  assert.match(doc.querySelector("#measurement-session-trigger-title")?.textContent ?? "", /Loading retained sessions/)
+  assert.match(doc.querySelector("#measurement-trace")?.textContent ?? "", /Loading retained sessions/)
+  assert.doesNotMatch(doc.querySelector("#measurement-trace")?.textContent ?? "", /Start the local gateway/)
+  assert.match(doc.querySelector("#request-inspector")?.textContent ?? "", /Loading request evidence/)
+  assert.doesNotMatch(doc.querySelector("#request-inspector")?.textContent ?? "", /Payload capture is off/)
+  measurement.destroy()
+  await page.close()
+})
+
+test("initial controls page waits for the supervisor without reporting stale", async () => {
+  const page = openPage("controls")
+  const app = startSystemStatus(page.document, { autoStart: false })
+  const doc = page.document
+  assert.equal(doc.querySelector("#connection-label")?.textContent, "Connecting…")
+  assert.match(doc.querySelector("#updated-at")?.textContent ?? "", /Loading local supervisor/)
+  assert.equal(doc.querySelector<HTMLElement>("#notice")?.hidden, true)
+  assert.equal(doc.querySelector<HTMLElement>("#control-notice")?.hidden, true)
+  assert.equal(doc.querySelector("#control-connection")?.textContent, "Checking…")
+  app.destroy()
+  await page.close()
+})
+
+test("failed first dashboard load reports unavailable instead of no data", async () => {
+  const overview = openPage()
+  overview.setFetch(() => { throw new Error("offline") })
+  const overviewApp = startDashboard(overview.document, { autoStart: false })
+  await overviewApp.refresh()
+  assert.match(overview.document.querySelector("#notice")?.textContent ?? "", /offline/)
+  assert.match(overview.document.querySelector("#stat-saved-foot")?.textContent ?? "", /Unavailable/)
+  assert.match(overview.document.querySelector("#traffic-chart")?.textContent ?? "", /unavailable/)
+  assert.doesNotMatch(overview.document.querySelector("#stats-grid")?.textContent ?? "", /No data/)
+  assert.equal(overview.document.querySelector("#stats-grid")?.getAttribute("aria-busy"), "false")
+  overviewApp.destroy()
+  await overview.close()
+
+  const systemPage = openPage("system")
+  systemPage.setFetch(() => { throw new Error("offline") })
+  const systemApp = startDashboard(systemPage.document, { autoStart: false })
+  await systemApp.refresh()
+  assert.match(systemPage.document.querySelector("#system-summary")?.textContent ?? "", /Diagnostics unavailable/)
+  assert.match(systemPage.document.querySelector("#system-cards")?.textContent ?? "", /Unavailable/)
+  assert.ok(systemPage.document.querySelector('#system-cards .system-card:nth-child(4) > .provider-panels > .provider-panel > #provider-auth'))
+  assert.doesNotMatch(systemPage.document.querySelector("#system-cards")?.textContent ?? "", /No data|No observations/)
+  systemApp.destroy()
+  await systemPage.close()
+
+  const sessionsPage = openPage("sessions")
+  sessionsPage.setFetch(() => { throw new Error("offline") })
+  const sessionsApp = startDashboard(sessionsPage.document, { autoStart: false })
+  await sessionsApp.refresh()
+  assert.match(sessionsPage.document.querySelector("#sessions-empty")?.textContent ?? "", /Sessions unavailable/)
+  assert.doesNotMatch(sessionsPage.document.querySelector("#sessions-empty")?.textContent ?? "", /No sessions recorded/)
+  sessionsApp.destroy()
+  await sessionsPage.close()
+})
+
+test("provider details wait for supervisor data before declaring Go usage unavailable", async () => {
+  const page = openPage("system")
+  page.setFetch((url) => {
+    if (url === "/api/dashboard") return json(makeSnapshot(now))
+    throw new Error(`Unexpected URL ${url}`)
+  })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const text = page.document.querySelector("#system-cards")?.textContent ?? ""
+  assert.match(text, /Reading local OpenCode Go usage/)
+  assert.doesNotMatch(text, /Go usage is unavailable for this OpenCode profile/)
+  dashboard.destroy()
+  await page.close()
 })
 
 test("controls keep primary actions separate and architecture details always expanded", async () => {

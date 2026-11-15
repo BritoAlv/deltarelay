@@ -35,7 +35,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const {
     autoStart = true,
     refreshNote = "Auto-refresh every 10s",
-    waitingLabel = "Waiting for local gateway…",
+    waitingLabel = "Loading local gateway…",
     onPauseChange,
   } = options
   const view = doc.defaultView ?? globalThis

@@ -1,6 +1,6 @@
 import { escapeHtml as escape } from "../../lib/html.js"
 import { iconMarkup } from "../../lib/icons.js"
-import { dataValue, facts, reductionEquation } from "../../lib/presentation.js"
+import { dataValue, facts, loadingIndicator, reductionEquation } from "../../lib/presentation.js"
 import { bytes, displaySessions, duration, historyHosts, percentage, relativeTime, sessionRequests, sessionState, type SessionView } from "../../lib/metrics.js"
 import { barComparison, requestMeasurement, sessionMeasurement } from "../../lib/measurement.js"
 import {
@@ -15,7 +15,7 @@ import {
   type CatalogDay,
   type CatalogSession,
 } from "../../lib/session-catalog.js"
-import type { DashboardViewState } from "../../lib/state.js"
+import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import type { RelayRequest, Snapshot } from "../../lib/types.js"
 import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
@@ -252,7 +252,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const snapshot = state?.snapshot
     const entry = catalogEntry(catalogEntries, selectedSession)
     if (!snapshot) {
-      triggerTitle.textContent = "Waiting for local gateway…"
+      triggerTitle.textContent = "Loading retained sessions…"
       triggerMeta.textContent = ""
       trigger.disabled = true
       return
@@ -394,13 +394,17 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     inspector.update(null, state?.snapshot?.inspection, state?.snapshot?.collected_at ?? "")
   }
 
-  function renderUnavailable(): void {
-    triggerTitle.textContent = "Waiting for local gateway…"
+  function renderPending(): void {
+    const phase = state ? dataPhase(state) : "loading"
+    const loading = phase !== "unavailable"
+    triggerTitle.textContent = loading ? "Loading retained sessions…" : "Local gateway unavailable"
     triggerMeta.textContent = ""
     trigger.disabled = true
     retention.innerHTML = `${facts([["Gateway session limit", "Unlimited"], ["Request limit", "Unlimited"]])}<p>New sessions and requests are retained indefinitely. Earlier gateway history is not imported from logs.</p>`
-    trace.innerHTML = `<div class="empty-state"><h3>Waiting for local gateway…</h3><p>Start the local gateway and dashboard server to trace retained sessions. No provider requests are sent by this page.</p></div>`
-    inspector.update(null, undefined, "")
+    trace.innerHTML = loading
+      ? `<div class="empty-state"><h3>Loading retained sessions…</h3><p>${loadingIndicator("Waiting for the local gateway and its retained measurements. No provider requests are sent by this page.")}</p></div>`
+      : `<div class="empty-state"><h3>Session data unavailable</h3><p>The local gateway did not respond. Retrying automatically when automatic refresh is enabled.</p></div>`
+    inspector.update(null, undefined, "", true)
     if (dialog.open) renderSessionBrowser()
   }
 
@@ -693,7 +697,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       const snapshot = nextState.snapshot
       catalogEntries = catalogSessions(snapshot, nextState.catalog ?? null, nextState.host)
       if (!snapshot) {
-        renderUnavailable()
+        renderPending()
         return
       }
       retention.innerHTML = retentionText(snapshot)

@@ -2,7 +2,7 @@ import { escapeHtml as escape } from "../../lib/html.js"
 import { providerMark } from "../../lib/provider-marks.js"
 import { facts } from "../../lib/presentation.js"
 import { bytes, duration } from "../../lib/metrics.js"
-import { observationConnection, type DashboardViewState } from "../../lib/state.js"
+import { dataPhase, observationConnection, observationPhase, type DashboardViewState, type DataPhase } from "../../lib/state.js"
 import { countdown, type AllowanceMeter, type AuthStatus, type GoAllowance } from "../../lib/system.js"
 import type { Snapshot } from "../../lib/types.js"
 import { requiredById } from "../dom.js"
@@ -87,7 +87,9 @@ function usageRow(label: string, meter: AllowanceMeter): string {
   return `<div class="provider-usage-row${tone}"><span class="provider-usage-label">${escape(label)}</span><span class="provider-usage-track" role="progressbar" aria-label="${escape(label)} Go allowance used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${value}"><i style="width:${percent}%"></i></span><span class="provider-usage-percent">${value}%</span><span class="provider-usage-reset" title="${escape(new Date(meter.resets_at).toLocaleString())}">${escape(resetLabel(meter.resets_at))}</span></div>`
 }
 
-function usagePanel(go: GoAllowance | null, systemStale: boolean): string {
+function usagePanel(go: GoAllowance | null, systemStale: boolean, supervisor: DataPhase): string {
+  if (supervisor === "loading") return `<div class="provider-usage-empty"><span class="status-pill loading">Loading…</span><p>Reading local OpenCode Go usage…</p></div>`
+  if (supervisor === "unavailable") return `<div class="provider-usage-empty"><span class="status-pill neutral">Unavailable</span><p>Supervisor data is unavailable, so Go usage cannot be checked.</p></div>`
   if (!go) return `<div class="provider-usage-empty"><span class="status-pill neutral">Unavailable</span><p>Go usage is unavailable for this OpenCode profile.</p></div>`
   const stale = goStale(go, systemStale)
   const limited = goLimited(go)
@@ -96,7 +98,7 @@ function usagePanel(go: GoAllowance | null, systemStale: boolean): string {
 }
 
 export function mountHealth(root: HTMLElement): HealthFeature {
-  const cards = requiredById(root, "system-cards")
+  const cards = requiredById<HTMLElement>(root, "system-cards")
   const auth = requiredById(root, "provider-auth")
   const initialCards = cards.innerHTML
   const icons = [...cards.querySelectorAll(".system-icon")].map((icon) => icon.innerHTML)
@@ -136,14 +138,41 @@ export function mountHealth(root: HTMLElement): HealthFeature {
     next?.click()
   })
 
+  function restoreAuth() {
+    cards.querySelector("#provider-auth")?.replaceWith(auth)
+  }
+
+  function renderLoading() {
+    setText("system-summary", "Loading diagnostics…")
+    summaryElement.classList.remove("good", "warning")
+    cards.setAttribute("aria-busy", "true")
+    cards.dataset.phase = "loading"
+    cards.innerHTML = initialCards
+    restoreAuth()
+  }
+
+  function renderUnavailable() {
+    setText("system-summary", "Diagnostics unavailable")
+    summaryElement.classList.remove("good")
+    summaryElement.classList.add("warning")
+    cards.setAttribute("aria-busy", "false")
+    cards.dataset.phase = "unavailable"
+    cards.innerHTML = `
+      <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[0]}</span>${pill("Unavailable", "warning")}</div><h3>Local gateway</h3><p>Gateway diagnostics did not load. Retrying automatically…</p></article>
+      <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[1]}</span>${pill("Unavailable", "warning")}</div><h3>Remote host connection</h3><p>Connection health is unavailable until diagnostics load.</p></article>
+      <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[2]}</span>${pill("Unavailable", "warning")}</div><h3>Storage &amp; mailbox</h3><p>Storage and mailbox usage are unavailable until diagnostics load.</p></article>
+      <article class="system-card"><div class="system-card-top"><span class="system-icon">${icons[3]}</span>${pill("Unavailable", "warning")}</div><h3>Provider details</h3><p>Provider observations are unavailable until diagnostics load.</p><div class="provider-panels"><section class="provider-panel"><div class="provider-auth-slot"></div></section></div></article>`
+    cards.querySelector(".provider-auth-slot")?.replaceWith(auth)
+  }
+
   function renderSystem(state: DashboardViewState) {
     if (!state.snapshot) {
-      setText("system-summary", "Waiting for diagnostics…")
-      summaryElement.classList.remove("good", "warning")
-      cards.innerHTML = initialCards
-      cards.querySelector("#provider-auth")?.replaceWith(auth)
+      if (dataPhase(state) === "unavailable") renderUnavailable()
+      else renderLoading()
       return
     }
+    cards.setAttribute("aria-busy", "false")
+    cards.dataset.phase = "ready"
     const data = state.snapshot
     const { gateway, relay, history } = data
     const health = relay.health
@@ -151,6 +180,7 @@ export function mountHealth(root: HTMLElement): HealthFeature {
     const networkConnection = observationConnection(state.system)
     const authStatus = state.system?.auth ?? null
     const go = state.system?.go ?? null
+    const supervisor = observationPhase(state.system)
     const controlIssue = gateway.pending_cancellations > 0 || Boolean(gateway.control_error)
     const cacheRatio = health.max_cache_bytes > 0 ? health.cache_bytes / health.max_cache_bytes : 0
     const responseRatio = health.max_response_storage_bytes > 0 ? health.response_storage_bytes / health.max_response_storage_bytes : 0
@@ -183,7 +213,7 @@ export function mountHealth(root: HTMLElement): HealthFeature {
     const tabs = providers.length > 1 ? `<div class="provider-tabs" role="tablist" aria-label="Providers">${providers.map((provider, index) => `<button type="button" class="provider-tab" role="tab" id="provider-tab-${index}" aria-controls="provider-panel-${index}" aria-selected="${provider.label === selected}" data-provider-tab="${escape(provider.label)}">${providerMark(provider.label)}<span class="provider-tab-label">${escape(provider.label)}</span><span class="provider-tab-dot ${tabTone(provider, authStatus, go)}"></span></button>`).join("")}</div>` : ""
     const panels = providers.length > 0 ? `<div class="provider-panels">${providers.map((provider, index) => {
       const origin = provider.origin ? provider.origin.replace(/^https?:\/\//, "") + (provider.pathPrefix ? ` · ${provider.pathPrefix}` : "") : ""
-      return `<section class="provider-panel" id="provider-panel-${index}" role="tabpanel" aria-labelledby="provider-tab-${index}" data-provider-panel="${escape(provider.label)}"${provider.label === selected ? "" : " hidden"}><div class="provider-panel-head"><div class="provider-name">${providerMark(provider.label)}<span class="provider-name-label">${escape(provider.label)}</span>${provider.label === "opencode-go" ? '<span class="provider-go">GO</span>' : ""}</div>${pill(stale ? "Stale" : provider.statusLabel, stale ? "warning" : provider.status)}</div>${origin ? `<div class="provider-origin">${escape(origin)}</div>` : ""}${provider.label === "opencode-go" ? usagePanel(go, Boolean(state.system?.stale)) : ""}${provider.name === "openai" ? '<div id="provider-auth"></div>' : ""}</section>`
+      return `<section class="provider-panel" id="provider-panel-${index}" role="tabpanel" aria-labelledby="provider-tab-${index}" data-provider-panel="${escape(provider.label)}"${provider.label === selected ? "" : " hidden"}><div class="provider-panel-head"><div class="provider-name">${providerMark(provider.label)}<span class="provider-name-label">${escape(provider.label)}</span>${provider.label === "opencode-go" ? '<span class="provider-go">GO</span>' : ""}</div>${pill(stale ? "Stale" : provider.statusLabel, stale ? "warning" : provider.status)}</div>${origin ? `<div class="provider-origin">${escape(origin)}</div>` : ""}${provider.label === "opencode-go" ? usagePanel(go, Boolean(state.system?.stale), supervisor) : ""}${provider.name === "openai" ? '<div id="provider-auth"></div>' : ""}</section>`
     }).join("")}</div>` : '<div class="provider-list-empty"><span class="section-meta">No upstream observations</span></div>'
 
     cards.innerHTML = `

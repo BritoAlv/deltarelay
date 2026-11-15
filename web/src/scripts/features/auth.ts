@@ -9,9 +9,18 @@ export function mountAuth(root: HTMLElement) {
   let system: SystemStatus | null = null
   let stale = true
   let receivedAt = 0
+  let attempted = false
 
   function render() {
-    if (!system) return
+    if (!system) {
+      if (!attempted) return
+      badge.textContent = "Unavailable"
+      badge.className = "status-pill neutral"
+      timer.textContent = "No supervisor data"
+      timer.className = "auth-countdown"
+      deadline.textContent = "The local supervisor did not return authentication metadata."
+      return
+    }
     const auth = system.auth
     const labels: Record<string, string> = { valid: "Current token", expires_soon: "Expires soon", expired_pending_refresh: "Refresh pending", needs_auth: "Sign-in required", not_configured: "Not configured", not_connected: "Not connected", not_oauth: "Not OAuth", expiry_unknown: "Expiry unknown", unavailable: "Unavailable" }
     const isStale = auth.stale || stale
@@ -27,10 +36,11 @@ export function mountAuth(root: HTMLElement) {
 
   return {
     render,
-    update(status: SystemStatus | null, isStale: boolean, received: number) {
+    update(status: SystemStatus | null, isStale: boolean, received: number, attemptedPoll = false) {
       system = status
       stale = isStale
       receivedAt = received
+      attempted = attemptedPoll
       render()
     },
   }

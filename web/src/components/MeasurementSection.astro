@@ -61,14 +61,14 @@ import Icon from "./Icon.astro"
         <span class="measurement-picker-label" id="measurement-session-label">Session</span>
         <button class="measurement-session-trigger" id="measurement-session-trigger" type="button" aria-haspopup="dialog" aria-labelledby="measurement-session-label measurement-session-trigger-title" disabled>
           <span class="measurement-session-trigger-copy">
-            <span class="measurement-session-trigger-title" id="measurement-session-trigger-title">Waiting for local gateway…</span>
+            <span class="measurement-session-trigger-title" id="measurement-session-trigger-title">Loading retained sessions…</span>
             <span class="measurement-session-trigger-meta" id="measurement-session-trigger-meta"></span>
           </span>
           <span class="measurement-session-trigger-action">Browse</span>
         </button>
       </div>
     </div>
-    <div class="measurement-trace" id="measurement-trace"></div>
+    <div class="measurement-trace" id="measurement-trace"><div class="empty-state"><h3>Loading retained sessions…</h3><p><span class="loading-indicator"><span class="loading-spinner" aria-hidden="true"></span>Waiting for the local gateway and its retained measurements. No provider requests are sent by this page.</span></p></div></div>
     <section class="request-inspector" id="request-inspector" aria-label="Selected request evidence"></section>
     <div class="measurement-retention" id="retention-note"><dl class="data-facts"><div><dt>Gateway session limit</dt><dd>Unlimited</dd></div><div><dt>Request limit</dt><dd>Unlimited</dd></div><div><dt>Hourly aggregates</dt><dd>Unlimited</dd></div><div><dt>Daily aggregates</dt><dd>Unlimited</dd></div></dl><p>New sessions, requests, and traffic are retained indefinitely. Earlier gateway history is not imported from logs.</p></div>
   </article>

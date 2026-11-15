@@ -1,44 +1,34 @@
 ---
 import Icon from "./Icon.astro"
 import ProviderAuth from "./ProviderAuth.astro"
-import { providerMark } from "../lib/provider-marks"
 ---
 <section id="system" class="system-section" aria-labelledby="health-checks-title">
   <div class="section-heading">
     <h2 id="health-checks-title">Health checks</h2>
-    <span class="section-meta" id="system-summary" role="status" aria-live="polite">Waiting for diagnostics…</span>
+    <span class="section-meta" id="system-summary" role="status" aria-live="polite">Loading diagnostics…</span>
   </div>
-  <div class="system-grid" id="system-cards">
+  <div class="system-grid" id="system-cards" aria-busy="true">
     <article class="system-card">
-      <div class="system-card-top"><span class="system-icon"><Icon name="terminal" /></span><span class="status-pill neutral">Waiting…</span></div>
+      <div class="system-card-top"><span class="system-icon"><Icon name="terminal" /></span><span class="status-pill loading">Loading…</span></div>
       <h3>Local gateway</h3>
-      <p>Not connected</p>
+      <p>Loading gateway diagnostics…</p>
     </article>
     <article class="system-card">
-      <div class="system-card-top"><span class="system-icon"><Icon name="link" /></span><span class="status-pill neutral">Unknown</span></div>
+      <div class="system-card-top"><span class="system-icon"><Icon name="link" /></span><span class="status-pill loading">Loading…</span></div>
       <h3>Remote host connection</h3>
-      <p>Not checked</p>
+      <p>Waiting for gateway diagnostics…</p>
     </article>
     <article class="system-card">
-      <div class="system-card-top"><span class="system-icon"><Icon name="storage" /></span><span class="status-pill neutral">Unknown</span></div>
+      <div class="system-card-top"><span class="system-icon"><Icon name="storage" /></span><span class="status-pill loading">Loading…</span></div>
       <h3>Storage &amp; mailbox</h3>
-      <p>No data</p>
+      <p>Loading storage and mailbox usage…</p>
     </article>
     <article class="system-card">
-      <div class="system-card-top"><span class="system-icon"><Icon name="globe" /></span><span class="status-pill neutral">Unobserved</span></div>
+      <div class="system-card-top"><span class="system-icon"><Icon name="globe" /></span><span class="status-pill loading">Loading…</span></div>
       <h3>Provider details</h3>
-      <p>No observations</p>
-      <div class="provider-tabs" aria-hidden="true">
-        <span class="provider-tab" data-selected="true"><Fragment set:html={providerMark("opencode-go")} /><span class="provider-tab-label">opencode-go</span></span>
-        <span class="provider-tab"><Fragment set:html={providerMark("openai")} /><span class="provider-tab-label">openai</span></span>
-      </div>
+      <p>Loading provider observations…</p>
       <div class="provider-panels">
         <section class="provider-panel">
-          <div class="provider-panel-head"><div class="provider-name"><Fragment set:html={providerMark("opencode-go")} /><span class="provider-name-label">opencode-go</span><span class="provider-go">GO</span></div><span class="status-pill neutral">Unobserved</span></div>
-          <div class="provider-usage-empty"><span class="status-pill neutral">Unavailable</span><p>Go usage is unavailable for this OpenCode profile.</p></div>
-        </section>
-        <section class="provider-panel" hidden>
-          <div class="provider-panel-head"><div class="provider-name"><Fragment set:html={providerMark("openai")} /><span class="provider-name-label">openai</span></div><span class="status-pill neutral">Unobserved</span></div>
           <ProviderAuth />
         </section>
       </div>

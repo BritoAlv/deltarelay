@@ -16,7 +16,7 @@ export interface ControlsOptions {
 }
 
 export interface ControlsFeature {
-  update(status: SystemStatus | null, stale: boolean, receivedAt?: number): void
+  update(status: SystemStatus | null, stale: boolean, receivedAt?: number, loading?: boolean): void
   destroy(): void
 }
 
@@ -75,6 +75,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   let system: SystemStatus | null = null
   let stale = true
   let receivedAt = 0
+  let loading = true
   let pending = false
   let message = ""
   let selected: NodeID | null = null
@@ -130,11 +131,11 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       autoWake.checked = system?.settings.auto_wake ?? false
     }
     const availability = requiredById<HTMLElement>(root, "settings-availability")
-    const settingsReason = stale ? "Settings are unavailable until fresh supervisor status is available." : !system?.managed ? "Settings require a managed supervisor." : pending ? "Saving or submitting an operation…" : stopped ? "Use Start / recover system in Controls before changing recovery settings." : disabled ? "Settings are unavailable while a recovery operation is running." : ""
+    const settingsReason = loading ? "Loading supervisor status…" : stale ? "Settings are unavailable until fresh supervisor status is available." : !system?.managed ? "Settings require a managed supervisor." : pending ? "Saving or submitting an operation…" : stopped ? "Use Start / recover system in Controls before changing recovery settings." : disabled ? "Settings are unavailable while a recovery operation is running." : ""
     availability.hidden = !settingsReason
     availability.textContent = settingsReason
 
-    setBadge("architecture-data-state", !system ? "Waiting for status…" : stale ? "Last known values · stale" : "Live supervisor data", stale ? "neutral" : "good")
+    setBadge("architecture-data-state", loading ? "Loading status…" : !system ? "Waiting for status…" : stale ? "Last known values · stale" : "Live supervisor data", stale || loading ? "neutral" : "good")
     if (system) {
       const connection = connectionState(system)
       const badge = requiredById(root, "control-connection")
@@ -201,7 +202,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       ? `${escape(selectedNode?.label ?? readableLabel(selected))} · ${dataValue(`${edges.querySelectorAll(".selected").length} visible arrows highlighted`)}`
       : "No component selected"
     if (inspected) renderInspector(topology?.nodes.find((node) => node.id === inspected))
-    const text = message || (stale ? "System status is stale. Lifecycle actions are disabled until fresh status is available." : !topology ? "The supervisor needs the topology update before map controls are available. No running services were changed." : "")
+    const text = message || (loading ? "" : stale ? "System status is stale. Lifecycle actions are disabled until fresh status is available." : !topology ? "The supervisor needs the topology update before map controls are available. No running services were changed." : "")
     notice.hidden = !text
     if (notice.textContent !== text) notice.textContent = text
   }
@@ -298,7 +299,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   autoWake.addEventListener("change", () => void settings())
 
   return {
-    update(status, nextStale, nextReceivedAt) { if (status) system = status; stale = nextStale; receivedAt = nextReceivedAt ?? receivedAt; render() },
+    update(status, nextStale, nextReceivedAt, nextLoading = false) { if (status) system = status; stale = nextStale; receivedAt = nextReceivedAt ?? receivedAt; loading = nextLoading; render() },
     destroy() { destroyed = true; navigation.destroy(); components.destroy(); inspector.close() },
   }
 }

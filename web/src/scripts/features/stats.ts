@@ -1,7 +1,7 @@
 import { bytes, percentage } from "../../lib/metrics.js"
 import type { OverviewData } from "../../lib/overview.js"
-import { dataValue } from "../../lib/presentation.js"
-import type { DashboardViewState } from "../../lib/state.js"
+import { dataValue, loadingIndicator } from "../../lib/presentation.js"
+import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import { requiredById } from "../dom.js"
 
 export interface StatsFeature {
@@ -17,21 +17,32 @@ export function mountStats(root: HTMLElement): StatsFeature {
   const meterSent = requiredById<HTMLElement>(root, "stat-meter-sent")
   const statsNote = requiredById<HTMLElement>(root.ownerDocument, "stats-note")
   const setMeter = (reduction: number | null) => {
-    const saved = reduction === null ? 0 : Math.max(0, Math.min(100, reduction))
+    if (reduction === null) {
+      meterSaved.style.width = "0%"
+      meterSent.style.width = "0%"
+      return
+    }
+    const saved = Math.max(0, Math.min(100, reduction))
     meterSaved.style.width = `${saved}%`
     meterSent.style.width = `${100 - saved}%`
   }
 
-  function renderStats({ snapshot }: DashboardViewState, overview: OverviewData | null) {
+  function renderStats(state: DashboardViewState, overview: OverviewData | null) {
+    const { snapshot } = state
+    const phase = dataPhase(state)
+    root.setAttribute("aria-busy", String(phase === "loading"))
+    root.dataset.phase = phase
     if (!snapshot || !overview) {
       // Never leave stale numbers on screen after the gateway disconnects.
       for (const id of emptyStatIds) {
         setText(id, "—")
         requiredById(root, id).classList.remove("negative")
       }
-      setText("stat-saved-foot", "No data")
-      setText("stat-sessions-foot", "No data")
-      setText("stat-requests-foot", "No data")
+      const placeholder = phase === "loading" ? loadingIndicator("Loading…") : "Unavailable · retrying automatically"
+      requiredById(root, "stat-saved-foot").innerHTML = placeholder
+      requiredById(root, "stat-sessions-foot").innerHTML = placeholder
+      requiredById(root, "stat-requests-foot").innerHTML = placeholder
+      requiredById<HTMLElement>(root, "active-session-dot").style.opacity = ".3"
       statsNote.hidden = true
       statsNote.textContent = ""
       setMeter(null)

@@ -124,6 +124,12 @@ infer a working connection merely because two processes are running.
   instead of being applied silently.
   Automatic refresh is every ten seconds while the tab is visible. A failed
   refresh keeps the last live snapshot and explicitly marks it stale.
+- First loads and failed loads are distinct from a genuinely empty history.
+  While the gateway diagnostics or supervisor request is in flight, cards and
+  tables show an animated loading state. If the first request fails before any
+  snapshot exists, they report unavailable and retry automatically. Wording such
+  as “No sessions recorded” appears only after a successful snapshot confirms
+  there is no retained data.
 - Deep-linkable view state: the selected host, chart range and view, session
   search/state/column filters/page/page size, an open session detail, and the
   measurement session/request plus session-browser search, day, availability,

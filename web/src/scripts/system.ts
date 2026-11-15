@@ -34,7 +34,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     autoStart = true,
     manageHeader = true,
     refreshNote = "Auto-refresh every 1s",
-    waitingLabel = "Waiting for local supervisor…",
+    waitingLabel = "Loading local supervisor…",
   } = options
   const view = doc.defaultView ?? globalThis
   const controlsRoot = doc.getElementById("controls")
@@ -43,6 +43,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
   let busy = false
   let paused = false
   let receivedAt = 0
+  let attempted = false
   let destroyed = false
   let setupStatus: SetupStatus | null = null
   let setupStale = true
@@ -64,12 +65,13 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     : null
 
   function observation(): SystemObservation {
-    if (!system) return { connection: "unknown", collectedAt: null, receivedAt: receivedAt || null, stale: true, managed: false, auth: null, go: null }
+    if (!system) return { connection: "unknown", collectedAt: null, receivedAt: receivedAt || null, stale: true, attempted, managed: false, auth: null, go: null }
     return {
       connection: connectionState(system),
       collectedAt: system.collected_at,
       receivedAt: receivedAt || null,
       stale,
+      attempted,
       managed: system.managed,
       auth: system.auth,
       go: system.go ?? null,
@@ -78,20 +80,23 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
 
   function render() {
     if (destroyed) return
+    const initializing = !system && !attempted
     renderBrandStatus(doc, system, stale)
-    controls?.update(system, stale, receivedAt)
-    auth?.update(system, stale, receivedAt)
+    controls?.update(system, stale, receivedAt, initializing)
+    auth?.update(system, stale, receivedAt, attempted)
     setup?.update(setupStatus, system, stale || setupStale)
     systemObservations.publish(observation())
     if (!header) return
-    const notice = stale
-      ? "System status is stale. Controls are disabled until a fresh connection is available."
-      : paused ? "Automatic status refresh is paused." : null
+    const notice = initializing
+      ? null
+      : stale
+        ? "System status is stale. Controls are disabled until a fresh connection is available."
+        : paused ? "Automatic status refresh is paused." : null
     header.render({
-      label: stale ? "Disconnected" : system ? paused ? "Paused" : "Live" : "Connecting…",
+      label: initializing ? "Connecting…" : stale ? "Disconnected" : system ? paused ? "Paused" : "Live" : "Connecting…",
       updatedAt: system ? `Updated ${relativeTime(system.collected_at)}` : waitingLabel,
       paused,
-      stale,
+      stale: !initializing && stale,
       busy,
       notice,
     })
@@ -135,6 +140,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
     } finally {
       if (!destroyed) {
         busy = false
+        attempted = true
         render()
       }
     }

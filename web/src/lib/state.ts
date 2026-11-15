@@ -11,6 +11,8 @@ export interface SystemObservation {
   receivedAt: number | null
   /** True when the supervisor endpoint failed or returned stale metadata. */
   stale: boolean
+  /** True once the first supervisor poll has settled, successfully or not. */
+  attempted: boolean
   /** Whether the supervisor manages service controls for this profile. */
   managed: boolean
   /** OpenCode OAuth metadata, when the system poll has it. */
@@ -45,4 +47,18 @@ export interface DashboardViewState {
   catalog?: OpenCodeSessions | null
   /** Catalog-specific failure, kept separate from gateway snapshot staleness. */
   catalogError?: string
+}
+
+export type DataPhase = "loading" | "unavailable" | "ready"
+
+/** Distinguish an in-flight first load from a failed one before any snapshot exists. */
+export function dataPhase(state: Pick<DashboardViewState, "snapshot" | "error">): DataPhase {
+  if (state.snapshot) return "ready"
+  return state.error ? "unavailable" : "loading"
+}
+
+/** Supervisor data is independent from the gateway snapshot and can arrive later. */
+export function observationPhase(observation: SystemObservation | null): DataPhase {
+  if (observation?.collectedAt) return "ready"
+  return observation?.attempted ? "unavailable" : "loading"
 }

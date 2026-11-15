@@ -57,7 +57,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     connectionBadge.classList.toggle("stale", stale || paused)
     connectionBadge.classList.toggle("connecting", label === "Connecting…")
     if (connectionLabel.textContent !== label) connectionLabel.textContent = label
-    const updated = snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : "Waiting for local gateway…"
+    const updated = snapshot ? `Updated ${relativeTime(snapshot.collected_at)}` : "Loading local gateway…"
     if (updatedAt.textContent !== updated) updatedAt.textContent = updated
     const note = paused ? "Automatic refresh paused" : "Auto-refresh every 10s"
     if (refreshNote.textContent !== note) refreshNote.textContent = note

@@ -16,7 +16,7 @@ const button = (label: string, action: string, disabled = false) => `<button typ
 
 export interface InspectionFeature {
   readonly stage: InspectionStage
-  update(request: RelayRequest | null, status: CaptureStatus | undefined, collectedAt: string): void
+  update(request: RelayRequest | null, status: CaptureStatus | undefined, collectedAt: string, loading?: boolean): void
   open(stage: InspectionStage): void
   destroy(): void
 }
@@ -34,7 +34,7 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
   let preferJSON = true
   let viewerOptions: PayloadViewerOptions | null = null
   let payloadViewer: ReturnType<typeof mountPayloadViewer> | null = null
-  let busy = false, failure = "", viewNote = "", transferMismatch = false, generation = 0, destroyed = false
+  let busy = false, pending = true, failure = "", viewNote = "", transferMismatch = false, generation = 0, destroyed = false
   let controller: AbortController | null = null
   const view = root.ownerDocument.defaultView ?? globalThis
 
@@ -156,6 +156,10 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
     payloadViewer?.destroy()
     payloadViewer = null
     viewerOptions = null
+    if (pending) {
+      root.innerHTML = `<p class="inspect-empty" role="status">Loading request evidence…</p>`
+      return
+    }
     root.innerHTML = `${notice()}<div class="inspect-heading"><div><h3>Request evidence inspector</h3><p class="metadata-line">${request ? `<code>${escape(request.id)}</code>${dataValue(`observation #${request.sequence}`)}${dataValue(request.state)}${request.status ? dataValue(`HTTP ${request.status}`) : ""}${request.error_code ? dataValue(request.error_code) : ""}` : "Select a retained request to inspect its evidence."}</p></div>${request?.capture_id ? button(busy ? "Loading…" : "Refresh Evidence", "refresh", busy) : ""}</div>
       <div class="inspect-stages" role="group" aria-label="Request evidence stage">${stages.map(([id, label], i) => `<button type="button" data-inspect-stage="${id}" aria-pressed="${stage === id}"${request ? "" : " disabled"}><span>${i+1}</span>${label}</button>`).join("")}</div>
       ${failure ? `<p class="inspect-notice warning" role="alert">${escape(failure)}</p>` : ""}
@@ -295,8 +299,18 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
   return {
     get stage() { return stage },
     open,
-    update(next, nextStatus, collectedAt) {
+    update(next, nextStatus, collectedAt, loading = false) {
+      pending = loading
       status = nextStatus
+      if (loading) {
+        controller?.abort(); generation++
+        request = null; requestState = ""; capture = null; chunks = null; page = null
+        selectedChunk = null; selectedAttempt = null; failure = ""; viewNote = ""; jsonPreview = ""; transferMismatch = false
+        key = ""
+        busy = false
+        render()
+        return
+      }
       const nextKey = next ? `${next.sequence}:${next.capture_id ?? "none"}` : ""
       const refresh = key === nextKey && (next?.state === "running" || requestState === "running") && observedAt !== collectedAt
       request = next

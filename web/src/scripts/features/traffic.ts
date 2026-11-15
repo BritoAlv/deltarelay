@@ -1,6 +1,6 @@
 import { escapeHtml } from "../../lib/html.js"
 import { bytes, percentage } from "../../lib/metrics.js"
-import { dataValue } from "../../lib/presentation.js"
+import { dataValue, loadingIndicator } from "../../lib/presentation.js"
 import {
   compositionSegments,
   formatAxisLabel,
@@ -12,7 +12,7 @@ import {
   type TrafficRange,
   type TrafficView,
 } from "../../lib/traffic.js"
-import type { DashboardViewState } from "../../lib/state.js"
+import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import type { OverviewData } from "../../lib/overview.js"
 import { readParams, replaceParams } from "../../lib/url-state.js"
 import { requiredById } from "../dom.js"
@@ -71,15 +71,20 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     compositionSentBar.style.width = `${100 - savedWidth}%`
   }
 
-  function reset(message = "Waiting for local data…"): void {
+  function clearMeterWidths(): void {
+    for (const meter of [reuseMeterReuse, reuseMeterRaw, compositionSavedBar, compositionSentBar]) meter.style.width = "0%"
+  }
+
+  function reset(message = "Loading local traffic…", loading = true): void {
     for (const id of ["chart-original", "chart-encoded", "chart-saved", "chart-reused", "chart-saved-rate", "chart-reuse-rate", "reuse-value", "reuse-bytes", "uploaded-bytes", "composition-saved", "composition-sent"]) setText(id, "—")
-    requiredById(root, "chart-count").innerHTML = `${dataValue(0)} requests in this window`
+    requiredById(root, "chart-count").innerHTML = loading ? loadingIndicator("Loading traffic…") : "Unavailable · retrying automatically"
     setText("reuse-scope", "Selected range")
     requiredById(root, "chart-saved").classList.remove("negative")
     requiredById(root, "chart-saved-rate").classList.remove("negative")
-    setMeterWidths(0, 0)
-    chart.innerHTML = `<div class="chart-placeholder">${escapeHtml(message)}</div>`
-    chart.setAttribute("aria-label", "Upload traffic chart awaiting data")
+    clearMeterWidths()
+    chart.innerHTML = `<div class="chart-placeholder">${loading ? loadingIndicator(message) : escapeHtml(message)}</div>`
+    chart.setAttribute("aria-label", loading ? "Upload traffic chart loading" : "Upload traffic chart unavailable")
+    chart.setAttribute("aria-busy", String(loading))
     notice.hidden = true
     tooltip.hidden = true
     lastData = null
@@ -238,6 +243,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   }
 
   function renderChart(data: TrafficData, range: TrafficRange): void {
+    chart.setAttribute("aria-busy", "false")
     const width = Math.max(200, chart.clientWidth || chart.parentElement?.clientWidth || 800)
     const height = Math.max(180, chart.clientHeight || 260)
     const left = width < 520 ? 64 : 70
@@ -341,7 +347,8 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
     lastState = state
     lastOverview = overview
     if (!state.snapshot || !overview) {
-      reset()
+      if (state.snapshot || dataPhase(state) === "unavailable") reset("Upload traffic unavailable — retrying automatically.", false)
+      else reset()
       return
     }
     const { traffic: data, range } = overview
