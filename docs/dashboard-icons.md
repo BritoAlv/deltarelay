@@ -15,8 +15,13 @@ their accompanying text or control labels provide the accessible name.
   (MIT), used for the VS Code editor component.
 - OpenCode and OpenAI: the existing provider identity SVGs in
   `web/src/lib/provider-marks.ts`, reused without changing their geometry.
-- DeltaRelay: the original typographic Δ identity is intentionally preserved in
-  the sidebar and header; it is a brand letterform, not a functional UI icon.
+- DeltaRelay: the original Inter SemiBold Δ letterform, converted directly from
+  the font's U+0394 outline into a filled SVG path. Its flat apex, counter, stroke
+  proportions, and em-box placement are preserved, rather than approximating it
+  with a stroked triangle. The SVG inherits the original logo's font-relative
+  size and theme color. No font or SVG text element is needed to render it.
+  Inter is by The Inter Project Authors (https://github.com/rsms/inter), licensed
+  under SIL OFL 1.1, which permits outlined artwork created using the font.
 
 Brand marks identify their respective products; they do not imply endorsement.
 

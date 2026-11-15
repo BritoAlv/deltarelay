@@ -774,6 +774,7 @@
   }
   .brand:hover { color: var(--text); }
   .brand:hover .brand-symbol { border-color: var(--accent); }
+  .brand-symbol > svg, .topbar-brand > svg { width: 1em; height: 1em; }
   .brand-light { font-weight: 400; color: var(--muted); }
   .brand-dot { color: var(--accent); }
 
