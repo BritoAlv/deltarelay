@@ -115,6 +115,23 @@ func TestRejectsRemoteOriginsDNSRebindingWritesAndOtherRoutes(t *testing.T) {
 	}
 }
 
+func TestForwardsUnboundedDashboardSnapshot(t *testing.T) {
+	// Retained history is unlimited, so a valid snapshot eventually exceeds any
+	// fixed buffering limit in the proxy. It must still reach the browser.
+	payload := `{"version":1,"padding":"` + strings.Repeat("x", 8<<20) + `"}`
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, payload)
+	}))
+	defer remote.Close()
+	h := newHandler(t, remote.URL)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1:8790/api/dashboard", nil))
+	if w.Code != http.StatusOK || w.Body.String() != payload {
+		t.Fatalf("large snapshot was not forwarded intact: %d bytes, status %d", w.Body.Len(), w.Code)
+	}
+}
+
 func TestUnavailableGatewayAndRedirectDoNotLeakDetails(t *testing.T) {
 	for _, status := range []int{401, 404, 500, 302} {
 		t.Run(http.StatusText(status), func(t *testing.T) {

@@ -219,14 +219,16 @@ func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
 		writeUnavailable(w, http.StatusBadGateway, code)
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
-	if err != nil || len(data) > 8<<20 || !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+	if !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
 		writeUnavailable(w, http.StatusBadGateway, "invalid_gateway_response")
 		return
 	}
+	// Retained history has no request-count, age, or file-size limit, so the
+	// snapshot is not bounded either. Stream it instead of rejecting a valid
+	// snapshot once it outgrows an in-memory proxy cap.
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodHead {
-		_, _ = w.Write(data)
+		_, _ = io.Copy(w, response.Body)
 	}
 }
 
