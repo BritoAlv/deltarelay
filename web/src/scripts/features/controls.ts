@@ -1,4 +1,4 @@
-import { connectionState, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../../lib/system.js"
+import { connectionState, recoveryStatus, sendControl, shutdownInProgress, shutdownStatus, supportsRemote, type SystemStatus } from "../../lib/system.js"
 import { iconMarkup, remoteHostIcon } from "../../lib/icons.js"
 import { edgeChannel, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
 import { edgePath, responsePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
@@ -116,22 +116,25 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     transportHeading.querySelector("[data-boundary-label]")!.textContent = transport.label
     transportHeading.querySelector("[data-boundary-title]")!.textContent = transport.title
     setText("map-boundary-tunnel-description", `${transport.label} · ${transport.title}. ${transport.detail}`)
-    const disabled = stale || pending || !system?.managed || Boolean(system?.recovery.busy) || topology?.run?.status === "running"
+    const unavailable = stale || pending || !system?.managed
+    const disabled = unavailable || Boolean(system?.recovery.busy) || topology?.run?.status === "running"
     const stopped = topology?.intent.system === "stopped"
+    const remoteStopped = topology?.intent.remote === "stopped"
+    const canShutdown = !unavailable && !shutdownInProgress(system)
     const canWake = supportsRemote(system, "host.wake")
     const canStop = supportsRemote(system, "host.stop")
     startSystem.disabled = disabled || !topology
-    stopSystem.disabled = disabled || !topology || Boolean(topology.shutdown_blockers.length)
-    stopSystem.title = topology?.shutdown_blockers.length ? `Configure stop_command for: ${topology.shutdown_blockers.join(", ")}` : "Stop the managed applications; keep this dashboard and its supervisor running."
-    autoReconnect.disabled = disabled || Boolean(stopped)
+    stopSystem.disabled = !canShutdown || !topology || Boolean(topology.shutdown_blockers.length)
+    stopSystem.title = topology?.shutdown_blockers.length ? `Configure stop_command for: ${topology.shutdown_blockers.join(", ")}` : "Stop managed applications and, when supported, the remote host. Recovery is cancelled first; the dashboard and supervisor stay running."
+    autoReconnect.disabled = disabled || Boolean(stopped || remoteStopped)
     autoWakeSetting.hidden = !canWake
-    autoWake.disabled = disabled || !canWake || Boolean(stopped)
+    autoWake.disabled = disabled || !canWake || Boolean(stopped || remoteStopped)
     if (!pending) {
       autoReconnect.checked = system?.settings.auto_reconnect ?? false
       autoWake.checked = system?.settings.auto_wake ?? false
     }
     const availability = requiredById<HTMLElement>(root, "settings-availability")
-    const settingsReason = loading ? "Loading supervisor status…" : stale ? "Settings are unavailable until fresh supervisor status is available." : !system?.managed ? "Settings require a managed supervisor." : pending ? "Saving or submitting an operation…" : stopped ? "Use Start / recover system in Controls before changing recovery settings." : disabled ? "Settings are unavailable while a recovery operation is running." : ""
+    const settingsReason = loading ? "Loading supervisor status…" : stale ? "Settings are unavailable until fresh supervisor status is available." : !system?.managed ? "Settings require a managed supervisor." : pending ? "Saving or submitting an operation…" : disabled ? "Settings are unavailable while a recovery operation is running." : stopped || remoteStopped ? "Explicitly resume the stopped system or wake the remote host in Controls before changing recovery settings." : ""
     availability.hidden = !settingsReason
     availability.textContent = settingsReason
 
@@ -139,25 +142,38 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     if (system) {
       const connection = connectionState(system)
       const badge = requiredById(root, "control-connection")
-      badge.textContent = stale ? "Stale" : stopped ? "System stopped" : system.recovery.busy ? "Recovering" : connection === "connected" ? "Relay connected" : connection === "remote_stopped" ? "Remote host stopped" : connection === "no_internet" ? "Waiting for network" : "Connection unavailable"
+      const shutdownActive = shutdownInProgress(system)
+      const shutdownLabel = shutdownActive ? "Shutting down"
+        : canStop && system.remote.host_state !== "stopped" ? "Shutdown unconfirmed"
+          : stopped ? "System stopped" : "Remote host stopped"
+      badge.textContent = stale ? "Stale"
+        : stopped || remoteStopped ? shutdownLabel
+          : system.recovery.busy ? "Recovering"
+            : connection === "connected" ? "Relay connected"
+              : connection === "remote_stopped" ? "Remote host stopped"
+                : connection === "no_internet" ? "Waiting for network" : "Connection unavailable"
       badge.className = `status-pill ${!stale && !stopped && connection === "connected" ? "good" : "neutral"}`
       const run = topology?.run
       const current = topology?.nodes.find((node) => node.id === run?.current_component)
-      setText("recovery-status", stopped ? "System intentionally stopped. The dashboard and supervisor remain available. Use Start / recover system to resume automatic operation." : run?.status === "running" && current ? `${current.label}: ${run.current_action}…` : recoveryStatus(system))
+      setText("recovery-status", shutdownStatus(system) ?? (run?.status === "running" && current ? `${current.label}: ${run.current_action}…` : recoveryStatus(system)))
       setText("network-changes", topology ? topology.network.generation.toLocaleString() : "Unavailable")
       setTime("network-changed-at", topology?.network.changed_at, topology ? "None observed" : "Unavailable")
       setBadge("recovery-mode", system.settings.auto_reconnect ? "Enabled" : "Paused", stale ? "neutral" : system.settings.auto_reconnect ? "good" : "neutral")
       setText("recovery-attempts", system.recovery.attempts.toLocaleString())
       setTime("recovery-next-retry", system.recovery.next_retry_at, "Not scheduled")
       setTime("recovery-last-connected", system.recovery.last_connected_at, "Not yet connected")
-      setText("shutdown-remote", canStop ? "Also stops" : "Manage separately")
+      const remoteShutdown = !canStop ? "Manage separately"
+        : !(stopped || remoteStopped) ? "Also stops"
+          : system.remote.host_state === "stopped" ? "Confirmed stopped"
+            : shutdownActive ? "Confirming stop" : "Unconfirmed"
+      setText("shutdown-remote", remoteShutdown)
       setBadge("shutdown-readiness", !topology ? "Unavailable" : topology.shutdown_blockers.length ? "Configuration needed" : "Configured", stale || !topology ? "neutral" : topology.shutdown_blockers.length ? "warning" : "good")
       const blockers = requiredById<HTMLElement>(root, "shutdown-blockers")
       blockers.hidden = !topology?.shutdown_blockers.length
       setText("shutdown-blockers", topology?.shutdown_blockers.length ? `Configure stop_command for: ${topology.shutdown_blockers.join(", ")}. No services will be stopped until these commands are configured.` : "")
     }
 
-    components.update(system, stale, disabled)
+    components.update(system, stale, disabled, canShutdown)
     for (const button of buttons) {
       if (button.dataset.nodeId === "remote") {
         const icon = button.querySelector<HTMLElement>("[data-node-icon]")!
@@ -208,17 +224,21 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   }
 
   async function actionRequest(component: string, action: ComponentAction) {
-    if (destroyed || !system || stale || pending || !system.managed || system.recovery.busy || !system.topology || system.topology.run?.status === "running") return
+    if (destroyed || !system || stale || pending || !system.managed || !system.topology) return
+    const stopping = action === "stop" && (component === "all" || component === "remote")
+    if ((system.recovery.busy || system.topology.run?.status === "running") && (!stopping || shutdownInProgress(system))) return
     if (component !== "all") {
       const node = system.topology.nodes.find((node) => node.id === component)
-      const stoppedIntent = system.topology.intent.system === "stopped" && action !== "open" && !(component === "remote" && action === "stop")
+      const remotePaused = system.topology.intent.remote === "stopped" && ["tunnel", "relay"].includes(component) && action !== "stop"
+      const stoppedIntent = (system.topology.intent.system === "stopped" || remotePaused) && action !== "open"
+        && !(component === "remote" && action === "stop")
       if (!node?.actions.includes(action) || stoppedIntent || action === "start" && ["running", "starting", "started"].includes(node.lifecycle)) return
       if (component === "remote" && (action === "stop" || action === "wake") && !supportsRemote(system, action === "stop" ? "host.stop" : "host.wake")) return
     }
     const systemAction = component === "all"
     const needsConfirmation = ["restart", "stop", "wake"].includes(action) || systemAction && action === "start"
     if (needsConfirmation) {
-      const explanation = systemAction && action === "start" ? `Start missing configured local applications, recover the connection and enable automatic recovery?${supportsRemote(system, "host.wake") ? " The existing remote host may be woken and compute billing may resume. Automatic wake permission is not enabled." : " The remote host must already be running; this provider does not support waking it."}` : systemAction && action === "stop" ? `Shut down the managed local applications${supportsRemote(system, "host.stop") ? " and remote host" : " (remote power-off is unsupported; the remote host stays running)"}? The dashboard and supervisor stay running. This computer stays on. Automatic recovery is paused before stopping anything.` : component === "remote" && action === "stop" ? "Shut down the remote host? Active requests will be interrupted. Automatic reconnect and wake will be disabled until explicitly resumed." : action === "wake" ? "Wake the existing remote host and recover its connection? Compute billing may resume. This does not enable automatic wake." : `Restart ${system.topology.nodes.find((node) => node.id === component)?.label ?? component}? Active requests may be interrupted and provider work may already be billed.`
+      const explanation = systemAction && action === "start" ? `Start missing configured local applications, recover the connection and enable automatic recovery?${supportsRemote(system, "host.wake") ? " The existing remote host may be woken and compute billing may resume. Automatic wake permission is not enabled." : " The remote host must already be running; this provider does not support waking it."}` : systemAction && action === "stop" ? `Cancel active recovery, disable automatic reconnect and wake, and shut down the managed local applications${supportsRemote(system, "host.stop") ? " and remote host" : " (remote power-off is unsupported; the remote host stays running)"}? The dashboard and supervisor stay running. This computer stays on.${supportsRemote(system, "host.stop") ? " Remote shutdown is only confirmed after the hosting provider reports the host stopped; compute charges may continue until then." : ""}` : component === "remote" && action === "stop" ? "Shut down the remote host? Active requests will be interrupted. Automatic reconnect and wake will be disabled until explicitly resumed. Compute charges may continue until the hosting provider confirms the host stopped." : action === "wake" ? "Wake the existing remote host and recover its connection? Compute billing may resume. This does not enable automatic wake." : `Restart ${system.topology.nodes.find((node) => node.id === component)?.label ?? component}? Active requests may be interrupted and provider work may already be billed.`
       if (!window.confirm(`${explanation} Saved files, tokens, cache, sessions and responses are preserved.`)) return
     }
     pending = true
@@ -239,7 +259,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   }
 
   async function settings() {
-    if (destroyed || !system || stale || pending || !system.managed || system.recovery.busy || system.topology?.run?.status === "running" || system.topology?.intent.system === "stopped") return
+    if (destroyed || !system || stale || pending || !system.managed || system.recovery.busy || system.topology?.run?.status === "running" || system.topology?.intent.system === "stopped" || system.topology?.intent.remote === "stopped") return
     const reconnect = autoReconnect.checked
     const wake = supportsRemote(system, "host.wake") && autoWake.checked
     if (wake && !system.settings.auto_wake && !window.confirm("Allow automatic wake of the existing remote host, even with this page closed? Compute billing may resume.")) { render(); return }

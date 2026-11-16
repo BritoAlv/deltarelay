@@ -69,6 +69,9 @@ class ConnectionPolicyTest(unittest.TestCase):
         self.assertEqual(next_connection_step(facts).action, 'wake')
         facts.host = 'starting'
         self.assertEqual(next_connection_step(facts).action, 'verify')
+        facts.host = 'unknown'
+        facts.host_checked = True
+        self.assertEqual(next_connection_step(facts), type(next_connection_step(facts))('remote', 'observe'))
 
 
 class NetworkMonitorTest(unittest.TestCase):

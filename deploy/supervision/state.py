@@ -43,6 +43,11 @@ def save_json(path, value):
             file.flush()
             os.fsync(file.fileno())
             os.replace(temporary, path)
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -245,6 +250,11 @@ class SupervisorState:
         with self.lock:
             previous = self.host_state
             self.host_state = value
+            self.observations['remote'] = {
+                'lifecycle': value, 'readiness': 'ready' if value == 'running' else 'unknown',
+                'detail': 'Power state reported by the hosting provider; not connection readiness.',
+                'checked_at': stamp(),
+            }
             if value == 'stopped' and self.relay_state == 'connected':
                 # Power-off invalidates an earlier authenticated probe, even
                 # when monitoring is intentionally paused.
@@ -284,7 +294,11 @@ class SupervisorState:
         self.update_recovery(busy=True, phase=phase, attempts=attempts, next_retry_at=None)
 
     def finish_operation(self):
-        self.update_recovery(busy=False, phase='monitoring')
+        intent = self.intent_copy()
+        phase = ('system_stopped' if intent['system'] == 'stopped' else
+                 'remote_stopped' if intent['remote'] == 'stopped' else 'monitoring')
+        self.update_recovery(busy=False, phase=phase,
+                             **({'next_retry_at': None} if phase != 'monitoring' else {}))
 
     def record_relay(self, relay_state):
         """Apply one completed relay probe atomically."""

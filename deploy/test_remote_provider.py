@@ -270,11 +270,33 @@ class ProviderTest(unittest.TestCase):
     def test_failed_stop_does_not_claim_shutdown_or_reenable_recovery(self):
         subject = self.subject()
         subject.prepare_provider()
-        self.write_config(error_method='host.stop', error_code='unreachable', retryable=True)
-        with self.assertRaisesRegex(contract.ProviderError, '^unreachable$'):
+        self.write_config(error_method='host.stop', error_code='authentication_failed')
+        with self.assertRaisesRegex(contract.ProviderError, '^authentication_failed$'):
             subject.stop_host()
         self.assertEqual(subject.state.host_value(), 'unknown')
         self.assertEqual(self.subject().state.settings_copy(), {'auto_reconnect': False, 'auto_wake': False})
+
+    def test_provider_pins_the_active_profile_before_a_pointer_switch(self):
+        first = self.root / 'first'
+        second = self.root / 'second'
+        first.mkdir(mode=0o700)
+        second.mkdir(mode=0o700)
+        for directory, state in ((first, 'running'), (second, 'stopped')):
+            (directory / 'host.state').write_text(state)
+            path = directory / 'provider.json'
+            path.write_text(json.dumps({**self.config, 'state_file': str(directory / 'host.state')}))
+            path.chmod(0o600)
+        active = self.root / 'current'
+        active.symlink_to(first, target_is_directory=True)
+        self.spec['config_file'] = str(active / 'provider.json')
+        client = self.client()
+        client.prepare()
+        active.unlink()
+        active.symlink_to(second, target_is_directory=True)
+        self.assertEqual(client.call('status'), {'host_state': 'running'})
+        self.assertEqual(client.call('host.stop'), {'host_state': 'stopped'})
+        self.assertEqual((first / 'host.state').read_text(), 'stopped')
+        self.assertEqual(self.client().call('status'), {'host_state': 'stopped'})
 
     def test_stopped_host_is_never_woken_indirectly_through_tunnel_recovery(self):
         self.state.write_text('stopped')

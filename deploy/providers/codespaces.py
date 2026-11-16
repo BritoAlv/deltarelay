@@ -41,7 +41,7 @@ class CodespacesProvider:
 
     def status(self):
         try:
-            state = json.loads(self.run([self.cli, 'api', '--method', 'GET', self.endpoint, '--jq', '{state: .state}'], timeout=10)).get('state')
+            state = json.loads(self.run([self.cli, 'api', '--method', 'GET', self.endpoint, '--jq', '{state: .state}'], timeout=5)).get('state')
         except (ValueError, AttributeError):
             raise ProviderError('host_unavailable') from None
         if not isinstance(state, str) or state not in STATES:
@@ -80,25 +80,37 @@ class CodespacesProvider:
                 'port': url.port}}
         if method == 'status':
             return {'host_state': self.status()}
-        if method in ('host.wake', 'host.stop'):
-            state = self.status()
-            wanted = 'running' if method == 'host.wake' else 'stopped'
-            if state == wanted:
+        if method == 'host.stop':
+            try:
+                state = self.status()
+            except ProviderError as error:
+                if str(error) not in ('command_failed', 'command_timeout', 'host_unavailable'):
+                    raise
+                state = 'unknown'
+            if state in ('stopped', 'stopping'):
                 return {'host_state': state}
-            if method == 'host.wake' and state == 'stopped':
+            try:
+                self.run([self.cli, 'api', '--method', 'POST', self.endpoint + '/stop', '--silent'], timeout=15)
+            except ProviderError as error:
+                if str(error) not in ('command_failed', 'command_timeout'):
+                    raise
+                # A lost response is not proof of rejection. Never repeat POST;
+                # the supervisor confirms actual power state using read-only GETs.
+                return {'host_state': 'unknown'}
+            # Keep cloud request and confirmation separate. Long GitHub shutdowns
+            # must not exhaust the executable-provider timeout while hiding state
+            # transitions from Controls.
+            return {'host_state': 'stopping'}
+        if method == 'host.wake':
+            state = self.status()
+            if state == 'running':
+                return {'host_state': state}
+            if state == 'stopped':
                 self.run([self.cli, 'api', '--method', 'POST', self.endpoint + '/start', '--silent'])
-            elif method == 'host.stop' and state != 'stopping':
-                try:
-                    self.run([self.cli, 'api', '--method', 'POST', self.endpoint + '/stop', '--silent'], timeout=15)
-                except ProviderError as error:
-                    if str(error) not in ('command_failed', 'command_timeout'):
-                        raise
-                    # POST may have been accepted before gh lost its response.
-                    # Never send it twice; confirm actual power state instead.
-            return self.wait(wanted, timeout=80 if method == 'host.stop' else 120)
+            return self.wait('running')
         if method in ('relay.ensure', 'relay.restart'):
             state = self.status()
-            if state == 'stopped':
+            if state in ('stopped', 'stopping'):
                 raise ProviderError('host_stopped')
             if state != 'running':
                 self.wait('running')

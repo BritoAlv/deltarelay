@@ -254,8 +254,9 @@ export function mountComponentTable(root: HTMLElement, onAction: (id: NodeID, ac
   updateSortControls()
   applyView()
   return {
-    update(system: SystemStatus | null, stale: boolean, disabled: boolean) {
+    update(system: SystemStatus | null, stale: boolean, disabled: boolean, canShutdown = false) {
       const stopped = system?.topology?.intent.system === "stopped"
+      const remoteStopped = system?.topology?.intent.remote === "stopped"
       for (const row of rows) {
         const id = row.dataset.componentId as NodeID
         if (id === "remote") {
@@ -279,7 +280,7 @@ export function mountComponentTable(root: HTMLElement, onAction: (id: NodeID, ac
         const actions = (node?.actions ?? []).filter((action) => Object.hasOwn(actionLabels, action) && (id !== "remote" || action !== "stop" && action !== "wake" || supportsRemote(system, action === "stop" ? "host.stop" : "host.wake")))
         const started = node && ["running", "starting", "started"].includes(node.lifecycle)
         const primary = actions.includes("start") && !started ? "start" : actions.includes("recover") ? "recover" : actions.includes("wake") && node?.lifecycle === "stopped" ? "wake" : actions.includes("open") ? "open" : null
-        const signature = JSON.stringify([actions, primary, disabled, stopped, started, node?.label])
+        const signature = JSON.stringify([actions, primary, disabled, canShutdown, stopped, remoteStopped, started, node?.label])
         if (signatures.get(id) === signature) continue
         signatures.set(id, signature)
         const focused = doc.activeElement as HTMLElement | null
@@ -292,8 +293,11 @@ export function mountComponentTable(root: HTMLElement, onAction: (id: NodeID, ac
           button.textContent = actionLabels[action]
           button.setAttribute("aria-label", `${action} ${node!.label}`)
           if (["restart", "wake", "stop"].includes(action)) button.title = "Requires confirmation"
-          const stoppedIntent = Boolean(stopped) && action !== "open" && !(id === "remote" && action === "stop")
-          button.disabled = disabled || stoppedIntent || action === "start" && Boolean(started)
+          const remotePaused = Boolean(remoteStopped) && (id === "tunnel" || id === "relay") && action !== "stop"
+          const stoppedIntent = (Boolean(stopped) || remotePaused) && action !== "open"
+            && !(id === "remote" && action === "stop")
+          const emergencyRemoteStop = id === "remote" && action === "stop" && canShutdown
+          button.disabled = (disabled && !emergencyRemoteStop) || stoppedIntent || action === "start" && Boolean(started)
           if (stoppedIntent) button.title = "Use Start / recover system to resume the intentionally stopped stack."
           if (id === "remote" && action === "stop") button.id = "stop-remote"
           return button

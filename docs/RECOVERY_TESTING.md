@@ -195,6 +195,11 @@ Never enable auto-wake silently.
 
 **Shut down VPS** saves automatic reconnect/wake as off before requesting
 shutdown. These settings remain off even if shutdown fails or is incomplete.
+Start a recover or wake operation and press **Shut down system…** while it runs:
+the recovery command must be cancelled, the local tunnel stopped, and only then
+may the provider stop request be sent. Also run `./deltarelay stop --yes` and
+confirm it reports the provider-confirmed state; a timeout must report
+**Shutdown unconfirmed — compute charges may continue**, never "stopped".
 
 ### 10. System shutdown, persistence, and resume
 

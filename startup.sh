@@ -25,6 +25,7 @@ Builds use Go and the offline pnpm cache; nothing is downloaded.
 The supervisor survives closing the terminal or browser. Dashboard settings select
 automatic reconnect and remote-host auto-wake (off initially, because billing may resume).
 Wake/Stop appear only when supported. Restarts never erase tokens, cache, or history.
+Stop local services and confirm remote shutdown with: ./deltarelay stop --yes
 --no-desktop skips the initial OpenCode/Desktop launch.
 --no-dashboard skips a new dashboard launch; existing services are left running.
 Configure the dashboard address in the private supervisor configuration.

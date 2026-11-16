@@ -89,12 +89,16 @@ export function connectionState(system: SystemStatus): ConnectionState {
 
 export function recoveryStatus(system: SystemStatus): string {
   if (system.error) return controlError(system.error)
+  const shutdown = shutdownStatus(system)
+  if (shutdown) return shutdown
   if (system.recovery.busy) {
     const details: Record<string, string> = {
       waking_remote_host: "Waiting for the host to run; connecting and verifying the relay comes next.",
       waiting_for_remote_host: "The host is still starting. Relay connectivity is not confirmed yet.",
       connecting_tunnel: "Waiting for the tunnel and authenticated relay. A running host alone is not a working connection.",
       verifying_connection: "Checking authenticated relay health, even if remote SSH recovery timed out.",
+      stopping_system: "Automatic recovery and wake are off. Active recovery is being cancelled before shutdown.",
+      stopping_remote_host: "Waiting for the hosting provider to confirm shutdown. Compute charges may continue until it stops.",
     }
     const detail = details[system.recovery.phase]
     return `In progress: ${system.recovery.phase.replaceAll("_", " ")}${detail ? `. ${detail}` : ""}`
@@ -109,6 +113,30 @@ export function recoveryStatus(system: SystemStatus): string {
   if (error) return controlError(error) + paused
   if (connection === "connected") return system.settings.auto_reconnect ? "Authenticated relay is reachable. VPN changes are monitored in the background." : "Authenticated relay is reachable. Automatic recovery is off; a dropped connection will not be repaired automatically."
   return "Monitoring relay connectivity." + paused
+}
+
+export function shutdownStatus(system: SystemStatus): string | null {
+  const intent = system.topology?.intent
+  if (intent?.system !== "stopped" && intent?.remote !== "stopped") return null
+  const paused = "Automatic recovery and wake remain off."
+  if (!supportsRemote(system, "host.stop")) return `Local system intentionally stopped. Remote power-off is unsupported; remote billing may continue. ${paused}`
+  if (system.remote.host_state === "stopped") {
+    const checked = system.topology?.nodes.find((node) => node.id === "remote")?.checked_at
+    const local = system.recovery.last_error && !["host_stopped", "host_stop_timeout"].includes(system.recovery.last_error)
+      ? ` ${controlError(system.recovery.last_error)}` : ""
+    return `Remote shutdown confirmed by ${system.remote.label}${checked ? ` at ${new Date(checked).toLocaleString()}` : ""}. ${paused} Storage charges may continue.${local}`
+  }
+  const busy = system.recovery.busy || system.topology?.run?.status === "running"
+  if (busy) return `Shutdown in progress. Waiting for the hosting provider to confirm the remote host is stopped. ${paused} Compute charges may continue until confirmation.`
+  const error = system.recovery.last_error && system.recovery.last_error !== "host_stopped" ? ` ${controlError(system.recovery.last_error)}` : ""
+  return `Shutdown unconfirmed — compute charges may continue. The remote host is ${system.remote.host_state}. ${paused} Retry shutdown or check your hosting provider.${error}`
+}
+
+export function shutdownInProgress(system: SystemStatus | null): boolean {
+  if (!system || !(system.recovery.busy || system.topology?.run?.status === "running")) return false
+  const intent = system.topology?.intent
+  const stoppingRun = system.topology?.run?.action === "stop" && ["all", "remote"].includes(system.topology.run.target)
+  return intent?.system === "stopped" || intent?.remote === "stopped" || stoppingRun
 }
 
 export function desktopLaunchState(system: SystemStatus | null, stale = false, pending = false): { disabled: boolean; detail: string } {
@@ -150,7 +178,7 @@ export function controlError(code: string): string {
     supervisor_unavailable: "The local supervisor is unavailable. Run startup.sh to recover it; the gateway is not required for these controls.",
     host_stopped: "The remote host is stopped. Wake it manually, or enable automatic wake if supported. Compute billing may resume.",
     host_unavailable: "The remote host could not be confirmed ready. Check your hosting provider and network connection.",
-    host_stop_timeout: "Remote shutdown was not confirmed before the timeout. Automatic reconnect and wake remain off. Check your hosting provider before retrying.",
+    host_stop_timeout: "Remote shutdown was not confirmed before the timeout; compute charges may continue. Automatic reconnect and wake remain off. Check your hosting provider before retrying.",
     relay_ssh_timeout: "Remote SSH relay recovery timed out. A running machine does not confirm SSH or relay health. Check the deployment, VPN, and tunnel.",
     relay_recovery_failed: "Remote SSH/relay recovery failed. Check the existing deployment, VPN, and tunnel; no state was reset.",
     provider_timeout: "The remote-host plugin timed out. Check its private configuration and dependencies.",
@@ -160,7 +188,7 @@ export function controlError(code: string): string {
     unsupported_operation: "This remote-host provider does not support that operation.",
     command_failed: "A configured service command failed. Check the private supervisor/service logs.",
     command_timeout: "A configured service command timed out. Check the private supervisor/service logs.",
-    operation_cancelled: "Recovery stopped because the supervisor is shutting down. Existing services and saved state were left intact.",
+    operation_cancelled: "The operation was cancelled by shutdown. Check System controls for the current service and remote power states. Saved state was preserved.",
     operation_in_progress: "Another service operation is in progress. Wait for it to finish.",
     shutdown_not_configured: "System shutdown needs an explicit stop command for every managed local service. Configure the missing lifecycle actions; no services were stopped.",
     component_not_ready: "The component did not pass its local readiness check before the deadline. Automatic retries are bounded; inspect its node on the map.",

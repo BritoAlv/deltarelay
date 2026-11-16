@@ -34,10 +34,13 @@ from .onboarding import RemoteSetup
 from .contracts import Observation
 from .coordinator import Coordinator
 from .network import NetworkMonitor
+from .cancellation import Cancellation
+from .topology import shutdown_blockers
 
 
 RELAY_READINESS_TIMEOUT = 30
 RELAY_READINESS_ATTEMPTS = 16
+HOST_STOP_TIMEOUT = 180
 
 
 def component_step(method):
@@ -78,7 +81,11 @@ class Supervisor:
                 raise ControlError('invalid_settings')
             settings = loaded
         self.operation = threading.Lock()
+        self.control_lock = threading.RLock()
         self.stop = threading.Event()
+        self.interrupt = threading.Event()
+        self.cancel = Cancellation(self.stop, self.interrupt)
+        self.pending_stop = None
         self.journal = ActivityJournal(self.directory, self.config, self.stop)
         self.journal.write('event', f'Supervisor starting pid={os.getpid()} profile={self.root}; settings={settings}')
         if gate_decision == 'enabled':
@@ -89,16 +96,16 @@ class Supervisor:
         self.command_runner = command_runner
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
         self.provider = (ExecutableProvider(self.config['remote'], self.config['relay_url'],
-                                            self.stop, trace=self.journal.sink('provider'))
+                                            self.cancel, trace=self.journal.sink('provider'))
                          if 'remote' in self.config else None)
         metadata = self.provider.metadata if self.provider else {'id': 'unconfigured', 'label': 'Remote host not set up', 'capabilities': []}
         self.state = SupervisorState(self.config, settings, metadata, journal=self.journal)
-        self.setup = RemoteSetup(self.config, self.directory, self.journal, self.stop)
+        self.setup = RemoteSetup(self.config, self.directory, self.journal, self.cancel)
         self.processes = processes or ProcessManager(self.config, self.root, self.directory,
                                                      self.state, self.stop, clock=self.clock, journal=self.journal)
         self.probes = probes or RelayProbe(self.config, self.opener, trace=self.journal.sink('network'))
         self.policy = policy or RecoveryPolicy(clock=self.clock)
-        self.intent_lock = threading.Lock()
+        self.intent_lock = threading.RLock()
         intent_file = self.directory / 'intent.json'
         if intent_file.exists() or intent_file.is_symlink():
             intent = private_json(intent_file)
@@ -108,6 +115,10 @@ class Supervisor:
                     any(name not in COMPONENTS or type(value) is not bool for name, value in intent['components'].items())):
                 raise ControlError('configuration_error')
             self.state.set_intent(intent)
+            # A crash between the intent and settings writes must still load a
+            # paused system, not revive an earlier automatic-wake permission.
+            if intent['system'] == 'stopped' or intent['remote'] == 'stopped':
+                self.update_settings({'auto_reconnect': False, 'auto_wake': False})
         self.history = StateHistory(self.directory / 'state-history.jsonl', journal=self.journal)
         self.state.on_change = self._observe_history
         self.history.start(classify(self.state.history_observation()))
@@ -122,9 +133,24 @@ class Supervisor:
 
     def _run(self, command, **kwargs):
         runner = self.command_runner or run_command
-        return runner(command, cancel=self.stop, trace=self.journal.sink(), **kwargs)
+        return runner(command, cancel=self.cancel, trace=self.journal.sink(), **kwargs)
+
+    def check_cancelled(self):
+        if self.cancel.is_set():
+            raise ControlError('operation_cancelled')
+
+    def require_running(self, name):
+        """All service-start paths honor persisted intent, not just the scheduler."""
+        self.check_cancelled()
+        intent = self.state.intent_copy()
+        if name != 'dashboard' and intent['system'] == 'stopped':
+            raise ControlError('system_stopped')
+        if name in ('remote', 'relay', 'tunnel') and intent['remote'] == 'stopped':
+            raise ControlError('host_stopped')
 
     def provider_call(self, method, params=None):
+        if method in ('host.wake', 'relay.ensure', 'relay.restart'):
+            self.require_running('remote')
         self.journal.write('event', f'Provider {method} started', component='provider')
         try:
             result = self.provider.call(method, params)
@@ -148,10 +174,25 @@ class Supervisor:
         self.history.close()
         self.journal.close()
 
-    def persist_intent(self, intent):
+    def persist_intent(self, intent, *, stopping=False):
         with self.intent_lock:
+            if not stopping:
+                self.check_cancelled()
             save_json(self.directory / 'intent.json', intent)
             self.state.set_intent(intent)
+
+    def suspend_recovery(self, *, system=False, interrupt=False):
+        """Commit stop intent before cancelling work or changing any service."""
+        with self.intent_lock:
+            intent = self.state.intent_copy()
+            intent['remote'] = 'stopped'
+            if system:
+                intent['system'] = 'stopped'
+            self.persist_intent(intent, stopping=True)
+            if interrupt:
+                self.interrupt.set()
+            self.update_settings({'auto_reconnect': False, 'auto_wake': False})
+            self.state.update_recovery(next_retry_at=None)
 
     def network_changed(self):
         self.state.network_changed()
@@ -214,8 +255,7 @@ class Supervisor:
         return self.setup.status(self.state.recovery_value('busy'))
 
     def submit_setup(self, value):
-        if self.stop.is_set():
-            raise ControlError('operation_cancelled')
+        self.require_running('remote')
         if not self.operation.acquire(blocking=False):
             raise ControlError('operation_in_progress')
         try:
@@ -233,7 +273,7 @@ class Supervisor:
                 try:
                     remote = self.setup.install(request)
                     self.config['remote'] = remote
-                    self.provider = ExecutableProvider(remote, self.config['relay_url'], self.stop,
+                    self.provider = ExecutableProvider(remote, self.config['relay_url'], self.cancel,
                                                        trace=self.journal.sink('provider'))
                     self.recover()
                 except ControlError as error:
@@ -257,37 +297,53 @@ class Supervisor:
             raise ControlError('invalid_settings')
         if value['auto_wake'] and not self.supports('host.wake'):
             raise ControlError('unsupported_operation')
-        self.state.apply_settings(value, lambda settings: save_json(self.directory / 'settings.json', settings))
+        with self.intent_lock:
+            if any(value.values()):
+                self.require_running('remote')
+            self.state.apply_settings(value, lambda settings: save_json(self.directory / 'settings.json', settings))
         self.journal.write('event', f'Recovery settings persisted: {value}', component='settings')
         self.policy.reset_attempt()
 
     def _identity(self, name):
         return self.processes.identity(name)
 
+    def guard_tunnel(self):
+        """Only start a transport after fresh proof that compute is running."""
+        if self.provider is not None and self.provider.connection is None:
+            try:
+                # Capabilities may still be undiscovered after a supervisor
+                # restart. Discover them BEFORE deciding that a gh transport is
+                # safe to start; an empty capability list is not proof of safety.
+                self.prepare_provider()
+            except ControlError:
+                self.state.set_host_state('unknown')
+                raise
+        if not self.supports('host.wake'):
+            return
+        try:
+            host_state = self.provider_call('status')['host_state']
+        except ControlError:
+            self.state.set_host_state('unknown')
+            # gh connection commands can implicitly wake compute. A cached
+            # running state is not authorization to connect during an outage.
+            raise
+        self.state.set_host_state(host_state)
+        if host_state in ('stopped', 'stopping'):
+            raise ControlError('host_stopped')
+        if host_state != 'running':
+            raise ControlError('host_unavailable')
+
     @component_step
     def start_component(self, name):
-        if self.stop.is_set():
-            raise ControlError('operation_cancelled')
+        self.require_running(name)
         if name == 'gateway' and self.provider is None:
             raise ControlError('setup_required')
         spec = self.config['components'].get(name)
         if not spec:
             raise ControlError('component_unmanaged')
-        if name == 'tunnel' and self.supports('host.wake'):
-            try:
-                host_state = self.provider_call('status')['host_state']
-            except ControlError as error:
-                if str(error) not in RETRYABLE:
-                    raise
-                # A provider API outage is not a broken local transport. Keep the
-                # last verified power state and let this local repair proceed;
-                # starting a forward never wakes the remote host.
-                host_state = self.state.host_value()
-                self.journal.write('event', f'Tunnel start continuing without a fresh host status: {error}; last observed state={host_state}', component='tunnel')
-            else:
-                self.state.set_host_state(host_state)
-            if host_state in ('stopped', 'stopping'):
-                raise ControlError('host_stopped')
+        if name == 'tunnel':
+            self.guard_tunnel()
+        self.require_running(name)
         if 'command' not in spec:
             command = spec.get('start_command')
             if not command:
@@ -299,9 +355,12 @@ class Supervisor:
 
     @component_step
     def restart_component(self, name):
+        self.require_running(name)
         spec = self.config['components'].get(name)
         if not spec:
             raise ControlError('component_unmanaged')
+        if name == 'tunnel':
+            self.guard_tunnel()
         if 'command' not in spec:
             if not spec.get('restart_command'):
                 raise ControlError('component_unmanaged')
@@ -359,31 +418,55 @@ class Supervisor:
         self.state.set_internet('connected', stamp(), 0.0)
 
     def wait_for_host(self, wanted, result):
-        deadline = self.clock() + 120
+        deadline = self.clock() + (HOST_STOP_TIMEOUT if wanted == 'stopped' else 120)
         self.state.set_host_state(result['host_state'])
         while self.state.host_value() != wanted:
             self.journal.write('event', f'Waiting for host={wanted}; observed={self.state.host_value()}; polling in 3s', component='provider')
-            if self.stop.wait(3):
+            if self.cancel.wait(3):
                 raise ControlError('operation_cancelled')
             if self.clock() >= deadline:
                 raise ControlError('host_stop_timeout' if wanted == 'stopped' else 'host_unavailable')
-            self.state.set_host_state(self.provider_call('status')['host_state'])
+            try:
+                self.state.set_host_state(self.provider_call('status')['host_state'])
+            except ControlError as error:
+                self.state.set_host_state('unknown')
+                if str(error) not in RETRYABLE:
+                    raise
+                # Only successful provider observations establish power state.
+                # A transient API failure must not discard an accepted shutdown.
+                self.journal.write('event', f'Host confirmation temporarily unavailable: {error}', component='provider')
 
     def stop_host(self, stop_tunnel=True):
         # Persist suppression before any tunnel/provider operation, including a
         # failed shutdown. Neither a retry nor a supervisor restart may wake it.
-        intent = self.state.intent_copy()
-        intent['remote'] = 'stopped'
-        self.persist_intent(intent)
-        self.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        self.suspend_recovery()
+        local_error = None
         if stop_tunnel and 'command' in self.config['components'].get('tunnel', {}):
-            self.stop_component('tunnel')
-        self.wait_for_host('stopped', self.provider_call('host.stop'))
+            try:
+                self.stop_component('tunnel')
+            except Exception as error:
+                local_error = error
+        self.state.set_host_state('unknown')
+        # A shutdown attempt invalidates an earlier authenticated relay probe,
+        # even before the provider confirms power-off.
+        self.state.set_relay_state('unknown')
+        self.state.update_recovery(phase='stopping_remote_host')
+        try:
+            result = self.provider_call('host.stop')
+        except ControlError as error:
+            if str(error) not in RETRYABLE:
+                raise
+            self.journal.write('event', f'Shutdown request outcome uncertain: {error}; confirming through read-only status', component='provider')
+            result = {'host_state': 'unknown'}
+        self.wait_for_host('stopped', result)
         self.state.set_relay_state('unreachable')
         self.state.set_component('relay', 'stopped')
         self.state.update_recovery(last_error='host_stopped')
+        if local_error:
+            raise local_error
 
     def remote(self, wake=False, restart=False):
+        self.require_running('remote')
         blocked = self.policy.provider_blocked_value()
         if blocked:
             self.journal.write('error', f'Remote operation blocked by permanent failure: {blocked}')
@@ -431,7 +514,7 @@ class Supervisor:
         deadline = self.clock() + RELAY_READINESS_TIMEOUT
         for attempt in range(RELAY_READINESS_ATTEMPTS):
             self.journal.write('event', f'Relay readiness check {attempt + 1}/{RELAY_READINESS_ATTEMPTS}', component='network')
-            if self.stop.wait(min(2, max(0, deadline - self.clock())) if attempt else 0):
+            if self.cancel.wait(min(2, max(0, deadline - self.clock())) if attempt else 0):
                 raise ControlError('operation_cancelled')
             state = self.observe_relay()
             if state == 'connected':
@@ -446,6 +529,12 @@ class Supervisor:
         return self.coordinator.connection(wake=wake)
 
     def submit(self, value):
+        # Requests never wait for the mutation lane while holding this lock.
+        # A stop can persist suppression and cancel its current owner immediately.
+        with self.control_lock:
+            return self._submit(value)
+
+    def _submit(self, value):
         if not isinstance(value, dict) or set(value) - {'component', 'action', 'confirmed', 'request_id'}:
             raise ControlError('invalid_action')
         if self.stop.is_set():
@@ -480,21 +569,52 @@ class Supervisor:
             if (previous['target'], previous['action']) != (name, action):
                 raise ControlError('invalid_action')
             return previous['id']
-        if not self.operation.acquire(blocking=False):
+        if self.pending_stop:
+            operation, target, previous_request = self.pending_stop
+            if request_id and request_id == previous_request and name == target and action == 'stop':
+                return operation
+            raise ControlError('operation_in_progress')
+        stopping = action == 'stop' and name in ('all', 'remote')
+        if stopping and name == 'all' and shutdown_blockers(self.state):
+            raise ControlError('shutdown_not_configured')
+        acquired = self.operation.acquire(blocking=False)
+        if not acquired and not stopping:
             raise ControlError('operation_in_progress')
         operation = operation_id()
+        try:
+            if stopping:
+                self.suspend_recovery(system=name == 'all', interrupt=True)
+                self.pending_stop = (operation, name, request_id)
+            if acquired:
+                self._begin_control(name, action, operation, request_id)
+            else:
+                self.state.update_recovery(phase='stopping_system' if name == 'all' else 'stopping_remote_host',
+                                           busy=True, next_retry_at=None)
+        except Exception:
+            if stopping:
+                self.pending_stop = None
+            if acquired:
+                self.operation.release()
+            raise
         with self.journal.context(trigger='manual', operation=operation, component=name):
             self.journal.write('event', f'Accepted control action: {action} {name}; confirmed={value.get("confirmed", False)}')
-            self.state.begin_operation(action + '_' + name)
-        try:
-            self.coordinator.begin(name, action, identifier=operation, request_id=request_id)
-        except Exception:
-            self.state.finish_operation()
-            self.operation.release()
-            raise
 
         def work():
             with self.journal.context(trigger='manual', operation=operation, component=name):
+                if not acquired:
+                    # The interrupted owner finishes its checkpoint and kills its
+                    # command group before shutdown takes over the same lane.
+                    self.operation.acquire()
+                    try:
+                        with self.control_lock:
+                            self._begin_control(name, action, operation, request_id)
+                    except Exception:
+                        with self.control_lock:
+                            self.pending_stop = None
+                        self.state.finish_operation()
+                        self.operation.release()
+                        self.journal.write('error', 'Shutdown could not acquire a live operation context; recovery remains paused.')
+                        return
                 run_work()
 
         def run_work():
@@ -524,10 +644,22 @@ class Supervisor:
                 finally:
                     self.policy.defer()
                     self.state.finish_operation()
-                    self.operation.release()
+                    with self.control_lock:
+                        if stopping:
+                            self.pending_stop = None
+                        self.operation.release()
 
         threading.Thread(target=work, daemon=True).start()
         return operation
+
+    def _begin_control(self, name, action, operation, request_id):
+        if self.stop.is_set():
+            raise ControlError('operation_cancelled')
+        # Clearing a cancelled attempt never resumes stopped intent. Only the
+        # explicitly confirmed Start/wake operations may change that intent.
+        self.interrupt.clear()
+        self.coordinator.begin(name, action, identifier=operation, request_id=request_id)
+        self.state.begin_operation(action + '_' + name)
 
     def open_editor(self, name, action):
         """Open the configured editor on request; the editor is not supervised after launch."""
@@ -604,6 +736,10 @@ class Supervisor:
             self.journal.write('event', 'Scheduled check skipped: a control operation is in progress')
             return
         try:
+            if self.interrupt.is_set():
+                # Shutdown owns the next mutation slot. Do not let a scheduled
+                # check overtake it after the interrupted recovery releases it.
+                return
             for name, spec in self.config['components'].items():
                 if 'command' in spec:
                     identity = self._identity(name)
@@ -633,6 +769,13 @@ class Supervisor:
                 # Pausing recovery must not pause read-only power observations.
                 # Never use the old host state as proof that a stopped system
                 # actually stopped its VPS (or stayed running).
+                if self.provider is not None and self.provider.connection is None:
+                    try:
+                        # Describe/connection only; no wake or transport command.
+                        self.prepare_provider()
+                    except ControlError as error:
+                        self.journal.write('error', f'Provider discovery while stopped failed: {error}', component='provider')
+                        self.policy.provider_failed(str(error), str(error) in PERMANENT)
                 if self.provider is not None and self.policy.provider_due() and self.policy.host_status_due():
                     try:
                         self.state.set_host_state(self.provider_call('status')['host_state'])

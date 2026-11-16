@@ -270,6 +270,19 @@ startup; credentials and Desktop profiles are not included in a fresh clone.
 See [supervision and controls](docs/SUPERVISION.md) for configuration and service
 management details.
 
+To stop managed local services and the remote host—and confirm remote shutdown
+for billing—use **Shut down system…** in System controls or the same operation
+from a script:
+
+```sh
+uv run ./deltarelay stop --yes
+```
+
+This disables automatic reconnect and wake before cancelling recovery, stopping
+the tunnel, and asking the provider to stop compute. A timeout is reported as
+unconfirmed and may still incur compute charges. For Codespaces, see
+[confirmed shutdown](docs/CODESPACES.md#confirmed-shutdown-for-billing-safety).
+
 ### Optional: quick local trial without a model account
 
 No model account is needed. Set the **same long random token** in both terminals

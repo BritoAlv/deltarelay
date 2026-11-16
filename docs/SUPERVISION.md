@@ -29,6 +29,8 @@ normal provider recovery still never initializes a store.
 uv run ./deltarelay start --config /private/supervisor.json
 # Leave OpenCode/Desktop alone while starting local controls and network recovery:
 uv run ./deltarelay start --config /private/supervisor.json --no-desktop
+# Stop local services and the remote host, confirming remote shutdown:
+uv run ./deltarelay stop --config /private/supervisor.json --yes
 ```
 
 Run from the checkout with uv and Python 3.14 already installed. The launcher has
@@ -324,6 +326,16 @@ are invalid, the map reports the actual blocker instead of bypassing it.
   restarts. If a service-manager component has no declared `stop_command`, the
   button is disabled and names the components that need one rather than guessing
   with broad process matching.
+- A stop **does not wait for a recovery operation to succeed**. It persists the
+  stopped intent, disables recovery/wake, cancels recovery commands, and then
+  takes the mutation lane. This prevents a recovery in progress from waking or
+  reconnecting to compute after shutdown. **Shutdown in progress** and
+  **Shutdown unconfirmed — compute charges may continue** are distinct states;
+  only a successful provider power observation reports **Remote shutdown
+  confirmed**.
+- `./deltarelay stop [--remote-only] [--yes] [--timeout SECONDS]` uses this same
+  operation. It never starts a supervisor as a fallback. An accepted stop leaves
+  recovery and wake off even when confirmation fails.
 - The connection panel shows current reachability, recovery phase, attempts, last
   successful check, and the next scheduled retry. The last recovery failure
   remains visible during retry backoff instead of being replaced by a generic

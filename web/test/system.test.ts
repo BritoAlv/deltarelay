@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, sendControl, supportsRemote, type SystemStatus } from "../src/lib/system.js"
+import { connectionState, countdown, desktopLaunchState, isSystemStatus, fetchSystem, recoveryStatus, sendControl, shutdownInProgress, shutdownStatus, supportsRemote, type SystemStatus } from "../src/lib/system.js"
 import { brandStatus } from "../src/scripts/features/brand-status.js"
 
 const status: SystemStatus = {
@@ -105,6 +105,41 @@ test("intentional remote shutdown is shown as stopped, not a VPS fault", () => {
   assert.match(recoveryStatus({ ...stopped, internet_state: "unreachable" }), /remote host is stopped/)
   assert.match(recoveryStatus({ ...stopped, recovery: { ...stopped.recovery, busy: true, phase: "stop_remote" } }), /In progress: stop remote/)
   assert.match(recoveryStatus({ ...status, remote: { ...status.remote, host_state: "stopping" }, recovery: { ...status.recovery, last_error: "host_stop_timeout" } }), /shutdown was not confirmed.*reconnect and wake remain off/)
+})
+
+test("shutdown status distinguishes in-progress, confirmed, and unconfirmed compute billing", () => {
+  const withIntent = (intent: { system: "running" | "stopped"; remote: "running" | "stopped" }, changes: Partial<SystemStatus> = {}): SystemStatus => ({
+    ...status,
+    ...changes,
+    topology: {
+      version: 1, nodes: [], edges: [], intent, shutdown_blockers: [],
+      network: { generation: 0, changed_at: null },
+      run: null,
+    },
+  })
+  const stopped = withIntent({ system: "stopped", remote: "stopped" }, {
+    settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "stopped" },
+  })
+  assert.match(recoveryStatus(stopped), /Remote shutdown confirmed by Example host/)
+  assert.match(recoveryStatus(stopped), /Recovery and wake remain off|Automatic recovery and wake remain off/)
+  assert.match(recoveryStatus(stopped), /Storage charges may continue/)
+  const stopping = withIntent({ system: "stopped", remote: "stopped" }, {
+    settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "stopping" },
+    recovery: { ...status.recovery, busy: true, phase: "stopping_remote_host" },
+  })
+  assert.match(recoveryStatus(stopping), /Shutdown in progress/)
+  assert.match(recoveryStatus(stopping), /Compute charges may continue until confirmation/)
+  assert.equal(shutdownInProgress(stopping), true)
+  const unconfirmed = withIntent({ system: "stopped", remote: "stopped" }, {
+    settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "running" },
+  })
+  assert.match(recoveryStatus(unconfirmed), /unconfirmed — compute charges may continue/)
+  assert.equal(shutdownInProgress(unconfirmed), false)
+  assert.match(recoveryStatus({ ...stopped, remote: { ...stopped.remote, capabilities: [] } }), /power-off is unsupported.*billing may continue/)
+  const remoteOnly = withIntent({ system: "running", remote: "stopped" }, {
+    settings: { auto_reconnect: false, auto_wake: false }, remote: { ...status.remote, host_state: "stopped" },
+  })
+  assert.match(recoveryStatus(remoteOnly), /Remote shutdown confirmed/)
 })
 
 test("wake progress distinguishes a running host from a verified relay connection", () => {

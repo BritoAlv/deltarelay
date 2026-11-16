@@ -2425,7 +2425,17 @@ test("controls show current recovery status without history and keep shutdown sa
   assert.equal(doc.querySelector("#recovery-progress, #recovery-steps"), null)
   assert.equal(doc.querySelector<HTMLInputElement>("#auto-reconnect")!.disabled, true)
   const shutdown = doc.querySelector<HTMLButtonElement>("#stop-system")!
-  assert.equal(shutdown.disabled, true, "conflicting lifecycle actions stay disabled during a run")
+  assert.equal(shutdown.disabled, false, "shutdown must remain available to stop an active recovery")
+  page.setConfirm((message) => {
+    assert.match(message ?? "", /Cancel active recovery.*disable automatic reconnect and wake/i)
+    return true
+  })
+  shutdown.click()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const firstAction = (action ?? {}) as Record<string, unknown>
+  assert.equal(firstAction.component, "all")
+  assert.equal(firstAction.action, "stop")
+  assert.match(String(firstAction.request_id), /^[a-f0-9]{32}$/)
   run.status = "completed"
   run.steps[0]!.status = "completed"
   status.topology!.nodes.find((node) => node.id === "tunnel")!.activity = "idle"
@@ -2439,8 +2449,10 @@ test("controls show current recovery status without history and keep shutdown sa
   })
   shutdown.click()
   await new Promise((resolve) => setTimeout(resolve, 0))
-  assert.match(String(action?.request_id), /^[a-f0-9]{32}$/)
-  assert.deepEqual({ ...action, request_id: undefined }, { component: "all", action: "stop", confirmed: true, request_id: undefined })
+  const finalAction = (action ?? {}) as Record<string, unknown>
+  assert.match(String(finalAction.request_id), /^[a-f0-9]{32}$/)
+  delete finalAction.request_id
+  assert.deepEqual(finalAction, { component: "all", action: "stop", confirmed: true })
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
   system.destroy()
@@ -2682,6 +2694,58 @@ test("intentional system stop blocks card recovery but keeps supported remote sh
   assert.equal(doc.querySelector<HTMLButtonElement>("#stop-remote")!.disabled, false)
   assert.equal(doc.querySelector<HTMLButtonElement>('[data-component-id="gateway"] [data-component-action="recover"]')!.disabled, true)
   assert.equal(doc.querySelector<HTMLInputElement>("#auto-reconnect")!.disabled, true)
+  app.destroy()
+  await page.close()
+})
+
+test("shutdown in progress disables conflicting actions and reports unconfirmed compute billing", async () => {
+  const page = openPage("controls")
+  let status = systemStatus({
+    settings: { auto_reconnect: false, auto_wake: false },
+    remote: { id: "codespaces", label: "GitHub Codespaces", host_state: "stopping", capabilities: ["host.wake", "host.stop"] },
+    recovery: { busy: true, phase: "stopping_remote_host", attempts: 0, last_error: "", last_connected_at: null, next_retry_at: null },
+  })
+  status.topology!.intent = { system: "stopped", remote: "stopped" }
+  page.setFetch(() => json(status))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  assert.match(doc.querySelector("#recovery-status")?.textContent ?? "", /Shutdown in progress.*Compute charges may continue until confirmation/)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")!.disabled, true)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#stop-system")!.disabled, true)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#stop-remote")?.disabled ?? true, true)
+  status = {
+    ...status,
+    remote: { ...status.remote, host_state: "stopped" },
+    recovery: { ...status.recovery, busy: false, phase: "system_stopped" },
+  }
+  await app.refresh()
+  assert.match(doc.querySelector("#recovery-status")?.textContent ?? "", /Remote shutdown confirmed by GitHub Codespaces.*Storage charges may continue/)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")!.disabled, false)
+  assert.equal(doc.querySelector<HTMLInputElement>("#auto-reconnect")!.disabled, true)
+  app.destroy()
+  await page.close()
+})
+
+test("a remote-only stop leaves Start system available and settings paused until explicit resume", async () => {
+  const page = openPage("controls")
+  const status = systemStatus({
+    relay_state: "unreachable",
+    settings: { auto_reconnect: false, auto_wake: false },
+    remote: { id: "codespaces", label: "GitHub Codespaces", host_state: "stopped", capabilities: ["host.wake", "host.stop"] },
+  })
+  status.topology!.intent = { system: "running", remote: "stopped" }
+  page.setFetch(() => json(status))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  assert.equal(doc.querySelector("#control-connection")?.textContent, "Remote host stopped")
+  assert.match(doc.querySelector("#recovery-status")?.textContent ?? "", /Remote shutdown confirmed/)
+  assert.equal(doc.querySelector<HTMLButtonElement>("#start-system")!.disabled, false)
+  assert.equal(doc.querySelector<HTMLInputElement>("#auto-reconnect")!.disabled, true)
+  assert.equal(doc.querySelector<HTMLInputElement>("#auto-wake")!.disabled, true)
+  assert.ok([...doc.querySelectorAll<HTMLButtonElement>('[data-component-id="tunnel"] [data-component-action]')].every((button) => button.disabled),
+    "a remote-only stop must not offer transport actions that could wake compute")
   app.destroy()
   await page.close()
 })

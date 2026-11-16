@@ -78,7 +78,12 @@ class Coordinator:
                         'target': target, 'action': action, 'trigger': trigger, 'status': 'running',
                         'current_component': '', 'current_action': '', 'started_at': stamp(),
                         'finished_at': None, 'error': '', 'steps': []}
-        self.publish()
+        try:
+            self.publish()
+        except Exception:
+            self.current = None
+            self.owns = False
+            raise
         return self.current['id']
 
     def finish(self, error=''):
@@ -92,8 +97,7 @@ class Coordinator:
 
     def execute(self, step, callback=None):
         s = self.supervisor
-        if s.stop.is_set():
-            raise ControlError('operation_cancelled')
+        s.check_cancelled()
         blocked = s.policy.provider_blocked_value()
         if (blocked and step.component in ('tunnel', 'relay', 'remote', 'remote_provider') and
                 step.action not in ('observe', 'verify', 'stop')):
@@ -125,6 +129,7 @@ class Coordinator:
 
     def connection(self, wake=False):
         s = self.supervisor
+        s.require_running('remote')
         owns_run = self.current is None
         if owns_run:
             self.begin('connection', 'recover', 'automatic' if s.state.recovery_value('busy') else 'manual')
@@ -140,6 +145,7 @@ class Coordinator:
             # The pure policy has a finite action budget. No hidden nested repair
             # loops; readiness waits belong to the adapter being verified.
             for _ in range(16):
+                s.require_running('remote')
                 step = next_connection_step(facts)
                 if step is None:
                     if facts.relay != 'connected':
@@ -216,7 +222,7 @@ class Coordinator:
             if observation.readiness == 'not_ready' and name in ('gate', 'gateway', 'opencode') and action != 'stop':
                 deadline = s.clock() + 15
                 for _ in range(15):
-                    if s.stop.wait(1):
+                    if s.cancel.wait(1):
                         raise ControlError('operation_cancelled')
                     observation = self.execute(Step(name, 'verify'))
                     if observation.readiness != 'not_ready' or s.clock() >= deadline:
@@ -234,15 +240,16 @@ class Coordinator:
 
     def start_system(self):
         s = self.supervisor
-        intent = s.state.intent_copy()
-        intent.update(system='running', remote='running')
-        # Preserve per-component choices such as --no-desktop. Global shutdown is
-        # the resumable pause, not a destructive rewrite of those preferences.
-        for name in ('gate', 'gateway'):
-            if name in s.config['components']:
-                intent['components'][name] = True
-        s.persist_intent(intent)
-        s.update_settings({'auto_reconnect': True, 'auto_wake': s.state.settings_copy()['auto_wake']})
+        with s.intent_lock:
+            intent = s.state.intent_copy()
+            intent.update(system='running', remote='running')
+            # Preserve per-component choices such as --no-desktop. Global
+            # shutdown pauses them, rather than rewriting those preferences.
+            for name in ('gate', 'gateway'):
+                if name in s.config['components']:
+                    intent['components'][name] = True
+            s.persist_intent(intent)
+            s.update_settings({'auto_reconnect': True, 'auto_wake': s.state.settings_copy()['auto_wake']})
         local_error = self.start_locals()
         # Capabilities may not have been discovered yet after a supervisor
         # restart. Start system is an explicit wake consent, so discover the
@@ -279,11 +286,17 @@ class Coordinator:
             raise ControlError('shutdown_not_configured')
         # Persist suppression before ANY service-changing operation. It remains
         # in force after partial shutdown, timeouts and supervisor restarts.
-        intent = s.state.intent_copy()
-        intent.update(system='stopped', remote='stopped')
-        s.persist_intent(intent)
-        s.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        s.suspend_recovery(system=True)
         error = None
+        can_stop = s.supports('host.stop')
+        if s.provider is not None and s.provider.connection is None:
+            try:
+                # Discover the transport BEFORE the stop loop, including an
+                # owned tunnel left running by a previous supervisor process.
+                self.execute(Step('remote_provider', 'observe'))
+                can_stop = s.supports('host.stop')
+            except Exception as cause:
+                error = cause
         for name in ('gate', 'desktop', 'opencode', 'gateway', 'tunnel'):
             spec = s.config['components'].get(name, {})
             if spec.get('command') or spec.get('stop_command'):
@@ -295,22 +308,15 @@ class Coordinator:
                     # unknown observation is reported, not invented as stopped.
                     if spec.get('command') and observed.lifecycle != 'stopped':
                         error = ControlError('component_stop_unverified')
-                except ControlError as cause:
-                    error = cause
-        can_stop = s.supports('host.stop')
-        if s.provider is not None and not can_stop and s.provider.connection is None:
-            try:
-                self.execute(Step('remote_provider', 'observe'))
-                can_stop = s.supports('host.stop')
-            except ControlError as cause:
-                # Local shutdown still proceeds; do not claim the VPS stopped
-                # when provider discovery failed.
-                error = error or cause
+                except Exception as cause:
+                    # A local stop failure must not skip the cloud stop.
+                    error = error or cause
         if can_stop:
             try:
                 self.execute(Step('remote', 'stop'))
-            except ControlError as cause:
-                error = error or cause
+            except Exception as cause:
+                # Billing-relevant host failure outranks a local stop failure.
+                error = cause
         # Unsupported cloud stop is not falsely reported as powered off. Local
         # shutdown still works; the map states that power management is absent.
         if error:
@@ -318,24 +324,21 @@ class Coordinator:
 
     def stop_remote(self):
         s = self.supervisor
-        intent = s.state.intent_copy()
-        intent['remote'] = 'stopped'
-        s.persist_intent(intent)
-        s.update_settings({'auto_reconnect': False, 'auto_wake': False})
+        s.suspend_recovery()
         error = None
         if 'command' in s.config['components'].get('tunnel', {}):
             try:
                 self.execute(Step('tunnel', 'stop'))
-            except ControlError as cause:
-                error = cause
-            else:
                 observed = self.execute(Step('tunnel', 'verify'))
                 if observed.lifecycle != 'stopped':
                     error = ControlError('component_stop_unverified')
+            except Exception as cause:
+                error = cause
         try:
             self.execute(Step('remote', 'stop'))
-        except ControlError as cause:
-            error = error or cause
+        except Exception as cause:
+            # Billing-relevant host failure outranks a local stop failure.
+            error = cause
         if error:
             raise error
 

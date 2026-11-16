@@ -96,6 +96,36 @@ The default supervisor configuration is
 `${XDG_CONFIG_HOME:-$HOME/.config}/deltarelay/supervisor.json`. Use `--config`
 when the private supervisor file lives elsewhere.
 
+## Confirmed shutdown for billing safety
+
+Use the dashboard **Shut down system…** action or the same operation from a
+script:
+
+```sh
+./deltarelay stop --yes
+# Stop only the existing Codespace and its local tunnel:
+./deltarelay stop --yes --remote-only
+```
+
+If the supervisor is not running, the command reports that no shutdown was
+requested and does not start one; starting it could trigger recovery. Stop the
+Codespace through GitHub directly in that case.
+
+The command asks the running supervisor to persist stopped intent, disable
+automatic reconnect and wake, cancel any recovery in progress, stop the local
+tunnel, call the GitHub stop endpoint with the profile's configured `github_cli`,
+and poll GitHub until the Codespace reports **Shutdown**. A lost stop response is
+confirmed with read-only status checks and is never blindly repeated by the
+provider. If confirmation fails, the command exits nonzero and says that compute
+charges may continue; recovery and wake stay off. It never starts a supervisor as
+a fallback. Storage charges may continue after compute stops. Resuming requires
+an explicit **Start system** or wake confirmation.
+
+Do not run a separate reconnect loop around `gh codespace ports forward`. GitHub
+CLI connection commands can start a stopped Codespace themselves, which bypasses
+DeltaRelay's opt-in wake policy. Only the supervisor's managed tunnel has the
+power-state check and shutdown ordering.
+
 ## GitHub account selection
 
 A Codespace provider may run the GitHub CLI without changing the globally

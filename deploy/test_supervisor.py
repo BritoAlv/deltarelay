@@ -180,26 +180,26 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(subject.state.internet_state, 'connected')
         self.assertIn('internet_state', subject.snapshot())
 
-    def test_tunnel_start_uses_cached_host_state_when_provider_status_is_temporarily_unavailable(self):
+    def test_tunnel_start_does_not_trust_cached_running_state_during_a_provider_outage(self):
         self.component('tunnel')
         subject = self.supervisor()
         subject.state.set_host_state('running')
         with patch.object(subject, 'provider_call', side_effect=control.ControlError('command_failed')):
-            subject.start_component('tunnel')
-        self.addCleanup(self.cleanup_child, subject.processes.children['tunnel'])
-        self.assertEqual(subject.state.states_copy()['tunnel'], 'starting')
-        self.assertEqual(subject.state.host_value(), 'running')
+            with self.assertRaisesRegex(control.ControlError, '^command_failed$'):
+                subject.start_component('tunnel')
+        self.assertFalse(subject.processes.children)
+        self.assertEqual(subject.state.host_value(), 'unknown')
 
-    def test_tunnel_start_still_honors_a_cached_stopped_host(self):
+    def test_tunnel_start_fails_closed_when_power_state_cannot_be_checked(self):
         self.component('tunnel')
         subject = self.supervisor()
         subject.state.set_host_state('stopped')
         with patch.object(subject, 'provider_call', side_effect=control.ControlError('command_failed')):
-            with self.assertRaisesRegex(control.ControlError, '^host_stopped$'):
+            with self.assertRaisesRegex(control.ControlError, '^command_failed$'):
                 subject.start_component('tunnel')
         self.assertFalse(subject.processes.children)
 
-    def test_transport_recovery_continues_when_provider_status_is_temporarily_unavailable(self):
+    def test_transport_recovery_fails_closed_when_power_state_cannot_be_checked(self):
         self.component('tunnel')
         subject = self.supervisor()
         subject.state.set_host_state('running')
@@ -207,9 +207,10 @@ class SupervisorTest(unittest.TestCase):
                 patch.object(subject, 'probe', side_effect=['unreachable', 'connected']), \
                 patch.object(subject, 'internet_probe', return_value='connected'), \
                 patch.object(subject.stop, 'wait', return_value=False):
-            subject.recover()
-        self.addCleanup(self.cleanup_child, subject.processes.children['tunnel'])
-        self.assertEqual(subject.state.relay_value(), 'connected')
+            with self.assertRaisesRegex(control.ControlError, '^command_failed$'):
+                subject.recover()
+        self.assertFalse(subject.processes.children)
+        self.assertEqual(subject.state.host_value(), 'unknown')
 
     def test_hung_live_tunnel_is_rebuilt_without_restarting_gateway_or_relay(self):
         self.component('tunnel')
@@ -536,10 +537,10 @@ class SupervisorTest(unittest.TestCase):
             self.assertEqual(control.private_json(subject.directory / 'settings.json'),
                              {'auto_reconnect': False, 'auto_wake': False})
             self.assertIsNotNone(subject.processes.children['tunnel'].poll())
-            raise control.ControlError('unreachable')
+            raise control.ControlError('authentication_failed')
 
         with patch.object(subject.provider, 'call', side_effect=stop_host):
-            with self.assertRaisesRegex(control.ControlError, '^unreachable$'):
+            with self.assertRaisesRegex(control.ControlError, '^authentication_failed$'):
                 subject.stop_host()
         self.assertIsNone(subject.processes.children['gateway'].poll())
         self.assertNotEqual(subject.state.host_value(), 'stopped')
@@ -595,7 +596,7 @@ class SupervisorTest(unittest.TestCase):
             subject = self.supervisor()
             with patch.object(subject.provider, 'call', return_value={'host_state': 'stopping'}), \
                     patch.object(subject.stop, 'wait', return_value=cancelled), \
-                    patch.object(subject, 'clock', side_effect=[0, 121]):
+                    patch.object(subject, 'clock', side_effect=[0, control.HOST_STOP_TIMEOUT + 1]):
                 with self.assertRaisesRegex(control.ControlError, '^' + wanted + '$'):
                     subject.stop_host()
             self.assertNotEqual(subject.state.host_value(), 'stopped')

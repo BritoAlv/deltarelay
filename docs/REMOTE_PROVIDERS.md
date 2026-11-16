@@ -199,7 +199,7 @@ Responses echo the exact integer version and request ID, with **exactly one** of
 | `relay.ensure` | `{"expected_state_id":"64 lowercase hex digits"}` | `{"state_id":"same identity"}` | Optional, idempotent start of the existing relay; no implicit machine wake or restart of a healthy relay. |
 | `relay.restart` | Same as ensure | Same as ensure | Optional, explicitly confirmed disruptive restart. Never part of automatic recovery. |
 | `host.wake` | `{}` | `{"host_state":"running"}` or `starting` | Optional, idempotent wake of the existing machine; may resume billing. |
-| `host.stop` | `{}` | `{"host_state":"stopped"}` or `stopping` | Optional, idempotent stop, not deletion; preserve persistent storage. |
+| `host.stop` | `{}` | `{"host_state":"stopped"}` or `stopping` | Optional, idempotent stop, not deletion; preserve persistent storage. The core polls `status` until stopped and never treats `stopping` as confirmed. |
 
 `id` matches `[a-z][a-z0-9_-]{0,63}`. `label` is 1–80 Unicode characters with no
 control characters, rendered as text, never HTML. Capabilities are a unique array
@@ -268,7 +268,14 @@ readiness. No management operation submits a model request or replays a generati
 Automatic wake starts disabled. Manual wake, stop, and restart require explicit
 confirmation through the protected local control API. Before stop, the supervisor
 persists both automatic reconnect and automatic wake as **off**, even if stopping
-fails or times out. It never silently re-enables them on manual wake.
+fails or times out. A stop also cancels an active recovery and its command group
+before requesting power-off. It never silently re-enables them on manual wake.
+The core requires a successful power observation before reporting **stopped**;
+`stopping` or an unavailable status is **unconfirmed**, never proof of stopped.
+A tunnel command can itself start a stopped Codespace (the GitHub CLI does this
+when connecting), so the core refuses to start a transport unless it has just
+confirmed the host is running. Do not run a separate retry loop around
+`gh codespace ports forward`; that bypasses this billing guard.
 
 ## Implement your own
 

@@ -62,6 +62,11 @@ def next_connection_step(facts):
         return Step('remote', 'observe')
     if facts.host in ('stopped', 'stopping'):
         return Step('remote', 'wake') if facts.wake and facts.can_wake else Step('remote', 'blocked')
+    if facts.host == 'unknown' and facts.can_wake:
+        # Re-read power state instead of waiting for a start we did not request.
+        # A provider that cannot prove Running must never authorize a connection
+        # command that may implicitly start compute.
+        return Step('remote', 'observe')
     if facts.host == 'starting':
         return Step('remote', 'verify')
     if facts.verification_due:

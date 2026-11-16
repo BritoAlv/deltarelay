@@ -340,6 +340,7 @@ def switch_codespace(project, name, config_path, *, restart=True, report=print):
         raise ProviderError('profiles_not_configured')
     report(f'Selecting profile {name}')
     if restart:
+        report('Profile switching stops local services only; the previous remote host is not stopped.')
         stop_local(config, config_path, report)
     point_current(project, name)
     report(f'Active profile is now {name}')

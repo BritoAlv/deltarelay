@@ -340,6 +340,11 @@ class ExecutableProvider:
         self.metadata = {'id': 'custom', 'label': 'Remote host', 'capabilities': []}
         self.connection = None
         self.trace = trace
+        path = Path(spec['config_file'])
+        # Resolve parent pointers once, but retain O_NOFOLLOW on the actual file.
+        # A profile switch must not redirect an in-flight stop or its status polls
+        # to another Codespace.
+        self.config_file = path.parent.resolve() / path.name
 
     def call(self, method, params=None):
         params = {} if params is None else params
@@ -347,11 +352,11 @@ class ExecutableProvider:
         if method not in REQUIRED and method not in self.metadata['capabilities']:
             raise ProviderError('unsupported_operation')
         try:
-            private_json(Path(self.spec['config_file']))
+            private_json(self.config_file)
         except (OSError, ValueError, RecursionError):
             raise ProviderError('configuration_error') from None
         request = {'protocol_version': VERSION, 'id': secrets.token_hex(16), 'method': method,
-                   'config_file': self.spec['config_file'], 'params': params}
+                   'config_file': str(self.config_file), 'params': params}
         env = plugin_environment(self.spec)
         if self.trace:
             self.trace('event', f'Provider call: {method} request={request["id"]}')
