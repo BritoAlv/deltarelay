@@ -743,11 +743,16 @@
   }
   .brand:hover { color: var(--text); }
   .brand:hover .brand-symbol { border-color: var(--accent); }
-  .brand[data-status] .brand-symbol { color: var(--subtle); }
-  .brand[data-status="connected"] .brand-symbol { color: var(--success); }
-  .brand[data-status="recovering"] .brand-symbol { color: var(--warning); }
+  .brand[data-status] .brand-symbol,
+  .topbar-brand[data-status] { color: var(--subtle); }
+  .brand[data-status="connected"] .brand-symbol,
+  .topbar-brand[data-status="connected"] { color: var(--success); }
+  .brand[data-status="recovering"] .brand-symbol,
+  .topbar-brand[data-status="recovering"] { color: var(--warning); }
   .brand[data-status="stopped"] .brand-symbol,
-  .brand[data-status="disconnected"] .brand-symbol { color: var(--danger); }
+  .topbar-brand[data-status="stopped"],
+  .brand[data-status="disconnected"] .brand-symbol,
+  .topbar-brand[data-status="disconnected"] { color: var(--danger); }
   .brand-symbol > svg, .topbar-brand > svg { width: 1em; height: 1em; }
   .brand-light { font-weight: 400; color: var(--muted); }
   .brand-dot { color: var(--accent); }

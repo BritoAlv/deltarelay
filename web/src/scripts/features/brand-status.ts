@@ -20,6 +20,8 @@ export function renderBrandStatus(doc: Document, system: SystemStatus | null, st
     brand.title = `DeltaRelay: ${label} · Overview`
     brand.setAttribute("aria-label", `DeltaRelay: ${label} · Overview`)
   }
+  const compactBrand = doc.querySelector<HTMLElement>(".topbar-brand")
+  if (compactBrand) compactBrand.dataset.status = status
   const favicon = doc.querySelector<HTMLLinkElement>('link[rel="icon"]')
   const href = status === "unknown" ? "/favicon.svg" : `/_astro/favicon-${status === "disconnected" ? "stopped" : status}.svg`
   if (favicon && favicon.getAttribute("href") !== href) favicon.setAttribute("href", href)

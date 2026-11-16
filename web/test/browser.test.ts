@@ -23,6 +23,7 @@ test("brand and favicon update together on every dashboard page", async () => {
     const page = openPage(name)
     try {
       const brand = page.document.querySelector<HTMLElement>(".brand")!
+      const compactBrand = page.document.querySelector<HTMLElement>(".topbar-brand")!
       const favicon = page.document.querySelector('link[rel="icon"]')!
       const connected = systemStatus()
       for (const [system, stale, expected] of [
@@ -33,6 +34,7 @@ test("brand and favicon update together on every dashboard page", async () => {
       ] as const) {
         renderBrandStatus(page.document, system, stale)
         assert.equal(brand.dataset.status, expected)
+        assert.equal(compactBrand.dataset.status, expected)
         assert.match(brand.getAttribute("aria-label")!, new RegExp(expected === "unknown" ? "Status unavailable" : expected, "i"))
         assert.equal(favicon.getAttribute("href"), expected === "unknown" ? "/favicon.svg" : `/_astro/favicon-${expected}.svg`)
       }
