@@ -42,6 +42,9 @@ test("text viewer has a read-only document, line numbers, search, and switchable
   buttons.find((button) => button.textContent === "Find")!.click()
   assert.ok(root.querySelector(".cm-search"))
   viewer.destroy()
+  const restored = mountPayloadViewer(root, { ...defaults, mode: "text", jsonText: false, text })
+  assert.equal([...root.querySelectorAll("button")].find((button) => button.textContent === "Wrap lines")!.getAttribute("aria-pressed"), "false")
+  restored.destroy()
   await page.close()
 })
 

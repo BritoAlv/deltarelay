@@ -14,6 +14,7 @@ import type { SetupStatus } from "../src/lib/setup.js"
 import { isTopology, type RecoveryRun } from "../src/lib/topology.js"
 import { mapLayerSegments, mapNodes, nodeHeight, nodeWidth } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
+import { readPreferences } from "../src/lib/preferences.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
 
@@ -212,7 +213,7 @@ test("system states show an unavailable notice instead of pretending a stale val
   const page = openPage()
   const doc = page.document
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(makeSnapshot(now))
+    if (url.startsWith("/api/dashboard?")) return json(makeSnapshot(now))
     if (url.startsWith("/api/system/history?")) return json({ error: "supervisor_unavailable" }, 503)
     return json({ error: "unexpected" }, 404)
   })
@@ -323,7 +324,7 @@ test("failed first dashboard load reports unavailable instead of no data", async
 test("provider details wait for supervisor data before declaring Go usage unavailable", async () => {
   const page = openPage("system")
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(makeSnapshot(now))
+    if (url.startsWith("/api/dashboard?")) return json(makeSnapshot(now))
     throw new Error(`Unexpected URL ${url}`)
   })
   const dashboard = startDashboard(page.document, { autoStart: false })
@@ -772,7 +773,7 @@ test("measurement page renders definitions, browses stored sessions, and traces 
   const snapshot = makeSnapshot(now)
   const catalog = makeOpenCodeSessions(now)
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/opencode/sessions") return json(catalog)
     throw new Error(`Unexpected measurement URL ${url}`)
   })
@@ -861,7 +862,7 @@ test("measurement browser scopes measured sessions and traces by host", async ()
   const catalog = makeOpenCodeSessions(now)
   page.window.history.replaceState(null, "", "/measurement?host=alpha")
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/opencode/sessions") return json(catalog)
     throw new Error(`Unexpected measurement URL ${url}`)
   })
@@ -894,7 +895,7 @@ test("measurement session browser sorts by columns, resets pages, and restores s
   const catalog = makeOpenCodeSessions(now)
   page.window.history.replaceState(null, "", "/measurement?sort=requests&dir=desc")
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/opencode/sessions") return json(catalog)
     throw new Error(`Unexpected measurement URL ${url}`)
   })
@@ -983,7 +984,7 @@ test("measurement inspector shows captured body, chunk availability, attempts an
     return json({ offset, total: content.length, data: Buffer.from(wanted).toString("base64"), decoded: false, artifact: id === "body" ? capture.body : id === "attempt-0" ? attempt0.payload : attempt1.payload })
   }
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/opencode/sessions") return json(makeOpenCodeSessions(now))
     if (url === `/api/inspection/${captureID}`) return json(capture)
     if (url.startsWith(`/api/inspection/${captureID}/artifacts/`)) {
@@ -1017,6 +1018,7 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   assert.ok(inspector.querySelector(".cm-search"))
   assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()}\\u00A0B`))
   doc.querySelector<HTMLButtonElement>('[data-inspect-mode="json"]')!.click()
+  assert.equal(readPreferences(doc, "inspection").body, "json")
   await waitForText(inspector, /9007199254740993/, "lossless JSON presentation did not load")
   assert.match(inspector.textContent ?? "", /"z": 1,\s*"z": 2/)
   assert.match(inspector.textContent ?? "", /Formatting is not the captured byte layout/)
@@ -1041,6 +1043,15 @@ test("measurement inspector shows captured body, chunk availability, attempts an
   assert.match(inspector.textContent ?? "", /Body SHA-256 vs transfer hashMatch/)
   assert.match(inspector.textContent ?? "", new RegExp(`${body.length.toLocaleString()} − ${encoded.toLocaleString()}`))
   assert.match(inspector.textContent ?? "", /Extra upload/)
+  doc.querySelector<HTMLButtonElement>('[data-inspect-stage="body"]')!.click()
+  await waitForText(inspector, /9007199254740993/, "body did not restore")
+  doc.querySelector<HTMLButtonElement>('[data-inspect-mode="text"]')!.click()
+  await waitForText(inspector, /UTF-8 byte window/, "text mode did not load")
+  doc.querySelector<HTMLButtonElement>('[data-inspect-stage="savings"]')!.click()
+  doc.querySelector<HTMLButtonElement>('[data-inspect-stage="body"]')!.click()
+  await waitForText(inspector, /UTF-8 byte window/, "saved text presentation was not restored")
+  assert.equal(inspector.querySelector('[data-inspect-mode="text"]')!.getAttribute("aria-pressed"), "true")
+  assert.equal(readPreferences(doc, "inspection").body, "text")
   measurement.destroy()
   await page.close()
 })
@@ -1053,7 +1064,7 @@ test("measurement inspector never substitutes content for a missing capture", as
   request.capture_id = "e".repeat(32)
   snapshot.inspection = { enabled: true, max_bytes: 1024, max_capture_bytes: 512, max_captures: 2, max_age_seconds: 3600, captures: 0, used_bytes: 0, storage_error: false }
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/opencode/sessions") return json(makeOpenCodeSessions(now))
     return json({ error: "capture_not_retained" }, 404)
   })
@@ -1074,7 +1085,7 @@ test("measurement page shows an empty state and never invents a trace", async ()
   snapshot.history.sessions = []
   snapshot.history.recent_requests = []
   const emptyCatalog = { version: 1 as const, checked_at: new Date(now).toISOString(), sessions: [], truncated: false, stale: false }
-  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(emptyCatalog))
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(emptyCatalog))
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
   const doc = page.document
@@ -1091,7 +1102,7 @@ test("measurement browser lists OpenCode sessions without gateway measurements",
   snapshot.history.sessions = []
   snapshot.history.recent_requests = []
   const catalog = makeOpenCodeSessions(now)
-  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(catalog))
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(catalog))
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
   const doc = page.document
@@ -1108,7 +1119,7 @@ test("measurement browser falls back to gateway sessions when OpenCode metadata 
   const page = openPage("measurement")
   const snapshot = makeSnapshot(now)
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     return json({ error: "opencode_not_configured" }, 503)
   })
   const measurement = startMeasurementPage(page.document, { autoStart: false })
@@ -1128,7 +1139,7 @@ test("overview refresh renders stats and an accessible chart without session or 
   const page = openPage()
   const snapshot = makeSnapshot(now)
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url.startsWith("/api/system/history?")) {
       const parsed = new URL(url, "http://127.0.0.1:8790")
       return json(makeSystemHistory(Number(parsed.searchParams.get("start")), Number(parsed.searchParams.get("end")), Number(parsed.searchParams.get("bucket"))))
@@ -1721,7 +1732,7 @@ test("measurement session selection is deep-linked through the URL", async () =>
   const catalog = makeOpenCodeSessions(now)
   const target = snapshot.history.sessions[2]!
   page.window.history.replaceState(null, "", `/measurement?session=${encodeURIComponent(target.id)}&q=Test&day=${sessionDayKey(target.started_at)}&show=measured&page=2`)
-  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(catalog))
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(catalog))
   const measurement = startMeasurementPage(page.document, { autoStart: false })
   await measurement.refresh()
   const doc = page.document
@@ -1787,7 +1798,7 @@ test("sessions page renders only the session table and updates the sidebar count
   const page = openPage("sessions")
   const snapshot = makeSnapshot(now)
   page.setFetch((url) => {
-    assert.equal(url, "/api/dashboard")
+    assert.equal(url, "/api/dashboard?compact=1")
     return json(snapshot)
   })
   const dashboard = startDashboard(page.document, { autoStart: false })
@@ -1802,7 +1813,7 @@ test("sessions page renders only the session table and updates the sidebar count
   assert.equal(doc.querySelector("#session-count")?.textContent, "6")
   assert.equal(doc.querySelector("#nav-session-count")?.textContent, "6")
   assert.match(doc.querySelector("#table-summary")?.textContent ?? "", /1–6 of 6 sessions/)
-  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard"])
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/dashboard?compact=1"])
   dashboard.destroy()
   await page.close()
 })
@@ -2020,7 +2031,7 @@ test("system health combines gateway diagnostics with supervisor network state",
   const snapshot = makeSnapshot(now)
   const status = systemStatus()
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/system") return json(status)
     throw new Error(`Unexpected URL ${url}`)
   })
@@ -2032,7 +2043,7 @@ test("system health combines gateway diagnostics with supervisor network state",
   assert.match(doc.querySelector("#system-cards")?.textContent ?? "", /Hostalpha/)
   assert.equal(doc.querySelector("#session-rows"), null)
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard", "/api/system"])
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard?compact=1", "/api/system"])
   const auth = doc.querySelector("#provider-auth")!
   assert.equal(auth.closest("article")?.querySelector("h3")?.textContent, "Provider details")
   assert.equal(auth.querySelector("#auth-state")?.textContent, "Current token")
@@ -2073,7 +2084,7 @@ test("provider details shows the OpenCode Go allowance and switches provider tab
     },
   })
   page.setFetch((url) => {
-    if (url === "/api/dashboard") return json(snapshot)
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
     if (url === "/api/system") return json(status)
     throw new Error(`Unexpected URL ${url}`)
   })
@@ -2142,7 +2153,7 @@ test("provider details marks a limited Go allowance as attention", async () => {
       stale: false,
     },
   })
-  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(status))
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(status))
   const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
   const dashboard = startDashboard(page.document, { autoStart: false })
   await Promise.all([dashboard.refresh(), system.refresh()])
@@ -2160,7 +2171,7 @@ test("system health distinguishes no internet from an unreachable VPS", async ()
   const snapshot = makeSnapshot(now)
   snapshot.relay.reachable = false
   const noInternet = systemStatus({ relay_state: "unreachable", internet_state: "unreachable" })
-  page.setFetch((url) => url === "/api/dashboard" ? json(snapshot) : json(noInternet))
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(noInternet))
   const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
   const dashboard = startDashboard(page.document, { autoStart: false })
   await Promise.all([dashboard.refresh(), system.refresh()])
@@ -2173,7 +2184,7 @@ test("system health distinguishes no internet from an unreachable VPS", async ()
 
 test("pausing the health page freezes both the dashboard and supervisor schedules", async () => {
   const page = openPage("system")
-  page.setFetch((url) => url === "/api/dashboard" ? json(makeSnapshot(now)) : json(systemStatus()))
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(makeSnapshot(now)) : json(systemStatus()))
   const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
   const dashboard = startDashboard(page.document, {
     autoStart: false,

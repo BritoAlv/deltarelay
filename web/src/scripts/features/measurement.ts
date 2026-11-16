@@ -1,7 +1,7 @@
 import { escapeHtml as escape } from "../../lib/html.js"
 import { iconMarkup } from "../../lib/icons.js"
 import { dataValue, facts, loadingIndicator, reductionEquation } from "../../lib/presentation.js"
-import { bytes, displaySessions, duration, historyHosts, percentage, relativeTime, sessionRequests, sessionState, type SessionView } from "../../lib/metrics.js"
+import { bytes, displaySessions, duration, historyHosts, percentage, relativeTime, sessionState, type SessionView } from "../../lib/metrics.js"
 import { barComparison, requestMeasurement, sessionMeasurement } from "../../lib/measurement.js"
 import {
   catalogDays,
@@ -17,9 +17,11 @@ import {
 } from "../../lib/session-catalog.js"
 import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import type { RelayRequest, Snapshot } from "../../lib/types.js"
-import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
+import { readSort, sortParams, type SortState } from "../../lib/url-state.js"
+import { readViewParams, replaceViewParams } from "../../lib/preferences.js"
 import { requiredById } from "../dom.js"
 import { mountInspection } from "./inspection.js"
+import { createRequestPages } from "./request-pages.js"
 
 export interface MeasurementFeature {
   render(state: DashboardViewState): void
@@ -103,7 +105,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   const doc = root.ownerDocument
   const inspectorRoot = requiredById<HTMLElement>(root, "request-inspector")
   const inspector = mountInspection(inspectorRoot)
-  const initial = readParams(doc)
+  const initial = readViewParams(doc, "measurement")
   const requestParam = Number(initial.get("request"))
   let state: DashboardViewState | null = null
   let catalogEntries: CatalogSession[] = []
@@ -113,14 +115,17 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   let sessionQuery = initial.get("q") ?? ""
   let sessionDay = validDay(initial.get("day"))
   let sessionAvailability: CatalogAvailability = initial.get("show") === "measured" ? "measured" : "all"
+  search.value = sessionQuery
+  availabilitySelect.value = sessionAvailability
   let sessionSort = readSort(initial, sessionSortKeys, "updated", "desc")
   let sessionPage = positivePage(initial.get("page"))
   let daySignature = ""
   let browserNotice = ""
   const openRequests = new Set<string>()
+  const requestPages = createRequestPages(renderTrace)
 
   function syncTraceUrl(): void {
-    replaceParams(doc, {
+    replaceViewParams(doc, "measurement", {
       session: selectedSession === null ? null : selectedSession,
       request: selectedRequest !== null ? String(selectedRequest) : null,
       day: sessionDay || null,
@@ -532,8 +537,9 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const current = selected(snapshot)
     if (!current) return
     const entry = catalogEntry(catalogEntries, current.id)
-    const requests = sessionRequests(snapshot, current.id, state?.host ?? "")
-    if (!requests.some((request) => request.sequence === selectedRequest)) selectedRequest = requests[0]?.sequence ?? null
+    const requestPage = requestPages.sync(snapshot, current.id, state?.host ?? "", requestPageSize, selectedRequest)
+    const requests = requestPage.requests
+    if (!requestPage.loading && !requestPage.error && !requests.some((request) => request.sequence === selectedRequest)) selectedRequest = requests[0]?.sequence ?? null
     const inspected = requests.find((request) => request.sequence === selectedRequest) ?? null
     const measured = inspected ? requestMeasurement(inspected, snapshot.collected_at) : null
     const pipeline = [
@@ -544,8 +550,14 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
       [measured && measured.saved < 0 ? "Extra upload" : "Saved", "Calculated original minus encoded; not another byte stream.", measured ? bytes(Math.abs(measured.saved)) : "—"],
     ] as const
     const sessionSummary = sessionMeasurement(current, requests)
+    if (requestPage.paged) {
+      // Pagination is not missing history. Session totals still cover all
+      // requests; only genuinely absent legacy entries count as missing.
+      sessionSummary.retainedRequests = requestPage.total
+      sessionSummary.missingRequests = requestPage.loading || requestPage.error ? 0 : Math.max(0, current.requests - requestPage.total)
+    }
     const bars = barComparison(sessionSummary.original, sessionSummary.encoded)
-    const visible = showAll ? requests : requests.slice(0, requestPageSize)
+    const visible = requestPage.paged || showAll ? requests : requests.slice(0, requestPageSize)
     const reductionTone = sessionSummary.reduction !== null && sessionSummary.reduction < 0 ? "negative" : "accent"
     const savedTone = sessionSummary.saved < 0 ? "negative" : ""
     const stateTone = sessionState(current)
@@ -553,12 +565,14 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     const coverage = sessionSummary.missingRequests > 0
       ? `<p class="trace-coverage">Session totals include ${dataValue(integer(sessionSummary.missingRequests))} request${sessionSummary.missingRequests === 1 ? "" : "s"} no longer retained. The ledger below covers ${dataValue(integer(sessionSummary.retainedRequests))} retained entr${sessionSummary.retainedRequests === 1 ? "y" : "ies"}.</p>`
       : ""
-    const more = requests.length > requestPageSize
+    const more = requestPage.paged ? requestPages.controls() : requests.length > requestPageSize
       ? `<button class="text-button trace-more" type="button" data-trace-more>${showAll ? `Show Latest ${requestPageSize}` : `Show All ${integer(requests.length)} Retained Requests`}</button>`
       : ""
-    const ledger = requests.length === 0
+    const ledger = requestPage.paged && requests.length === 0 && (requestPage.loading || requestPage.error)
+      ? more
+      : requests.length === 0
       ? `<div class="empty-state trace-requests-empty"><h3>No retained request entries</h3><p>Session totals still include ${dataValue(integer(sessionSummary.totalRequests))} request${sessionSummary.totalRequests === 1 ? "" : "s"}; their request-level entries predate unlimited retention and cannot be reconstructed.</p></div>`
-      : `${coverage}${visible.map((request) => renderRequest(request, snapshot)).join("")}${more}`
+       : `${coverage}${visible.map((request) => renderRequest(request, snapshot)).join("")}${more}`
 
     const focus = traceFocus()
     const identityFacts: Array<readonly [string, string]> = [
@@ -675,6 +689,11 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
     chooseSession(choice.dataset.sessionChoice ?? "")
   })
   root.addEventListener("click", (event) => {
+    const pageButton = (event.target as Element).closest<HTMLButtonElement>("[data-request-page]")
+    if (pageButton) {
+      requestPages.navigate(pageButton.dataset.requestPage!)
+      return
+    }
     const inspect = (event.target as Element).closest<HTMLButtonElement>("[data-inspect-request]")
     if (inspect?.dataset.inspectRequest) {
       selectedRequest = Number(inspect.dataset.inspectRequest)
@@ -691,7 +710,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
   updateSortControls()
 
   return {
-    destroy() { inspector.destroy() },
+    destroy() { inspector.destroy(); requestPages.destroy() },
     render(nextState) {
       state = nextState
       const snapshot = nextState.snapshot

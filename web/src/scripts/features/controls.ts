@@ -8,6 +8,7 @@ import { controlComponents } from "../../lib/component-controls.js"
 import { requiredById } from "../dom.js"
 import { mountMapNavigation } from "./map-navigation.js"
 import { mountComponentTable } from "./component-table.js"
+import { readPreferences, savePreferences } from "../../lib/preferences.js"
 
 export interface ControlsOptions {
   root: HTMLElement
@@ -49,7 +50,8 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   ]
   const edges = requiredById(root, "map-edges")
   const channelToggles = [...root.querySelectorAll<HTMLButtonElement>("[data-map-channel]")]
-  const hiddenChannels = new Set<string>()
+  const preferences = readPreferences(root.ownerDocument, "controls")
+  const hiddenChannels = new Set((preferences.hidden ?? "").split(",").filter((channel) => ["request", "response", "control"].includes(channel)))
   const transportHeading = requiredById(root, "map-boundary-tunnel")
   const transportOutline = root.querySelector<SVGRectElement>('[data-map-group="tunnel"]')!
   const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-node-id]")]
@@ -281,6 +283,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       tab.tabIndex = position === index ? 0 : -1
     })
     if (index === 1) navigation.reveal()
+    savePreferences(root.ownerDocument, "controls", { tab: String(index) })
   }
   function tabKey(event: KeyboardEvent) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
@@ -303,16 +306,26 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   })
   closeInspector.addEventListener("click", () => inspector.close())
   inspector.addEventListener("keydown", (event) => { if (event.key === "Escape") { event.preventDefault(); inspector.close() } })
-  for (const toggle of channelToggles) toggle.addEventListener("click", () => {
+  function renderChannelToggle(toggle: HTMLButtonElement) {
     const channel = toggle.dataset.mapChannel!
-    if (hiddenChannels.has(channel)) hiddenChannels.delete(channel)
-    else hiddenChannels.add(channel)
     const shown = !hiddenChannels.has(channel)
     toggle.setAttribute("aria-pressed", String(shown))
     toggle.querySelector(".legend-toggle-state")!.textContent = shown ? "Shown" : "Hidden"
     toggle.title = `${shown ? "Hide" : "Show"} ${channel === "request" ? "model request" : channel === "response" ? "model response" : "checks, recovery and management"} arrows`
-    render()
-  })
+  }
+  for (const toggle of channelToggles) {
+    renderChannelToggle(toggle)
+    toggle.addEventListener("click", () => {
+      const channel = toggle.dataset.mapChannel!
+      if (hiddenChannels.has(channel)) hiddenChannels.delete(channel)
+      else hiddenChannels.add(channel)
+      savePreferences(root.ownerDocument, "controls", { hidden: [...hiddenChannels].sort().join(",") })
+      renderChannelToggle(toggle)
+      render()
+    })
+  }
+  const savedTab = Number(preferences.tab)
+  selectView(Number.isInteger(savedTab) && savedTab >= 0 && savedTab < sections.length ? savedTab : 0)
   startSystem.addEventListener("click", () => void actionRequest("all", "start"))
   stopSystem.addEventListener("click", () => void actionRequest("all", "stop"))
   autoReconnect.addEventListener("change", () => void settings())

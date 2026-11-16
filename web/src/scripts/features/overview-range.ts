@@ -1,6 +1,6 @@
 import { customRange, dateInputValue, dateTimeRange, DAY_MS, formatDateTime, lastRange, presetRange, trafficLastUnits, type TrafficLastUnit, type TrafficPreset, type TrafficRange } from "../../lib/traffic.js"
 import type { Snapshot } from "../../lib/types.js"
-import { readParams, replaceParams } from "../../lib/url-state.js"
+import { readPreferences, readViewParams, replaceViewParams, savePreferences } from "../../lib/preferences.js"
 import { requiredById } from "../dom.js"
 
 interface Selection {
@@ -37,7 +37,7 @@ export function mountOverviewRange(root: HTMLElement, onChange: () => void) {
   const notice = get("overview-range-notice")
   const abort = new AbortController()
   const events = { signal: abort.signal }
-  const initial = readParams(root.ownerDocument)
+  const initial = readViewParams(root.ownerDocument, "range")
   let now = Date.now()
   const requestedPreset = initial.get("range") as TrafficPreset
   const requestedUnit = initial.get("unit") as TrafficLastUnit
@@ -48,9 +48,10 @@ export function mountOverviewRange(root: HTMLElement, onChange: () => void) {
     start: initial.get("start") ?? "",
     end: initial.get("end") ?? "",
   }
-  let timestamps = selection.preset === "datetime"
+  const editorMode = readPreferences(root.ownerDocument, "rangeEditor").mode
+  let timestamps = selection.preset === "datetime" || (selection.preset !== "custom" && editorMode === "timestamps")
   let initialized = false
-  select.value = timestamps ? "custom" : selection.preset
+  select.value = selection.preset === "datetime" ? "custom" : selection.preset
   amount.value = String(selection.amount)
   unit.value = selection.unit
   if (timestamps) {
@@ -69,7 +70,7 @@ export function mountOverviewRange(root: HTMLElement, onChange: () => void) {
   }
 
   function syncUrl() {
-    replaceParams(root.ownerDocument, {
+    replaceViewParams(root.ownerDocument, "range", {
       range: selection.preset === "30d" ? null : selection.preset,
       last: selection.preset === "last" ? String(selection.amount) : null,
       unit: selection.preset === "last" ? selection.unit : null,
@@ -119,7 +120,12 @@ export function mountOverviewRange(root: HTMLElement, onChange: () => void) {
     } else apply({ ...selection, preset: select.value as TrafficPreset })
   }, events)
   for (const [button, mode] of [[dateMode, false], [timestampMode, true]] as const) {
-    button.addEventListener("click", () => { timestamps = mode; showError(); visibility() }, events)
+    button.addEventListener("click", () => {
+      timestamps = mode
+      savePreferences(root.ownerDocument, "rangeEditor", { mode: mode ? "timestamps" : "dates" })
+      showError()
+      visibility()
+    }, events)
   }
   const lastApply = get<HTMLButtonElement>("chart-last-apply")
   const dateApply = get<HTMLButtonElement>("chart-apply")
@@ -136,8 +142,8 @@ export function mountOverviewRange(root: HTMLElement, onChange: () => void) {
   visibility()
 
   return {
-    render(snapshot: Snapshot | null): TrafficRange {
-      now = snapshot ? Date.parse(snapshot.collected_at) : Date.now()
+    render(snapshot: Snapshot | null, clock?: number): TrafficRange {
+      now = clock ?? (snapshot ? Date.parse(snapshot.collected_at) : Date.now())
       if (!initialized && snapshot) {
         initialized = true
         if (selection.preset === "custom" && !selection.start && !selection.end) {
@@ -149,6 +155,8 @@ export function mountOverviewRange(root: HTMLElement, onChange: () => void) {
         if (!result.range) {
           showError(result.error)
           selection = { ...selection, preset: "30d" }
+          select.value = "30d"
+          visibility()
         }
         syncUrl()
       }

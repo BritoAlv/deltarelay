@@ -619,7 +619,7 @@
      entire file and can allocate a canvas too tall for the browser to paint. */
   .payload-viewer-host hexcanvas-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; --hexcanvas-bg: var(--bg); --hexcanvas-fg: var(--text); --hexcanvas-muted: var(--subtle); --hexcanvas-selection: color-mix(in srgb, var(--accent) 30%, var(--bg)); --hexcanvas-caret: var(--accent); --hexcanvas-cursor-row: var(--surface-raised); --hexcanvas-cursor-byte: var(--accent); --hexcanvas-cursor-byte-text: var(--bg); --hexcanvas-search: var(--warning); --hexcanvas-danger: var(--danger); --hexcanvas-panel-bg: var(--surface-raised); --hexcanvas-panel-fg: var(--text); --hexcanvas-field-bg: var(--surface); --hexcanvas-border: var(--border-strong); --hexcanvas-font: 13px var(--mono); }
   .payload-hex-fallback { height: 100%; margin: 0; padding: 14px; overflow: auto; font: 13px/1.8 var(--mono); white-space: pre; }
-  .inspect-pagination { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 13px 0 2px; color: var(--muted); font-size: 12px; }
+  .inspect-pagination, .request-pagination { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 13px 0 2px; color: var(--muted); font-size: 12px; }
   .inspect-pagination label { display: flex; align-items: center; gap: 7px; }
   .inspect-pagination input { width: 115px; font: 13px var(--mono); }
   .inspect-selection { border-left: 3px solid var(--accent); padding: 8px 12px; color: var(--muted); font: 12px/1.8 var(--mono); overflow-wrap: anywhere; }

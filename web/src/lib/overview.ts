@@ -1,4 +1,4 @@
-import { requestInRange, trafficData, type TrafficData, type TrafficRange } from "./traffic.js"
+import { requestInRange, trafficData, trafficTotals, type TrafficData, type TrafficRange } from "./traffic.js"
 import type { Snapshot } from "./types.js"
 
 export interface OverviewData {
@@ -12,6 +12,18 @@ export interface OverviewData {
 
 /** One resolved window and one set of byte totals for every overview surface. */
 export function overviewData(snapshot: Snapshot, range: TrafficRange, host = ""): OverviewData {
+  const summary = snapshot.overview
+  if (summary && summary.start === range.start && summary.end === range.end && summary.host === host) {
+    return {
+      range,
+      traffic: { points: summary.points, totals: trafficTotals(summary.points), source: summary.source,
+        coverageStart: Math.max(range.start, summary.coverage_start),
+        truncated: range.start < summary.coverage_start - Math.min(range.bucketMs, 86_400_000),
+        incomplete: summary.incomplete },
+      sessions: summary.sessions, activeSessions: summary.active_sessions, running: summary.running,
+      incompleteSessions: summary.incomplete_sessions,
+    }
+  }
   const sessions = new Set<string>()
   const activeSessions = new Set<string>()
   let running = 0

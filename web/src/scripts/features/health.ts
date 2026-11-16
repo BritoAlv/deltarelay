@@ -6,6 +6,7 @@ import { dataPhase, observationConnection, observationPhase, type DashboardViewS
 import { countdown, type AllowanceMeter, type AuthStatus, type GoAllowance } from "../../lib/system.js"
 import type { Snapshot } from "../../lib/types.js"
 import { requiredById } from "../dom.js"
+import { readPreferences, savePreferences } from "../../lib/preferences.js"
 
 export interface HealthFeature {
   render(state: DashboardViewState): void
@@ -108,7 +109,7 @@ export function mountHealth(root: HTMLElement): HealthFeature {
     if (element.textContent !== nextValue) element.textContent = nextValue
   }
   const summaryElement = requiredById<HTMLElement>(root, "system-summary")
-  let activeProvider: string | null = null
+  let activeProvider: string | null = readPreferences(root.ownerDocument, "health").provider ?? null
 
   cards.addEventListener("click", (event) => {
     const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-provider-tab]") : null
@@ -116,6 +117,7 @@ export function mountHealth(root: HTMLElement): HealthFeature {
     const name = button.dataset.providerTab
     if (!name) return
     activeProvider = name
+    savePreferences(root.ownerDocument, "health", { provider: name })
     for (const tab of cards.querySelectorAll<HTMLButtonElement>("[data-provider-tab]")) {
       tab.setAttribute("aria-selected", String(tab === button))
     }

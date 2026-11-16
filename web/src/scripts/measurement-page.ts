@@ -3,7 +3,8 @@ import { iconMarkup } from "../lib/icons.js"
 import { historyHosts, relativeTime } from "../lib/metrics.js"
 import { createPoller } from "../lib/polling.js"
 import type { DashboardViewState } from "../lib/state.js"
-import { readParams, replaceParams, syncHostLinks } from "../lib/url-state.js"
+import { syncHostLinks } from "../lib/url-state.js"
+import { readViewParams, replaceViewParams } from "../lib/preferences.js"
 import { requiredById } from "./dom.js"
 import { mountMeasurement } from "./features/measurement.js"
 
@@ -35,7 +36,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
   const refreshNote = requiredById(doc, "measurement-refresh-note")
   const notice = requiredById<HTMLElement>(doc, "measurement-notice")
   const hostFilter = doc.getElementById("measurement-host-filter") as HTMLSelectElement | null
-  const initialHost = readParams(doc).get("host") ?? ""
+  const initialHost = readViewParams(doc, "host").get("host") ?? ""
   let hostSignature = ""
 
   let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, host: initialHost, catalog: null, catalogError: "" }
@@ -77,7 +78,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
   function setHost(host: string): void {
     const hosts = historyHosts(state.snapshot)
     state = { ...state, host: hosts.includes(host) ? host : "" }
-    replaceParams(doc, { host: state.host || null })
+    replaceViewParams(doc, "host", { host: state.host || null })
     syncHostLinks(doc, state.host)
     render()
   }
@@ -87,9 +88,10 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     const hosts = historyHosts(state.snapshot)
     if (state.snapshot && state.host && !hosts.includes(state.host)) {
       state = { ...state, host: "" }
-      replaceParams(doc, { host: null })
+      replaceViewParams(doc, "host", { host: null })
       syncHostLinks(doc, "")
     }
+    if (state.snapshot) replaceViewParams(doc, "host", { host: state.host || null })
     const signature = hosts.join("\u0000")
     if (signature !== hostSignature) {
       hostSignature = signature
@@ -160,7 +162,7 @@ export function startMeasurementPage(doc: Document = document, options: Measurem
     const controller = new AbortController()
     const timeout = view.setTimeout(() => controller.abort(), 7000)
     try {
-      const next = await fetchSnapshot(controller.signal)
+      const next = await fetchSnapshot(controller.signal, { compact: true })
       if (destroyed || current !== generation) return
       state = { ...state, snapshot: next, stale: false, error: "" }
       render()

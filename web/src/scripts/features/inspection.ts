@@ -8,6 +8,7 @@ import {
   type InspectionStage, type RequestCapture, type UploadAttempt,
 } from "../../lib/inspection.js"
 import type { RelayRequest } from "../../lib/types.js"
+import { readPreferences, savePreferences } from "../../lib/preferences.js"
 
 const stages: [InspectionStage, string][] = [["body", "Original body"], ["inventory", "Relay inventory"], ["upload", "Raw chunks uploaded"], ["encoded", "Encoded upload"], ["savings", "Saved / extra upload"]]
 const exact = (n: number) => `${n.toLocaleString()}\u00A0B (${bytes(n)})`
@@ -37,6 +38,13 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
   let busy = false, pending = true, failure = "", viewNote = "", transferMismatch = false, generation = 0, destroyed = false
   let controller: AbortController | null = null
   const view = root.ownerDocument.defaultView ?? globalThis
+  function restorePresentation(forAttempt = false) {
+    const saved = readPreferences(root.ownerDocument, "inspection")[stage]
+    const valid = saved === "hex" || saved === "text" || saved === "json"
+    mode = valid ? saved : stage === "upload" && !forAttempt ? "hex" : "text"
+    preferJSON = !valid && (forAttempt || stage === "body" || stage === "encoded")
+  }
+  restorePresentation()
 
   function notice(): string {
     if (!status) return `<p class="inspect-notice">Payload capture is off or not reported by this gateway. Rebuild and restart the gateway to use the default capture directory. Existing counters cannot reconstruct request content.</p>`
@@ -253,8 +261,8 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
 
   function open(next: InspectionStage) {
     controller?.abort(); generation++
-    stage = next; page = null; selectedAttempt = null; selectedChunk = null; chunks = null; payloadOffset = 0; decoded = false; jsonPreview = ""; viewNote = ""; busy = false; mode = next === "upload" ? "hex" : "text"
-    preferJSON = next === "body" || next === "encoded"
+    stage = next; page = null; selectedAttempt = null; selectedChunk = null; chunks = null; payloadOffset = 0; decoded = false; jsonPreview = ""; viewNote = ""; busy = false
+    restorePresentation()
     if (request?.capture_id) void load()
     else render()
   }
@@ -263,13 +271,17 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
     const target = (event.target as Element).closest<HTMLElement>("[data-inspect-stage], [data-inspect-action], [data-inspect-mode], [data-inspect-chunk], [data-inspect-attempt]")
     if (!target || (target as HTMLButtonElement).disabled) return
     if (target.dataset.inspectStage) { open(target.dataset.inspectStage as InspectionStage); return }
-    if (target.dataset.inspectMode) { mode = target.dataset.inspectMode as typeof mode; preferJSON = false; page = null; payloadOffset = 0; void load(); return }
+    if (target.dataset.inspectMode) {
+      mode = target.dataset.inspectMode as typeof mode
+      savePreferences(root.ownerDocument, "inspection", { [stage]: mode })
+      preferJSON = false; page = null; payloadOffset = 0; void load(); return
+    }
     if (target.dataset.inspectChunk) {
       selectedChunk = chunks?.chunks.find((c) => c.index === Number(target.dataset.inspectChunk)) ?? null
       payloadOffset = selectedChunk?.offset ?? 0; mode = "hex"; preferJSON = false; decoded = false; page = null
       void load(); return
     }
-    if (target.dataset.inspectAttempt) { attemptIndex = Number(target.dataset.inspectAttempt); preferJSON = true; mode = "text"; payloadOffset = 0; decoded = false; page = null; void load(); return }
+    if (target.dataset.inspectAttempt) { attemptIndex = Number(target.dataset.inspectAttempt); restorePresentation(true); payloadOffset = 0; decoded = false; page = null; void load(); return }
     switch (target.dataset.inspectAction) {
       case "refresh": void load(true); break
       case "chunks-prev": chunkStart = Math.max(0, chunkStart-128); selectedChunk = null; void load(); break
@@ -319,8 +331,8 @@ export function mountInspection(root: HTMLElement): InspectionFeature {
       if (nextKey !== key) {
         controller?.abort(); generation++; key = nextKey
         capture = null; chunks = null; page = null; selectedChunk = null; selectedAttempt = null; failure = ""; viewNote = ""; jsonPreview = ""; transferMismatch = false
-        chunkStart = 0; inventoryIndex = 0; attemptIndex = 0; payloadOffset = 0; decoded = false; mode = stage === "upload" ? "hex" : "text"; busy = false
-        preferJSON = stage === "body" || stage === "encoded"
+        chunkStart = 0; inventoryIndex = 0; attemptIndex = 0; payloadOffset = 0; decoded = false; busy = false
+        restorePresentation()
         if (next?.capture_id) { void load(); return }
       } else if (refresh && next?.capture_id) { void load(true); return }
       // Polling metadata does not replace the viewer DOM or reset selection.

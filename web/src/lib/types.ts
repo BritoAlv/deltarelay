@@ -106,6 +106,22 @@ export interface OpenCodeSessions {
 }
 
 export interface Snapshot {
+  requests_paged?: boolean
+  /** Bounded server-side projection; absent on legacy/full snapshots. */
+  overview?: {
+    start: number
+    end: number
+    bucket_ms: number
+    host: string
+    points: import("./traffic.js").TrafficPoint[]
+    sessions: number
+    active_sessions: number
+    running: number
+    source: "hourly" | "daily" | "requests"
+    coverage_start: number
+    incomplete: boolean
+    incomplete_sessions: boolean
+  }
   inspection?: CaptureStatus
   version: 1
   collected_at: string

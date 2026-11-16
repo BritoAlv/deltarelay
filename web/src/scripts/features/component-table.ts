@@ -2,7 +2,8 @@ import { escapeHtml as escape } from "../../lib/html.js"
 import { supportsRemote, type SystemStatus } from "../../lib/system.js"
 import { iconMarkup, remoteHostIcon } from "../../lib/icons.js"
 import { nodePresentation, observationStale, type ComponentAction, type NodeID } from "../../lib/topology.js"
-import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
+import { readSort, sortParams, type SortState } from "../../lib/url-state.js"
+import { readViewParams, replaceViewParams } from "../../lib/preferences.js"
 import { requiredById } from "../dom.js"
 
 export const actionLabels: Record<ComponentAction, string> = { start: "Start", recover: "Recover", restart: "Restart", wake: "Wake", stop: "Stop", open: "Open" }
@@ -42,7 +43,7 @@ export function mountComponentTable(root: HTMLElement, onAction: (id: NodeID, ac
   const signatures = new Map<NodeID, string>()
   // The filter popover lives outside the scroll container so no table edge clips it.
   doc.body.append(popover)
-  const initial = readParams(doc)
+  const initial = readViewParams(doc, "components")
   const filters = Object.fromEntries(columns.map((key) => [key, initial.get(filterParams[key]) ?? ""])) as Record<Column, string>
   search.value = initial.get("q") ?? ""
   let sort: SortState<SortKey> = readSort(initial, sortKeys, "default", "asc")
@@ -66,7 +67,7 @@ export function mountComponentTable(root: HTMLElement, onAction: (id: NodeID, ac
   }
 
   function syncUrl() {
-    replaceParams(doc, {
+    replaceViewParams(doc, "components", {
       q: search.value.trim() || null,
       ...Object.fromEntries(columns.map((key) => [filterParams[key], filters[key].trim() || null])),
       ...sortParams(sort, "default", "asc"),

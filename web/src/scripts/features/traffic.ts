@@ -14,7 +14,7 @@ import {
 } from "../../lib/traffic.js"
 import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import type { OverviewData } from "../../lib/overview.js"
-import { readParams, replaceParams } from "../../lib/url-state.js"
+import { readViewParams, replaceViewParams } from "../../lib/preferences.js"
 import { requiredById } from "../dom.js"
 
 export interface TrafficFeature {
@@ -45,7 +45,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   const integer = (value: number) => value.toLocaleString()
   const setText = (id: string, value: string | number) => { requiredById(root, id).textContent = String(value) }
 
-  const initial = readParams(root.ownerDocument)
+  const initial = readViewParams(root.ownerDocument, "traffic")
   let lastState: DashboardViewState | null = null
   let lastOverview: OverviewData | null = null
   let view: TrafficView = initial.get("view") === "trends" ? "trends" : "composition"
@@ -60,6 +60,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   let resizeFrame = 0
   let observer: ResizeObserver | null = null
   let windowResize: (() => void) | null = null
+  let renderedKey = ""
   const viewWindow = root.ownerDocument.defaultView
 
   function setMeterWidths(reuse: number, saved: number): void {
@@ -76,6 +77,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   }
 
   function reset(message = "Loading local traffic…", loading = true): void {
+    renderedKey = ""
     for (const id of ["chart-original", "chart-encoded", "chart-saved", "chart-reused", "chart-saved-rate", "chart-reuse-rate", "reuse-value", "reuse-bytes", "uploaded-bytes", "composition-saved", "composition-sent"]) setText(id, "—")
     requiredById(root, "chart-count").innerHTML = loading ? loadingIndicator("Loading traffic…") : "Unavailable · retrying automatically"
     setText("reuse-scope", "Selected range")
@@ -94,7 +96,7 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
   }
 
   function syncUrl(): void {
-    replaceParams(root.ownerDocument, {
+    replaceViewParams(root.ownerDocument, "traffic", {
       view: view === "composition" ? null : view,
     })
   }
@@ -352,6 +354,9 @@ export function mountTraffic(root: HTMLElement): TrafficFeature {
       return
     }
     const { traffic: data, range } = overview
+    const key = JSON.stringify([data, range, view, state.host, chart.clientWidth, chart.clientHeight])
+    if (key === renderedKey) return
+    renderedKey = key
     const previous = pointerInside ? activeIndex : null
     lastData = data
     lastRange = range

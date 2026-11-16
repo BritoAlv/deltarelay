@@ -1,16 +1,19 @@
 import { sessionCsv } from "../../lib/csv.js"
 import { iconMarkup } from "../../lib/icons.js"
 import { escapeHtml as escape } from "../../lib/html.js"
-import { bytes, displaySessions, duration, filterSessions, historyHosts, percentage, relativeTime, savings, sessionRequests, sessionState, type SessionView } from "../../lib/metrics.js"
+import { bytes, displaySessions, duration, filterSessions, historyHosts, percentage, relativeTime, savings, sessionState, type SessionView } from "../../lib/metrics.js"
 import { dataValue } from "../../lib/presentation.js"
 import { activeColumnFilterCount, compileSessionFilters, emptySessionFilters, filterSessionViews, isColumnFilterActive, parseByteSize, parseDateBound, parseFilterNumber, readSessionFilters, sessionFilterParams, type SessionFilterInput } from "../../lib/session-filters.js"
 import { dataPhase, type DashboardViewState } from "../../lib/state.js"
 import type { Snapshot } from "../../lib/types.js"
-import { readParams, readSort, replaceParams, sortParams, type SortState } from "../../lib/url-state.js"
+import { readSort, sortParams, type SortState } from "../../lib/url-state.js"
+import { readViewParams, replaceViewParams } from "../../lib/preferences.js"
 import { required, requiredById } from "../dom.js"
+import { createRequestPages } from "./request-pages.js"
 
 export interface SessionsFeature {
   render(state: DashboardViewState): void
+  destroy(): void
 }
 
 export interface SessionsOptions {
@@ -76,7 +79,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     if (element.textContent !== nextValue) element.textContent = nextValue
   }
 
-  const initial = readParams(doc)
+  const initial = readViewParams(doc, "sessions")
   const validStates = ["all", "active", "idle", "attention"]
   const initialState = initial.get("state") ?? "all"
   let filterValue = validStates.includes(initialState) ? initialState : "all"
@@ -94,9 +97,14 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   let pendingOpen = initial.get("session")
   let openFilterKey: SessionSortKey | null = null
   let filterTrigger: HTMLButtonElement | null = null
+  const requestPages = createRequestPages(renderDetail)
+  detail.addEventListener("click", (event) => {
+    const button = (event.target as Element).closest<HTMLElement>("[data-request-page]")
+    if (button) requestPages.navigate(button.dataset.requestPage!)
+  })
 
   function syncUrl(): void {
-    replaceParams(doc, {
+    replaceViewParams(doc, "sessions", {
       q: search.value.trim() || null,
       state: filterValue === "all" ? null : filterValue,
       page: page > 1 ? String(page) : null,
@@ -192,9 +200,11 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     measureLink.hidden = false
     measureLink.href = `/measurement?session=${encodeURIComponent(session.id)}${state.host ? `&host=${encodeURIComponent(state.host)}` : ""}`
     detailTitle.textContent = session.id || "Unattributed requests"
-    const requests = sessionRequests(snapshot, session.id, state.host)
+    const requestPage = requestPages.sync(snapshot, session.id, state.host)
+    const requests = requestPage.requests
     const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
     detail.innerHTML = `<div class="detail-meta"><span class="metadata-line">${dataValue(session.upstream || "Unknown upstream")}<span>${dataValue(session.hosts.join(", "))}</span><span>${dataValue(integer(session.requests))} requests</span><span>${dataValue(integer(session.failed))} failed</span>${session.legacy ? `<span>${dataValue(integer(session.legacy))} legacy</span>` : ""}<span>${dataValue(integer(session.cancelled))} cancelled</span></span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div><h3>Recent requests <span class="section-meta">${dataValue(integer(requests.length))} retained</span></h3>${requests.map((request) => `<div class="request-entry"><div><code translate="no">${escape(request.id)}</code><p class="metadata-line">${dataValue(request.kind)}${dataValue(request.host || "local")}${dataValue(relativeTime(request.started_at))}${dataValue(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? dataValue(`HTTP ${request.status}`) : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : request.state === "cancelled" ? "neutral" : "warning")}<p class="request-transfer metadata-line">${request.state === "running" ? "Transfer totals pending" : `${dataValue(bytes(request.transfer.body_bytes))}${iconMarkup("arrow-right", 14)}<span class="sr-only">to</span>${dataValue(bytes(request.transfer.request_body_bytes_sent))}`}</p></div></div>`).join("")}<p class="detail-note">${session.id ? "Session ID is opaque; no title or content is shown." : "Requests without a valid session ID are grouped here."} New history is retained indefinitely; request lists may still be incomplete for sessions recorded before unlimited retention. “Interrupted” after a gateway restart does not mean the remote job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
+    if (requestPage.paged) detail.insertAdjacentHTML("beforeend", requestPages.controls())
   }
 
   function openDetail(sessionId: string): void {
@@ -669,6 +679,7 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   updateFilterControls()
 
   return {
+    destroy() { requestPages.destroy() },
     render(nextState) {
       state = nextState
       renderSessions()

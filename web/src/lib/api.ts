@@ -1,6 +1,8 @@
 import type { OpenCodeSessions, Snapshot } from "./types.js"
 import { captureID, isCaptureStatus } from "./inspection.js"
 import { counters, nonnegativeInteger, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
+import type { TrafficRange } from "./traffic.js"
+import type { RelayRequest } from "./types.js"
 
 const totalKeys = ["requests", "active", "failed", "cancelled", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
 const transferKeys = ["body_bytes", "chunks", "unique_chunks", "uploaded_chunks", "uploaded_chunk_bytes", "missing_chunk_bytes", "reused_body_bytes", "request_body_bytes_sent", "requests", "duration_ms"]
@@ -57,7 +59,15 @@ function traffic(value: unknown): boolean {
 // Reject incompatible/partial diagnostics rather than quietly showing false 0s.
 export function isSnapshot(value: unknown): value is Snapshot {
   if (!object(value) || value.version !== 1 || !timestamp(value.collected_at)) return false
+  if (value.requests_paged !== undefined && typeof value.requests_paged !== "boolean") return false
   if (value.inspection !== undefined && !isCaptureStatus(value.inspection)) return false
+  if (value.overview !== undefined) {
+    const summary = value.overview
+    if (!object(summary) || !counters(summary, ["start", "end", "bucket_ms", "sessions", "active_sessions", "running"]) ||
+      typeof summary.host !== "string" || !Array.isArray(summary.points) || summary.points.length > 200 ||
+      !["hourly", "daily", "requests"].includes(String(summary.source)) || !nonnegativeInteger(summary.coverage_start) || typeof summary.incomplete !== "boolean" || typeof summary.incomplete_sessions !== "boolean" ||
+      !summary.points.every((point) => object(point) && counters(point, ["at", "end", "requests", "failed", "cancelled", "body", "encoded", "reused", "uploadedChunkBytes", "response", "duration"]))) return false
+  }
   const { gateway, relay, history, providers } = value
   if (!object(gateway) || !counters(gateway, ["active", "concurrency", "pending_cancellations"]) || !timestamp(gateway.started_at) || !optionalString(gateway.control_error)) return false
   if (!object(relay) || typeof relay.reachable !== "boolean" || !counters(relay, ["latency_ms"]) || !object(relay.health)) return false
@@ -99,8 +109,20 @@ export async function fetchOpenCodeSessions(signal: AbortSignal): Promise<OpenCo
   return data
 }
 
-export async function fetchSnapshot(signal: AbortSignal): Promise<Snapshot> {
-  const response = await fetch("/api/dashboard", { signal, cache: "no-store", credentials: "same-origin", redirect: "error" })
+export async function fetchSnapshot(signal: AbortSignal, options?: { compact: true; range?: TrafficRange; host?: string; now?: number }): Promise<Snapshot> {
+  const params = new URLSearchParams()
+  if (options) {
+    params.set("compact", "1")
+    if (options.range) {
+      params.set("start", String(options.range.start))
+      params.set("end", String(options.range.end))
+      params.set("bucket", String(Math.min(options.range.bucketMs, options.range.end - options.range.start)))
+      if (options.range.preset === "last" || options.range.preset === "datetime") params.set("exact", "1")
+      if (options.now !== undefined) params.set("now", String(options.now))
+      if (options.host) params.set("host", options.host)
+    }
+  }
+  const response = await fetch(`/api/dashboard${params.size ? `?${params}` : ""}`, { signal, cache: "no-store", credentials: "same-origin", redirect: "error" })
   if (!response.ok) {
     const data: unknown = await response.json().catch(() => null)
     switch (object(data) ? data.error : "") {
@@ -112,4 +134,22 @@ export async function fetchSnapshot(signal: AbortSignal): Promise<Snapshot> {
   const data: unknown = await response.json()
   if (!isSnapshot(data)) throw new Error("The gateway returned incompatible diagnostics. Rebuild both the gateway and dashboard.")
   return data
+}
+
+export interface RequestPage {
+  requests: RelayRequest[]
+  total: number
+  next_before: number
+}
+
+export async function fetchRequestPage(session: string, host: string, before: number, limit: number, signal: AbortSignal): Promise<RequestPage> {
+  const params = new URLSearchParams({ session, limit: String(limit) })
+  if (host) params.set("host", host)
+  if (before) params.set("before", String(before))
+  const response = await fetch(`/api/dashboard/requests?${params}`, { signal, cache: "no-store", credentials: "same-origin", redirect: "error" })
+  if (!response.ok) throw new Error("Request history is unavailable. Retry to load this page.")
+  const data: unknown = await response.json()
+  if (!object(data) || !counters(data, ["total", "next_before"]) || !Array.isArray(data.requests) ||
+    data.requests.length > limit || !data.requests.every(request)) throw new Error("The gateway returned incompatible request history.")
+  return data as unknown as RequestPage
 }

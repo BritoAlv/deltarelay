@@ -132,6 +132,7 @@ func New(config Config) (*Gateway, error) {
 	})
 	g.mux.HandleFunc("GET /metrics", g.metrics)
 	g.mux.HandleFunc("GET /dashboard", g.dashboard)
+	g.mux.HandleFunc("GET /dashboard/requests", g.dashboardRequests)
 	g.mux.Handle("GET /inspection/{rest...}", captures)
 	return g, nil
 }

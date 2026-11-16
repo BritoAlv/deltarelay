@@ -5,6 +5,34 @@ built with pnpm. It is static HTML/CSS plus a small browser script, served by th
 Go binary. There is no Node production server, UI framework, charting package,
 database, CDN, remote font, or paid health probe.
 
+## Remembered preferences
+
+Viewing choices are saved automatically in this browser's `localStorage` and
+restored on subsequent visits, including after closing the browser:
+
+- Theme; Overview time range, custom bounds, date-entry mode, and chart view.
+- Shared host selection on Sessions and Measurement (Overview remains all hosts).
+- Session search, status/column filters, sort order, and rows per page.
+- Measurement session-browser search, day, availability filter, and sort order.
+- Component-table search, column filters, and sort order.
+- System controls tab, architecture flow-channel visibility, payload presentation
+  mode per inspection stage, and payload-viewer line wrapping.
+- System health provider tab.
+
+Explicit URL parameters take priority over the saved settings for that view.
+Range parameters are restored together, never mixed with saved bounds.
+Session/request links do not inherit saved filters that could hide their target.
+Relative ranges such as **Last 24 hours** advance with the latest snapshot;
+custom date/timestamp ranges remain fixed. Only successfully applied ranges are
+saved.
+
+Open dialogs, pagination, selected records, paused refresh, unfinished form
+inputs, credentials, and captured payloads are not saved as preferences.
+Automatic recovery and wake settings remain backend-controlled. Preferences do
+not sync across browsers/devices and are lost when site data is cleared; private
+browsing or blocked/full storage may prevent persistence without breaking the
+dashboard.
+
 ## What you can see
 
 For a new deployment, run `./startup.sh --no-desktop` and use **System controls →
@@ -267,9 +295,32 @@ history; authentication failures and invalid/disallowed targets do not.
 
 ## Privacy, retention, and state
 
-For statistics, the browser requests `GET /api/dashboard`. The Go dashboard authenticates
-its own `GET /dashboard` to the local gateway; it does not forward browser
-headers, cookies, arbitrary routes, or query parameters. Statistics remain
+For statistics, the browser requests `GET /api/dashboard?compact=1`. Overview
+adds epoch-millisecond `start`, `end`, and `bucket` parameters for a server-side
+summary of the selected range (at most 200 points), plus the selected `host`,
+the range-resolution clock `now`, and `exact=1` for relative/pasted timestamp
+ranges. Calendar presets preserve hourly/daily aggregate accounting, including
+legacy totals whose individual request timestamps are unavailable. Compact
+responses include session/lifetime totals but no request entries or historical
+traffic bucket arrays.
+
+Session details and Measurement fetch only the current request page from
+`GET /api/dashboard/requests?session=…&limit=8`, with optional `host` and an
+exclusive `before` sequence cursor. Pages are newest-first, limited to 100
+entries, and include the matching retained count and next cursor. New requests
+do not shift an older page's cursor. **Newer requests** and **Older requests**
+provide access to the entire retained history without accumulating its rows
+in browser memory. Loading failures offer Retry and never imply history was
+deleted. Session summaries continue to use lifetime totals, not page totals.
+
+These are read projections only: no history is deleted, capped, rewritten,
+or aged out by a query. The original full `GET /api/dashboard` remains available
+for compatible diagnostic clients. Charts skip unchanged data, and timestamp
+formatters are reused across redraws.
+
+The Go dashboard authenticates its own `GET /dashboard` or
+`GET /dashboard/requests` to the local gateway; it forwards only the documented
+query allowlist, never browser headers, cookies, or arbitrary routes. Statistics remain
 metadata-only: gateway and VPS tokens, provider credentials, target URLs, and
 response bodies are not included. The dashboard makes no model requests and has
 no cancellation, ACK, or replay controls. Its separate `/api/system` metadata and
@@ -424,7 +475,7 @@ The separate **Measurement** page (`/measurement`) applies these definitions to 
 session selected from retained gateway history. The session browser can list the
 broader local OpenCode session catalog, but only gateway-measured sessions are
 traceable; unmeasured sessions never fabricate a summary. Its summary and request
-list use the same snapshot; the optional evidence inspector loads captured artifacts
+list use compact session totals and independently paged request metadata; the optional evidence inspector loads captured artifacts
 on demand through validated read-only routes. Neither view sends a model request. The
 session summary shows original bytes, encoded uploads, saved bytes, reduction,
 and relay content reuse. The request list is the single request selector:

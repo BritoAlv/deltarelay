@@ -46,13 +46,17 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
   let loading = false
   let paused = false
   let destroyed = false
+  let lanesKey = ""
+  let ringKey = ""
 
   function resetLanes(message = "Waiting for supervisor history…"): void {
+    lanesKey = ""
     lanes.innerHTML = `<div class="chart-placeholder">${escapeHtml(message)}</div>`
     lanes.setAttribute("aria-label", "State lane timeline awaiting supervisor history")
   }
 
   function resetRing(message = "Waiting…"): void {
+    ringKey = ""
     ring.innerHTML = `<div class="chart-placeholder">${escapeHtml(message)}</div>`
     ring.setAttribute("aria-label", "State composition awaiting supervisor history")
     legend.innerHTML = ""
@@ -159,8 +163,16 @@ export function mountSystemStates(root: HTMLElement): SystemStatesFeature {
       updateNotice(null)
       return
     }
-    renderLanes(data)
-    renderRing(data)
+    const nextLanes = JSON.stringify([data.start, data.end, data.intervals, currentRange?.label])
+    if (nextLanes !== lanesKey) {
+      renderLanes(data)
+      lanesKey = nextLanes
+    }
+    const nextRing = JSON.stringify([data.totals, currentRange?.label])
+    if (nextRing !== ringKey) {
+      renderRing(data)
+      ringKey = nextRing
+    }
     updateNotice(data)
   }
 

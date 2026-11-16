@@ -9,6 +9,7 @@ import { PagedByteSource } from "@hexcanvas/core"
 import type { HexCanvasElement } from "@hexcanvas/element"
 import { decodeBytes, fetchArtifact, hexDump } from "../../lib/inspection.js"
 import { dataValue } from "../../lib/presentation.js"
+import { readPreferences, savePreferences } from "../../lib/preferences.js"
 
 export interface PayloadViewerOptions {
   mode: "text" | "json" | "hex"
@@ -87,7 +88,7 @@ export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOpti
 
   if (options.mode !== "hex") {
     const wrapping = new Compartment()
-    let wrap = true
+    let wrap = readPreferences(doc, "payload").wrap !== "false"
     editor = new EditorView({
       parent: host,
       root: doc,
@@ -99,7 +100,7 @@ export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOpti
           chrome,
           lineNumbers(), highlightActiveLine(), highlightActiveLineGutter(), drawSelection(),
           search(), keymap.of([...searchKeymap, ...foldKeymap, ...defaultKeymap]),
-          wrapping.of(EditorView.lineWrapping),
+          wrapping.of(wrap ? EditorView.lineWrapping : []),
           ...(options.jsonText ? [json(), foldGutter(), bracketMatching(), syntaxHighlighting(colors)] : []),
           EditorView.updateListener.of((update) => {
             if (!update.selectionSet) return
@@ -118,10 +119,11 @@ export function mountPayloadViewer(root: HTMLElement, options: PayloadViewerOpti
     }
     const wrapButton = action("Wrap lines", () => {
       wrap = !wrap
+      savePreferences(doc, "payload", { wrap: String(wrap) })
       editor?.dispatch({ effects: wrapping.reconfigure(wrap ? EditorView.lineWrapping : []) })
       wrapButton.setAttribute("aria-pressed", String(wrap))
     })
-    wrapButton.setAttribute("aria-pressed", "true")
+    wrapButton.setAttribute("aria-pressed", String(wrap))
   } else {
     status.textContent = "Loading interactive hex viewer…"
     // The canvas library is browser-only, so load it only when hex is selected.

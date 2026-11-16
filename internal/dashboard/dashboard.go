@@ -148,7 +148,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "read-only dashboard", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path == "/api/dashboard" {
+	if r.URL.Path == "/api/dashboard" || r.URL.Path == "/api/dashboard/requests" {
 		h.snapshot(w, r)
 		return
 	}
@@ -196,12 +196,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
-	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.config.GatewayURL+"/dashboard", nil)
+	path := "/dashboard"
+	keys := []string{"compact", "start", "end", "bucket", "host", "exact", "now"}
+	if r.URL.Path == "/api/dashboard/requests" {
+		path += "/requests"
+		keys = []string{"session", "host", "before", "limit"}
+	}
+	// Forward only this read API's allowlisted query fields. Never forward a
+	// target URL, token, arbitrary path, or incoming credentials.
+	query := url.Values{}
+	for _, key := range keys {
+		if r.URL.Query().Has(key) {
+			query.Set(key, r.URL.Query().Get(key))
+		}
+	}
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.config.GatewayURL+path, nil)
 	if err != nil {
 		http.Error(w, "invalid gateway configuration", http.StatusInternalServerError)
 		return
 	}
-	// Never copy incoming headers, cookies, query parameters, or credentials.
+	// Never copy incoming headers, cookies, or credentials.
 	request.Header.Set("X-DeltaRelay-Local-Token", h.config.LocalToken)
 	response, err := h.client.Do(request)
 	if err != nil {
@@ -209,6 +226,10 @@ func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusBadRequest {
+		http.Error(w, "invalid dashboard query", http.StatusBadRequest)
+		return
+	}
 	if response.StatusCode != http.StatusOK {
 		code := "gateway_unavailable"
 		if response.StatusCode == http.StatusUnauthorized {

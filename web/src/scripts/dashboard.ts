@@ -3,7 +3,8 @@ import { historyHosts, relativeTime, trackedSessionCount } from "../lib/metrics.
 import { overviewData } from "../lib/overview.js"
 import { createPoller } from "../lib/polling.js"
 import { observationConnection, systemObservations, type DashboardViewState } from "../lib/state.js"
-import { readParams, replaceParams, syncHostLinks } from "../lib/url-state.js"
+import { replaceParams, syncHostLinks } from "../lib/url-state.js"
+import { readViewParams, replaceViewParams } from "../lib/preferences.js"
 import { requiredById } from "./dom.js"
 import { mountHeader, type HeaderView } from "./features/header.js"
 import { mountHealth } from "./features/health.js"
@@ -50,21 +51,25 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const dialog = sessionsRoot ? requiredById<HTMLDialogElement>(doc, "session-dialog") : null
   const navCount = doc.getElementById("nav-session-count")
   const hostScoped = doc.getElementById("host-filter") !== null
-  const initialHost = hostScoped ? readParams(doc).get("host") ?? "" : ""
+  const initialHost = hostScoped ? readViewParams(doc, "host").get("host") ?? "" : ""
   if (!hostScoped) replaceParams(doc, { host: null })
 
   let state: DashboardViewState = { snapshot: null, stale: false, paused: false, busy: false, error: "", system: null, host: initialHost }
   let generation = 0
   let destroyed = false
+  let rangeClock: number | undefined
+  let refreshPending = false
+  let refreshTask: Promise<void> | null = null
   const systemStates = statesRoot ? mountSystemStates(statesRoot) : null
 
   function setHost(host: string): void {
     if (!hostScoped) return
     const hosts = historyHosts(state.snapshot)
     state = { ...state, host: hosts.includes(host) ? host : "" }
-    replaceParams(doc, { host: state.host || null })
+    replaceViewParams(doc, "host", { host: state.host || null })
     syncHostLinks(doc, state.host)
     render()
+    requestRefresh()
   }
 
   const header = mountHeader({
@@ -77,7 +82,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   const stats = statsRoot ? mountStats(statsRoot) : null
   const traffic = trafficRoot ? mountTraffic(trafficRoot) : null
   const rangeRoot = doc.getElementById("overview-range")
-  const range = rangeRoot ? mountOverviewRange(rangeRoot, render) : null
+  const range = rangeRoot ? mountOverviewRange(rangeRoot, () => { render(); requestRefresh() }) : null
   const sessions = sessionsRoot && dialog ? mountSessions(sessionsRoot, dialog, { onHostChange: setHost }) : null
   const health = healthRoot ? mountHealth(healthRoot) : null
   const unsubscribe = systemObservations.subscribe((system) => {
@@ -105,12 +110,17 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
     if (destroyed) return
     if (hostScoped && state.snapshot && state.host && !historyHosts(state.snapshot).includes(state.host)) {
       state = { ...state, host: "" }
-      replaceParams(doc, { host: null })
+      replaceViewParams(doc, "host", { host: null })
       syncHostLinks(doc, "")
     }
+    if (hostScoped && state.snapshot) replaceViewParams(doc, "host", { host: state.host || null })
     header.render(headerView())
-    const selectedRange = range?.render(state.snapshot)
-    const overview = state.snapshot && selectedRange ? overviewData(state.snapshot, selectedRange, state.host) : null
+    const selectedRange = range?.render(state.snapshot, rangeClock)
+    // A compact response belongs to the exact requested window. Do not show
+    // zero totals from its intentionally empty request list while switching.
+    const summary = state.snapshot?.overview
+    const matches = !summary || selectedRange && summary.start === selectedRange.start && summary.end === selectedRange.end && summary.host === state.host
+    const overview = state.snapshot && selectedRange && matches ? overviewData(state.snapshot, selectedRange, state.host) : null
     stats?.render(state, overview)
     traffic?.render(state, overview)
     systemStates?.render(state.snapshot ? selectedRange ?? null : null, state.paused)
@@ -127,16 +137,34 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
     render()
   }
 
-  async function refresh() {
-    if (destroyed || state.busy) return
+  function refresh(): Promise<void> {
+    if (destroyed) return Promise.resolve()
+    if (refreshTask) {
+      refreshPending = true
+      return refreshTask
+    }
+    refreshTask = (async () => {
+      do {
+        refreshPending = false
+        await refreshOnce()
+      } while (refreshPending && !destroyed)
+    })().finally(() => { refreshTask = null })
+    return refreshTask
+  }
+
+  async function refreshOnce() {
+    if (destroyed) return
     state = { ...state, busy: true }
     render()
     const current = ++generation
     const controller = new AbortController()
     const timeout = view.setTimeout(() => controller.abort(), 7000)
     try {
-      const next = await fetchSnapshot(controller.signal)
+      const requestedClock = Date.now()
+      const requestedRange = range?.render(null, requestedClock)
+      const next = await fetchSnapshot(controller.signal, { compact: true, range: requestedRange, host: state.host, now: requestedClock })
       if (destroyed || current !== generation) return
+      rangeClock = next.overview ? requestedClock : undefined
       state = { ...state, snapshot: next, stale: false, error: "" }
     } catch (error) {
       if (destroyed || current !== generation) return
@@ -152,6 +180,11 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
         render()
       }
     }
+  }
+
+  function requestRefresh() {
+    if (state.busy) refreshPending = true
+    else void refresh()
   }
 
   syncHostLinks(doc, initialHost)
@@ -171,6 +204,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
       traffic?.destroy()
       systemStates?.destroy()
       range?.destroy()
+      sessions?.destroy()
     },
     get paused() { return state.paused },
   }

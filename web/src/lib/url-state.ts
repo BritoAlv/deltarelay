@@ -24,8 +24,8 @@ export function replaceParams(doc: Document, values: Record<string, string | nul
   }
 }
 
-// Keep the host filter across the host-scoped monitor pages without storing
-// private selection state outside the URL. Overview is always all hosts.
+// Keep the host filter explicit in links between host-scoped monitor pages.
+// Browser preferences supply the fallback on a fresh visit; Overview is all hosts.
 export function syncHostLinks(doc: Document, host: string): void {
   for (const link of doc.querySelectorAll<HTMLAnchorElement>(".sidebar-nav a[href], .mobile-tabs a[href]")) {
     const href = link.getAttribute("href")

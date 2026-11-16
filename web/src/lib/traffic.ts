@@ -6,6 +6,14 @@ export const DAY_MS = 86_400_000
 export const SECOND_MS = 1_000
 export const MINUTE_MS = 60_000
 
+// Reuse ICU formatters: timeline tooltips format thousands of timestamps.
+const dateTimeOptions: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZoneName: "short" }
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, dateTimeOptions)
+const preciseDateTimeFormatter = new Intl.DateTimeFormat(undefined, { ...dateTimeOptions, fractionalSecondDigits: 3 })
+const dateFormatter = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" })
+const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })
+const secondsFormatter = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+
 export type TrafficPreset = "24h" | "7d" | "30d" | "90d" | "last" | "custom" | "datetime"
 export type TrafficFixedPreset = Exclude<TrafficPreset, "last" | "custom" | "datetime">
 export type TrafficLastUnit = "seconds" | "minutes" | "hours" | "days"
@@ -179,7 +187,7 @@ export function dateTimeRange(startValue: string, endValue: string, now: number)
 }
 
 export function formatDateTime(value: number): string {
-  return new Date(value).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", ...(value % SECOND_MS ? { fractionalSecondDigits: 3 as const } : {}), hour12: false, timeZoneName: "short" })
+  return (value % SECOND_MS ? preciseDateTimeFormatter : dateTimeFormatter).format(value)
 }
 
 export function requestInRange(request: RelayRequest, range: TrafficRange): boolean {
@@ -366,11 +374,11 @@ export function niceScale(minValue: number, maxValue: number, target = 4): AxisS
 }
 
 export function formatDate(value: number): string {
-  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  return dateFormatter.format(value)
 }
 
 export function formatTime(value: number, seconds = false): string {
-  return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", ...(seconds ? { second: "2-digit" as const } : {}), hour12: false })
+  return (seconds ? secondsFormatter : timeFormatter).format(value)
 }
 
 export function formatBucketWindow(at: number, end: number, bucketMs: number): string {
