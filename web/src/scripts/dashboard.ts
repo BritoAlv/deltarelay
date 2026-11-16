@@ -126,7 +126,10 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
     systemStates?.render(state.snapshot ? selectedRange ?? null : null, state.paused)
     sessions?.render(state)
     health?.render(state)
-    if (navCount) navCount.textContent = state.snapshot ? String(trackedSessionCount(state.snapshot, state.host)) : "—"
+    // On the overview, the sidebar count follows the selected period like the
+    // Sessions card. Pages without a range fall back to the retained catalog.
+    const navSessions = range ? overview?.sessions : state.snapshot ? trackedSessionCount(state.snapshot, state.host) : null
+    if (navCount) navCount.textContent = navSessions == null ? "—" : String(navSessions)
   }
 
   function togglePause() {

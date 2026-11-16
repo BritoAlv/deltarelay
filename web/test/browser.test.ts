@@ -1580,6 +1580,7 @@ test("seconds and minutes update the four cards and render real request-level ch
   unit.value = "seconds"
   apply.click()
   assert.equal(doc.querySelector("#stat-sessions")?.textContent, "2")
+  assert.equal(doc.querySelector("#nav-session-count")?.textContent, "2")
   assert.equal(doc.querySelector("#stat-requests")?.textContent, "2")
   assert.match(doc.querySelector("#chart-count")?.textContent ?? "", /^1 requests/)
   assert.match(doc.querySelector("#traffic-chart")?.getAttribute("aria-label") ?? "", /Last 30 seconds: 1 requests/)
@@ -1597,6 +1598,7 @@ test("seconds and minutes update the four cards and render real request-level ch
   amount.value = "4"
   apply.click()
   assert.equal(doc.querySelector("#stat-sessions")?.textContent, "0")
+  assert.equal(doc.querySelector("#nav-session-count")?.textContent, "0")
   assert.equal(doc.querySelector("#stat-requests")?.textContent, "0")
   assert.equal(doc.querySelector("#stat-reduction")?.textContent, "—")
   assert.equal(doc.querySelector("#stat-saved")?.textContent, doc.querySelector("#chart-saved")?.textContent)
