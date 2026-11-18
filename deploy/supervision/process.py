@@ -13,6 +13,13 @@ import time
 from remote_provider import ProviderError as ControlError, environment, plugin_environment
 
 
+GRAPHICAL_COMPONENTS = frozenset(('desktop', 'openchamber'))
+
+
+def graphical_session_available():
+    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+
+
 def process(pid):
     try:
         root = Path('/proc') / str(int(pid))
@@ -70,7 +77,7 @@ class ProcessManager:
         expected = spec.get('match', spec['command'])
         if info and matches(info, expected):
             return info
-        if name == 'desktop' and spec.get('match'):
+        if name in GRAPHICAL_COMPONENTS and spec.get('match'):
             for directory in Path('/proc').glob('[0-9]*'):
                 candidate = process(directory.name)
                 if candidate and matches(candidate, expected) and not any(arg.startswith('--type=') for arg in candidate['args']):
@@ -100,8 +107,8 @@ class ProcessManager:
                 self.log(name, 'event', f'Adopted verified pid={info["pid"]} birth={info["birth"]}; argv={shlex.join(info["args"])}')
             self.identities[name] = identity
             return info
-        # Desktop may hand off to an already-running Electron instance.
-        if name == 'desktop' and spec.get('match'):
+        # Electron frontends may hand off to an already-running instance.
+        if name in GRAPHICAL_COMPONENTS and spec.get('match'):
             for directory in Path('/proc').glob('[0-9]*'):
                 candidate = process(directory.name)
                 if candidate and matches(candidate, expected) and not any(arg.startswith('--type=') for arg in candidate['args']):
@@ -127,7 +134,7 @@ class ProcessManager:
                     raise ControlError('unrecognized_port_owner')
             except OSError:
                 pass
-        if name == 'desktop' and not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
+        if name in GRAPHICAL_COMPONENTS and not graphical_session_available():
             raise ControlError('graphical_session_required')
         log = self.directory / (name + '.log')
         if self.journal:

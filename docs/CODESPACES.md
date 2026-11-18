@@ -13,9 +13,10 @@ or personal host names.
 
 ```text
 .runtime/
-  codespace-profile/              # shared local profile: OpenCode, Desktop, control
+  codespace-profile/              # shared local profile: OpenCode, frontends, control
     dashboard-stats.json          # one host-labelled dashboard history
     captures/                     # request evidence for every host
+    openchamber/                  # optional OpenChamber app/desktop state
   current -> codespaces/alpha     # active remote host; the only switching pointer
   accounts/
     <account>.gh                  # optional private GitHub CLI account wrapper
@@ -39,8 +40,14 @@ or personal host names.
 - `relay.token` and `state/relay-state.json` are still per host and must never be
   shared between profiles. A relay identity belongs to exactly one deployment.
 - The shared local profile contains `local.token`, `upstreams.json`, the
-  OpenCode/Desktop configuration, supervisor journals, dashboard history, and
-  request captures. It is not tied to a remote host.
+  OpenCode and frontend configuration, supervisor journals, dashboard history,
+  and request captures. It is not tied to a remote host.
+- If OpenChamber is configured, its app/desktop state lives under the supervisor
+  `profile` directory's `openchamber/` (shown in the shared local profile above;
+  see [OpenChamber + DeltaRelay](OPENCHAMBER.md#isolated-state)). It contains
+  frontend-local projects, folder trust, cookies, and device keys, not the
+  DeltaRelay relay identity. Switching hosts with `use` does not move or delete
+  it; do not copy it into another profile or publish it.
 
 On first start after an upgrade, the supervisor imports any older per-host
 `stats.json` and `captures/` files into the shared history once, renames the

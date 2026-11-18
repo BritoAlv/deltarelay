@@ -13,10 +13,10 @@ test("every architecture component has a real SVG and branded components use ide
     assert.match(iconMarkup(node.icon), /^<svg /)
     assert.ok(iconDefinition(node.icon).body)
   }
-  for (const [id, icon] of [["vscode", "vscode"], ["desktop", "opencode"], ["opencode", "opencode"]]) {
+  for (const [id, icon] of [["vscode", "vscode"], ["desktop", "opencode"], ["openchamber", "openchamber"], ["opencode", "opencode"]]) {
     assert.equal(mapNodes.find((node) => node.id === id)?.icon, icon)
   }
-  for (const name of ["github", "vscode", "openai", "opencode"] as const) {
+  for (const name of ["github", "vscode", "openai", "opencode", "openchamber"] as const) {
     assert.equal(iconDefinition(name).brand, true)
     assert.match(iconMarkup(name), /stroke="none"/)
   }
@@ -25,6 +25,7 @@ test("every architecture component has a real SVG and branded components use ide
 
 test("SVG icons retain intrinsic geometry and decorative accessibility attributes", () => {
   assert.match(iconMarkup("opencode", 18), /viewBox="0 0 240 300"/)
+  assert.match(iconMarkup("openchamber", 18), /viewBox="0 0 32 32"/)
   assert.match(iconMarkup("play", 17), /width="17" height="17"/)
   assert.match(iconMarkup("chevron"), /aria-hidden="true" focusable="false"/)
   assert.throws(() => iconMarkup("play", NaN), /Invalid icon size/)
@@ -32,6 +33,15 @@ test("SVG icons retain intrinsic geometry and decorative accessibility attribute
   assert.equal(remoteHostIcon({ id: "configured", label: "GitHub Codespace" }), "github")
   assert.equal(remoteHostIcon({ id: "ssh", label: "Linux VPS" }), "system")
   assert.equal(remoteHostIcon(undefined), "system")
+})
+
+test("OpenChamber uses the official favicon geometry without a runtime asset reference", () => {
+  const mark = iconDefinition("openchamber")
+  assert.equal(mark.viewBox, "0 0 32 32")
+  assert.equal(mark.brand, true)
+  assert.match(mark.body, /stroke="currentColor"/)
+  assert.match(mark.body, /fill="currentColor"/)
+  assert.doesNotMatch(mark.body, /<style|:root|#111111|#f5f5f5|<svg/)
 })
 
 test("dashboard icon controls use SVG instead of text glyphs on all routes", async () => {

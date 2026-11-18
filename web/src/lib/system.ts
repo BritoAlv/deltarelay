@@ -45,7 +45,7 @@ export interface SystemStatus {
   topology?: TopologyStatus
 }
 
-const componentIDs = ["dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop"]
+const componentIDs = ["dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop", "openchamber"]
 export type RemoteCapability = "relay.ensure" | "relay.restart" | "host.wake" | "host.stop"
 const remoteCapabilities = ["relay.ensure", "relay.restart", "host.wake", "host.stop"]
 
@@ -72,7 +72,7 @@ export function isSystemStatus(v: unknown): v is SystemStatus {
   const remote = v.remote
   if (!object(remote) || typeof remote.id !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(remote.id) || typeof remote.label !== "string" || !remote.label.length || [...remote.label].length > 80 || /[\x00-\x1f\x7f-\x9f]/.test(remote.label)) return false
   if (typeof remote.host_state !== "string" || !["running", "stopped", "starting", "stopping", "unknown"].includes(remote.host_state) || !Array.isArray(remote.capabilities) || remote.capabilities.length > 4 || new Set(remote.capabilities).size !== remote.capabilities.length || !remote.capabilities.every((c) => typeof c === "string" && remoteCapabilities.includes(c))) return false
-  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 7 && v.components.every((c) => object(c) && typeof c.id === "string" && componentIDs.includes(c.id) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
+  return typeof v.relay_state === "string" && Array.isArray(v.components) && v.components.length <= 8 && v.components.every((c) => object(c) && typeof c.id === "string" && componentIDs.includes(c.id) && typeof c.label === "string" && typeof c.state === "string" && typeof c.can_start === "boolean" && typeof c.can_restart === "boolean")
 }
 
 export type ConnectionState = "connected" | "remote_stopped" | "no_internet" | "vps_unreachable" | "unknown"

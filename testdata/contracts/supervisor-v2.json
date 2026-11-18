@@ -33,7 +33,7 @@
     },
     {
       "id": "gate",
-      "label": "Varro health gate",
+      "label": "Frontend health gate",
       "state": "unmanaged",
       "can_start": false,
       "can_restart": false
@@ -72,6 +72,13 @@
       "state": "unmanaged",
       "can_start": false,
       "can_restart": false
+    },
+    {
+      "id": "openchamber",
+      "label": "OpenChamber",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
     }
   ],
   "topology": {
@@ -99,7 +106,22 @@
         "group": "local",
         "owner": "opencode",
         "managed": false,
-        "desired": "running",
+        "desired": "stopped",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "openchamber",
+        "label": "OpenChamber",
+        "kind": "app",
+        "group": "local",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "stopped",
         "lifecycle": "unmanaged",
         "readiness": "unknown",
         "activity": "idle",
@@ -139,7 +161,7 @@
       },
       {
         "id": "gate",
-        "label": "Varro health gate",
+        "label": "Frontend health gate",
         "kind": "gate",
         "group": "local",
         "owner": "supervisor",
@@ -149,7 +171,7 @@
         "readiness": "unknown",
         "activity": "idle",
         "checked_at": null,
-        "detail": "Not configured. Add components.gate to run Varro attach-only through the supervisor.",
+        "detail": "Not configured. Add components.gate to run Varro or OpenChamber attach-only through the supervisor.",
         "actions": []
       },
       {
@@ -328,6 +350,14 @@
         "state": "unknown"
       },
       {
+        "id": "openchamber_gate",
+        "source": "openchamber",
+        "target": "gate",
+        "relation": "traffic",
+        "protocol": "Attach-only local HTTP",
+        "state": "unknown"
+      },
+      {
         "id": "gate_opencode",
         "source": "gate",
         "target": "opencode",
@@ -435,6 +465,14 @@
         "id": "supervisor_gate",
         "source": "supervisor",
         "target": "gate",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
+        "state": "unknown"
+      },
+      {
+        "id": "supervisor_openchamber",
+        "source": "supervisor",
+        "target": "openchamber",
         "relation": "manages",
         "protocol": "Configured lifecycle",
         "state": "unknown"

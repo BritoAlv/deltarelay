@@ -1,21 +1,30 @@
 # Varro + DeltaRelay in VS Code
 
-Varro attaches to the **same OpenCode v2 service** as Desktop/TUI through a
-loopback health gate. The gate is a default-on supervised local component: start
-`./deltarelay start`/`./startup.sh`, and the supervisor starts the gate for you.
-VS Code/Varro is opened by you, or from the dashboard's **Open** action when
-`vscode.open_command` is configured (see [Open from the dashboard](#open-from-the-dashboard)).
+Varro attaches to the **same OpenCode v2 service** as Desktop/TUI through the
+shared frontend health gate. The gate is a default-on supervised local component
+also used by OpenChamber: start `./deltarelay start`/`./startup.sh`, and the
+supervisor starts the gate for you. OpenChamber and Varro can attach at the same
+time to the same gate and service. VS Code/Varro is opened by you, or from the
+dashboard's **Open** action when `vscode.open_command` is configured (see
+[Open from the dashboard](#open-from-the-dashboard)).
 That action runs the configured command once; the supervisor never starts the
 editor automatically, restarts it, or manages it. The gate does not own, start,
 stop, restart, or update the OpenCode service, gateway, tunnel/relay, or
 provider, and it has no provider fallback.
 
 ```text
-VS Code / Varro -> gate 127.0.0.1:18789 -> profile OpenCode shared service
-                    | health checks             | DeltaRelay plugin
-                    +-> gateway 127.0.0.1:18788 -> tunnel/relay
-Desktop / TUI --------------------------> same shared service
+VS Code / Varro --\
+                  \
+OpenChamber --------> shared frontend health gate 127.0.0.1:18789
+                  /    | health checks             | DeltaRelay plugin
+                 /     +-> gateway 127.0.0.1:18788 -> tunnel/relay
+Desktop / TUI ---------> same shared OpenCode service
 ```
+
+OpenChamber is described in [OpenChamber + DeltaRelay](OPENCHAMBER.md). When it
+is configured, it is the supervisor's preferred managed frontend; a configured
+OpenCode Desktop remains listed and manually startable. The gate is shared,
+so neither frontend owns or changes the other's lifecycle.
 
 ## Quick integration
 
@@ -79,7 +88,7 @@ file diff/open-file actions. No new OpenCode server should appear. Never print
 the password, enable shell tracing, or put credentials in workspace settings.
 If direct attach fails, diagnose it before relying on the gate.
 
-## Supervised gate (default)
+## Shared supervised gate (default)
 
 Generate/configure the supervisor as described in [supervision](SUPERVISION.md),
 then start it normally:
@@ -89,12 +98,13 @@ uv run ./deltarelay start --config /private/supervisor.json
 ```
 
 The supervisor starts the gate on `gate_url` (default
-`http://127.0.0.1:18789`) without starting or restarting OpenCode, Desktop, the
-relay, or the tunnel. Gate
+`http://127.0.0.1:18789`) without starting or restarting OpenCode, OpenChamber,
+Desktop, the relay, or the tunnel. Gate
 liveness is checked locally by `GET /livez` with the private local token.
-Varro requests check the local OpenCode service and plugin; `/healthz` also
-checks gateway forwarding. The map shows
-`Varro in VS Code → Varro health gate → OpenCode server` alongside the existing
+Attached frontend requests check the local OpenCode service and plugin;
+`/healthz` also checks gateway forwarding. The map shows
+`Varro in VS Code → Frontend health gate → OpenCode server` and
+`OpenChamber → Frontend health gate → OpenCode server` alongside the existing
 Desktop path. The gate card supports start, stop, restart, and recover.
 
 New configurations and onboarding include `components.gate`. Existing
@@ -113,13 +123,13 @@ curl -fsS -H "X-DeltaRelay-Local-Token: $(cat /private/local.token)" \
 ```
 
 `/livez` returns `{"alive":true,"version":1}` and never proxies or probes the
-backend. It remains available when `--password-file` protects Varro traffic.
+backend. It remains available when `--password-file` protects frontend traffic.
 
 ### Failure cases and controls
 
-- **Gate stopped/recover:** Varro cannot connect; Desktop/TUI and the shared
-  OpenCode service are unaffected. Start/recover the gate from the dashboard or
-  map. This never starts or stops the backend.
+- **Gate stopped/recover:** OpenChamber and Varro cannot connect; Desktop/TUI and
+  the shared OpenCode service are unaffected. Start/recover the gate from the
+  dashboard or map. This never starts or stops the backend.
 - **Listener failed, backend healthy:** the supervisor may restart the gate
   process. This is the only automatic gate restart policy.
 - **Local service or plugin unavailable with a healthy listener:** the gate
@@ -128,9 +138,10 @@ backend. It remains available when `--password-file` protects Varro traffic.
   the OpenCode service or plugin independently. The map marks
   `gate → OpenCode` not ready.
 - **Relay/VPS or gateway unavailable with a healthy local service:** the gate
-  keeps forwarding Varro's local session, history, event, filesystem, and prompt
-  requests, so Varro can open and browse sessions even though `/healthz` reports
-  503 `gateway_down`. If the relay is down while the local gateway is running,
+  keeps forwarding attached frontends' local session, history, event, filesystem,
+  and prompt requests, so OpenChamber and Varro can open and browse sessions even
+  though `/healthz` reports 503 `gateway_down`. If the relay is down while the
+  local gateway is running,
   the gateway holds the submitted prompt in its existing recovery window, stays
   loading until forwarding resumes, and returns 503 if that window expires. If
   the local gateway itself is down, prompts fail at the plugin (OpenCode retries
@@ -144,9 +155,9 @@ backend. It remains available when `--password-file` protects Varro traffic.
 ### Rollback
 
 Stop only the gate from the dashboard, or set `"gate_default": false` and restart
-the supervisor (or remove the explicit `components.gate`). Varro loses its
-connection; Desktop/TUI and the backend remain untouched. Do not stop or restart
-the relay or OpenCode service as part of gate rollback.
+the supervisor (or remove the explicit `components.gate`). OpenChamber and Varro
+lose their connection; Desktop/TUI and the backend remain untouched. Do not stop
+or restart the relay or OpenCode service as part of gate rollback.
 
 ## Manual, non-supervisor gate
 

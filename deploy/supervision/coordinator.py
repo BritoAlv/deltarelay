@@ -11,6 +11,7 @@ from activity import operation_id
 from remote_provider import RETRYABLE, ProviderError as ControlError, private_json
 
 from .components import registry
+from .config import preferred_frontend
 from .contracts import ConnectionFacts, Step, next_connection_step
 from .state import save_json, stamp
 from .topology import shutdown_blockers
@@ -37,16 +38,16 @@ class Coordinator:
                 value.get('status') not in ('running', 'completed', 'failed', 'interrupted') or
                 value.get('trigger') not in ('manual', 'automatic', 'startup') or
                 not all(isinstance(value.get(key), str) for key in ('target', 'action', 'current_component', 'current_action', 'started_at', 'error')) or
-                value['target'] not in ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider', 'all', 'connection') or
+                value['target'] not in ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'openchamber', 'remote', 'remote_provider', 'all', 'connection') or
                 value['action'] not in ('start', 'restart', 'recover', 'stop', 'wake', 'observe', 'verify') or
-                value['current_component'] not in ('', 'dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider') or
+                value['current_component'] not in ('', 'dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'openchamber', 'remote', 'remote_provider') or
                 value['current_action'] not in ('', 'start', 'restart', 'recover', 'stop', 'wake', 'observe', 'verify') or
                 not re.fullmatch('[a-z_]{0,64}', value['error']) or
                 not (value['finished_at'] is None or isinstance(value['finished_at'], str)) or
                 not isinstance(value.get('steps'), list) or len(value['steps']) > 64 or
                 any(not isinstance(step, dict) or
                     set(step) != {'component', 'action', 'status', 'started_at', 'finished_at', 'error'} or
-                    step.get('component') not in ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'remote', 'remote_provider') or
+                    step.get('component') not in ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'openchamber', 'remote', 'remote_provider') or
                     step.get('action') not in ('start', 'restart', 'recover', 'stop', 'wake', 'observe', 'verify') or
                     step.get('status') not in ('running', 'completed', 'failed', 'interrupted') or
                     not all(isinstance(step.get(key), str) for key in ('component', 'action', 'started_at', 'error')) or
@@ -266,7 +267,9 @@ class Coordinator:
     def start_locals(self):
         s = self.supervisor
         error = None
-        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop'):
+        frontend = preferred_frontend(s.config)
+        order = ('dashboard', 'gate', 'gateway', 'opencode') + ((frontend,) if frontend else ())
+        for name in order:
             spec = s.config['components'].get(name, {})
             if s.state.wanted(name) and (spec.get('command') or spec.get('start_command')):
                 try:
@@ -297,7 +300,7 @@ class Coordinator:
                 can_stop = s.supports('host.stop')
             except Exception as cause:
                 error = cause
-        for name in ('gate', 'desktop', 'opencode', 'gateway', 'tunnel'):
+        for name in ('gate', 'openchamber', 'desktop', 'opencode', 'gateway', 'tunnel'):
             spec = s.config['components'].get(name, {})
             if spec.get('command') or spec.get('stop_command'):
                 try:
@@ -371,7 +374,7 @@ class Coordinator:
         if name == 'all' and action == 'restart':
             # Legacy confirmed API operation; not exposed as a normal UI action.
             self.execute(Step('relay', 'restart'))
-            for component in ('tunnel', 'gateway', 'opencode', 'desktop', 'dashboard'):
+            for component in ('tunnel', 'gateway', 'opencode', 'openchamber', 'desktop', 'dashboard'):
                 spec = s.config['components'].get(component, {})
                 if spec.get('command') or spec.get('restart_command'):
                     self.execute(Step(component, 'restart'))

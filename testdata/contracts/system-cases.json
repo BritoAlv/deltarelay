@@ -36,7 +36,7 @@
   {"name":"unknown-component","boundary":"both","valid":false,"changes":[{"path":"components.0.id","value":"shell"}]},
   {"name":"missing-component-field","boundary":"both","valid":false,"changes":[{"path":"components.0.can_restart","remove":true}]},
   {"name":"null-component-label","boundary":"both","valid":false,"changes":[{"path":"components.0.label","value":null}]},
-  {"name":"component-limit","boundary":"both","valid":false,"changes":[{"path":"components","copies":8}]},
+  {"name":"component-limit","boundary":"both","valid":false,"changes":[{"path":"components","copies":9}]},
   {"name":"missing-nonce","boundary":"system","valid":false,"changes":[{"path":"csrf_token","remove":true}]},
   {"name":"invalid-nonce","boundary":"system","valid":false,"changes":[{"path":"csrf_token","value":"test"}]},
   {"name":"invalid-auth-time","boundary":"system","valid":false,"changes":[{"path":"auth.checked_at","value":"2026-02-30T00:00:00Z"}]},

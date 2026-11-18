@@ -79,7 +79,7 @@ type RecoveryStep struct {
 }
 
 var topologyIDs = map[string]bool{
-	"vscode": true, "desktop": true, "opencode": true, "plugin": true,
+	"vscode": true, "desktop": true, "openchamber": true, "opencode": true, "plugin": true,
 	"gate": true, "gateway": true, "tunnel": true, "network": true,
 	"remote": true, "relay": true, "storage": true, "provider": true,
 	"dashboard_ui": true, "dashboard": true, "supervisor": true, "remote_provider": true,

@@ -15,7 +15,8 @@ def main():
     parser.add_argument('--project', type=Path, required=True)
     parser.add_argument('--config', type=Path, required=True, help='private supervisor configuration')
     parser.add_argument('--setup', action='store_true', help='create first-run dashboard configuration if missing')
-    parser.add_argument('--no-desktop', action='store_true')
+    parser.add_argument('--no-desktop', '--no-frontend', dest='no_desktop', action='store_true',
+                        help='skip the initial OpenCode and managed frontend launch')
     parser.add_argument('--no-dashboard', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)

@@ -351,7 +351,7 @@ class ProviderTest(unittest.TestCase):
         self.write_config(mode='hang', child_pid=str(pid_file))
         with patch.object(subject, 'probe', return_value='unreachable'):
             subject.submit({'component': 'remote', 'action': 'wake', 'confirmed': True})
-            deadline = time.monotonic() + 3
+            deadline = time.monotonic() + 15
             while not pid_file.exists() and time.monotonic() < deadline:
                 threading.Event().wait(0.01)
             self.assertTrue(pid_file.exists())

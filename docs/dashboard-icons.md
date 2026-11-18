@@ -15,6 +15,12 @@ their accompanying text or control labels provide the accessible name.
   (MIT), used for the VS Code editor component.
 - OpenCode and OpenAI: the existing provider identity SVGs in
   `web/src/lib/provider-marks.ts`, reused without changing their geometry.
+- OpenChamber: the official OpenChamber favicon SVG bundled with the application
+  at `/opt/OpenChamber/resources/web-dist/favicon.svg` (`viewBox 0 0 32 32`).
+  Its stroked hexagon and two translucent filled faces are inlined into the
+  trusted icon registry. The embedded `<style>` block is removed so both the
+  stroked and filled paths inherit the dashboard's `currentColor` instead of
+  forcing a light or dark root color. No `/opt` path is read at runtime.
 - DeltaRelay: the original Inter SemiBold Δ letterform, converted directly from
   the font's U+0394 outline into a filled SVG path. Its flat apex, counter, stroke
   proportions, and em-box placement are preserved, rather than approximating it

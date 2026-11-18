@@ -40,11 +40,12 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
 | `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, and shutdown. |
 | `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
-| `internal/gate` | Attach-only Varro/VS Code health gate: local `/livez` supervisor proof, local service/plugin checks for forwarded requests, full relay-aware `/healthz`, fail-closed 503 responses for local failures, and authenticated HTTP/SSE/WebSocket forwarding to the shared OpenCode service. It is a health/authorization shim, never a provider proxy or service owner. |
+| `internal/gate` | Attach-only frontend health gate shared by OpenChamber and Varro/VS Code: local `/livez` supervisor proof, local service/plugin checks for forwarded requests, full relay-aware `/healthz`, fail-closed 503 responses for local failures, and authenticated HTTP/SSE/WebSocket forwarding to the shared OpenCode service. It is a health/authorization shim, never a provider proxy or service owner. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
 | `testdata/contracts` | Sanitized cross-language fixtures consumed by Go, Python, and TypeScript tests. |
 | `deploy/supervision` | Importable Python configuration, component lifecycle contracts, sanitized topology, observable state, process ownership, probes, network-change hints, incremental recovery coordination, persistent local state history, and control API. |
+| `deploy/openchamber` | Attach-only OpenChamber Desktop launcher: sanitizes the environment, isolates XDG/OpenChamber state under the supervisor profile, preflights gate `/livez` with the local token, and execs the installed application with `OPENCODE_HOST`/`OPENCODE_SKIP_START`. It never owns OpenCode lifecycle. |
 | `deploy/*.py`, `deploy/providers` | Supervisor launchers, provider plugins, remote recovery helpers, and provider contract checking. |
 | `integration/opencode` | OpenCode V2 plugin that routes selected providers through the local gateway without automatic retries. |
 | `web` | Static Astro dashboard, feature controllers, pure library helpers, and DOM-level browser tests. |
@@ -124,16 +125,21 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   is a bounded read-only aggregate of the supervisor's local state timeline, not
   a file proxy. Controls remain disabled when the supervisor is absent, stale,
   unmanaged, or does not support the action.
-- Varro/VS Code attaches through the supervised loopback gate to the **same**
-  shared OpenCode service Desktop/TUI use. The gate's `/livez` endpoint is a
-  local token check only. Forwarded requests are gated on the OpenCode v2 API
-  and optional workspace plugin, not relay readiness; `/healthz` additionally
-  checks gateway forwarding. The gate forwards HTTP/SSE/WebSocket with the
-  service password and fails closed with 503 when the local service is
-  unavailable. During a relay outage, local sessions remain accessible; while
-  the local gateway is running, prompts wait inside its existing recovery
-  window. The gate never starts or restarts the service, gateway, relay, tunnel,
-  or provider, and it is not a provider proxy.
+- OpenChamber and Varro/VS Code attach through the supervised loopback gate to
+  the **same** shared OpenCode service Desktop/TUI use. The gate's `/livez`
+  endpoint is a local token check only. Forwarded requests are gated on the
+  OpenCode v2 API and optional workspace plugin, not relay readiness;
+  `/healthz` additionally checks gateway forwarding. The gate forwards
+  HTTP/SSE/WebSocket with the service password and fails closed with 503 when
+  the local service is unavailable. During a relay outage, local sessions remain
+  accessible; while the local gateway is running, prompts wait inside its
+  existing recovery window. The gate never starts or restarts the service,
+  gateway, relay, tunnel, or provider, and it is not a provider proxy.
+- The OpenChamber launcher is a frontend adapter only. It starts from an absolute
+  path, exports the gate URL and skip-start flag after a `/livez` preflight, and
+  keeps app/desktop state in the profile. Its process is adopted by a
+  profile-specific `match`; it never starts, stops, restarts, or updates OpenCode
+  and does not own the gate or DeltaRelay transport.
 - The supervisor composes configuration, process ownership, probes, recovery
   policy, provider plugins, and the control API in `deploy/supervision`.
   Startup requires an explicit executable-provider configuration or the
@@ -163,6 +169,7 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
 | `client.Client` | Stops the cancellation-outbox worker and closes idle HTTP connections. Persisted pending cancellations remain for the next start. |
 | `gateway.Gateway` | Closes the telemetry recorder and capture store after HTTP shutdown so their bounded final flushes can run. |
 | `gate.Gate` | Closes idle transport connections. The supervisor owns only the gate process; no backend lifecycle is attached to it. |
+| `deploy/openchamber` launcher | Sanitizes the environment and execs one attach-only frontend. The application owns its window, tray, and self-update; the supervisor owns only the verified process and no OpenCode lifecycle. |
 | `telemetry.Recorder` | One worker per persistent recorder. In-memory `Begin`/`Finish` update synchronously; dirty snapshots are coalesced and written at most about once per second. |
 | `inspection.Store` | Owns one exclusive, private capture directory. Running captures expose in-memory evidence, are checkpointed about once per second, flush on shutdown, and resume interrupted captures from the last checkpoint only. |
 | `dashboard.Handler` | Closes idle gateway and supervisor-connection clients. It owns no background polling. |

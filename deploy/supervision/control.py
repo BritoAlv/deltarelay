@@ -19,6 +19,7 @@ from activity import operation_id
 
 from remote_provider import ProviderError as ControlError, private_json
 
+from .config import FRONTENDS, preferred_frontend
 from .contracts import Observation
 from .state_history import parse_query
 from .supervisor import Supervisor
@@ -51,10 +52,12 @@ def controller_status(path):
 def startup_components(supervisor, no_dashboard=False, no_desktop=False):
     """Select the independent startup lane; gate never depends on the provider."""
     selected = []
-    for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop'):
+    frontend = preferred_frontend(supervisor.config)
+    order = ('dashboard', 'gate', 'gateway', 'opencode') + ((frontend,) if frontend else ())
+    for name in order:
         if name not in supervisor.config['components']:
             continue
-        if name == 'dashboard' and no_dashboard or name in ('desktop', 'opencode') and no_desktop:
+        if name == 'dashboard' and no_dashboard or (name in (*FRONTENDS, 'opencode') and no_desktop):
             continue
         if name != 'dashboard' and not supervisor.state.wanted(name):
             continue
@@ -145,7 +148,8 @@ def main(argv=None):
         description='Private, single-user service supervisor. No inference, shell API, or public listener.')
     parser.add_argument('--config', required=True, type=Path)
     parser.add_argument('--no-dashboard', action='store_true')
-    parser.add_argument('--no-desktop', action='store_true')
+    parser.add_argument('--no-desktop', '--no-frontend', dest='no_desktop', action='store_true',
+                        help='skip the initial OpenCode and managed frontend launch')
     args = parser.parse_args(argv)
     os.umask(0o077)
     supervisor = Supervisor(private_json(args.config), config_file=args.config)
@@ -174,11 +178,12 @@ def main(argv=None):
             except Exception as error:
                 supervisor.journal.write('error', f'Startup {name} failed: {type(error).__name__}: {error}')
                 supervisor.state.set_component(name, 'start_failed')
-        # --no-desktop means leave runtime components advisory, including during
-        # future automatic checks. It never stops an existing instance.
+        # --no-desktop/--no-frontend means leave runtime components advisory,
+        # including during future automatic checks. It never stops an existing
+        # instance.
         if args.no_desktop:
             intent = supervisor.state.intent_copy()
-            intent['components'].update(opencode=False, desktop=False)
+            intent['components'].update({name: False for name in ('opencode', *FRONTENDS)})
             supervisor.persist_intent(intent)
         worker = threading.Thread(target=supervisor.monitor, daemon=True)
         worker.start()

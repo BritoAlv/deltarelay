@@ -45,7 +45,8 @@ Suggested handoff to the independent OpenCode instance:
 4. Start the independent OpenCode tester with a profile/config that does **not**
    contain the DeltaRelay plugin and does **not** submit to the local gateway.
    Verify its model request works directly before toggling the managed stack.
-   Keep it in a separate terminal/window from the managed Desktop instance.
+   Keep it in a separate terminal/window from the managed frontend instance
+   (OpenChamber when preferred, otherwise Desktop).
 5. Record a baseline in the dashboard map and in a terminal:
 
    ```sh
@@ -69,9 +70,14 @@ Suggested handoff to the independent OpenCode instance:
   change. Recovery continues with the dashboard closed.
 - The supervisor checks the actual authenticated relay path before changing a
   service. A route change alone never restarts a healthy component.
-- Desktop, the OpenCode server, and the gateway keep the same PIDs across an
-  unrelated transport repair. The tunnel may be rebuilt; the remote host and
-  relay should not be restarted unless the verified path requires it.
+- The managed frontend (OpenChamber when configured, otherwise Desktop), the
+  OpenCode server, and the gateway keep the same PIDs across an unrelated
+  transport repair. The tunnel may be rebuilt; the remote host and relay should
+  not be restarted unless the verified path requires it.
+- When OpenChamber is the preferred frontend, Desktop is not auto-started.
+  Substitute OpenChamber in frontend checks and verify Desktop remains manually
+  startable. Closing or stopping a frontend must not stop the shared gate,
+  OpenCode service, gateway, or tunnel.
 - A running host, a started command, and a provider "running" response are not
   reported as connection success. Only authenticated relay health with the pinned
   identity completes recovery.
@@ -98,7 +104,7 @@ supporting evidence. Mark each row pass/fail and save timestamps.
 
 Expected: the Internet/interface node leaves Ready; the active recovery component
 (usually transport) shows a spinner and its actual action. The gateway, OpenCode
-server, and Desktop remain running with unchanged PIDs. After the new network is
+server, and managed frontend remain running with unchanged PIDs. After the new network is
 usable, replay/health returns within one retry window and the map returns to
 Ready. A different BSSID on the same subnet should normally need no repair at all.
 
@@ -151,7 +157,7 @@ Stop or freeze the local forwarder (for example `SIGSTOP` or `SIGTERM` on the
 configured tunnel PID) without touching the remote relay.
 
 Expected: an exited process is restarted; a hung-but-running forward is rebuilt
-after the health probes fail. Gateway/Desktop/OpenCode PIDs stay unchanged. The
+after the health probes fail. Gateway/frontend/OpenCode PIDs stay unchanged. The
 relay is not restarted unless the verified path still fails. Confirm the map
 shows the new tunnel as **running/unverified** until relay verification succeeds,
 not instantly **Ready**.
@@ -159,7 +165,7 @@ not instantly **Ready**.
 ### 7. Active request during a short interruption
 
 This test must not be run through the tester's own relay-routed session. Use a
-separate managed Desktop/OpenCode request, or a dedicated client request, and
+separate managed frontend/OpenCode request, or a dedicated client request, and
 interrupt only the transport briefly. Record the request ID and retained
 response offsets before and after.
 
@@ -205,8 +211,9 @@ confirm it reports the provider-confirmed state; a timeout must report
 
 1. Press **Shut down system…** and confirm.
 2. Verify the dashboard stays reachable, the supervisor is running, and local
-   Desktop/OpenCode/gateway/tunnel are stopped (or independently verified). The
-   VPS is stopped only when the provider advertises `host.stop`.
+   frontend (OpenChamber or Desktop)/OpenCode/gateway/tunnel are stopped (or
+   independently verified). The VPS is stopped only when the provider advertises
+   `host.stop`.
 3. Change networks and wait; nothing may restart automatically.
 4. Restart the supervisor (`startup.sh`) with the dashboard still available.
    Confirm the persisted intent keeps the system stopped.
@@ -232,8 +239,9 @@ map does not lie about the uncertain step.
 - Dashboard screenshots or exported timestamps for each map transition.
 - Supervisor journal excerpt showing the network hint, decision, action, and
   verification (`<profile>/control/activity.jsonl`).
-- `ps` PID/birth evidence for Desktop, OpenCode, gateway, tunnel, dashboard, and
-  supervisor before/after each scenario.
+- `ps` PID/birth evidence for the managed frontend (OpenChamber/Desktop),
+  OpenCode, gateway, tunnel, dashboard, and supervisor before/after each
+  scenario.
 - Git revision and build commands.
 - For request resumption: request ID, initial/final response offsets, gateway
   request count, and proof that no second generation was submitted.

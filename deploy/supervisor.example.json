@@ -38,6 +38,16 @@
       "start_command": ["opencode", "service", "start"],
       "restart_command": ["opencode", "service", "restart"],
       "stop_command": ["opencode", "service", "stop"]
+    },
+    "openchamber": {
+      "command": ["/absolute/path/to/deltarelay/deploy/openchamber/start-openchamber.sh"],
+      "match": ["/opt/OpenChamber/openchamber", "--user-data-dir=/home/YOU/.local/state/deltarelay/openchamber/desktop"],
+      "pid_file": "/home/YOU/.local/state/deltarelay/openchamber.pid",
+      "env": {
+        "DELTARELAY_OPENCHAMBER_STATE": "/home/YOU/.local/state/deltarelay/openchamber",
+        "DELTARELAY_GATE_URL": "http://127.0.0.1:18789",
+        "DELTARELAY_LOCAL_AUTH_FILE": "/home/YOU/.config/deltarelay/local.token"
+      }
     }
   }
 }

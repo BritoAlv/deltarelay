@@ -16,7 +16,7 @@ import time
 
 from remote_provider import private_json
 
-from .config import COMPONENTS, LABELS
+from .config import COMPONENTS, FRONTENDS, LABELS, preferred_frontend
 
 
 INITIAL_RECOVERY = {
@@ -63,6 +63,7 @@ class SupervisorState:
         self.opencode_directory = bool(config.get('opencode_directory'))
         self.editor_open = bool(config.get('vscode', {}).get('open_command'))
         self.configured_components = set(config['components'])
+        self.preferred_frontend = preferred_frontend(config)
         self.states = {name: 'unknown' if name in config['components'] else 'unmanaged' for name in COMPONENTS}
         self.recovery = dict(INITIAL_RECOVERY)
         self.relay_state = 'unknown'
@@ -103,6 +104,7 @@ class SupervisorState:
                                            name == 'relay' and 'relay.ensure' in capabilities)
             self._can_restart[name] = bool(spec.get('command') or spec.get('restart_command') or
                                            name == 'relay' and 'relay.restart' in capabilities)
+            self.preferred_frontend = preferred_frontend({'components': self._specs})
             if previous is None or not self._managed[name]:
                 self.states[name] = 'unmanaged'
             elif previous == 'unmanaged':
@@ -189,7 +191,8 @@ class SupervisorState:
         with self.lock:
             if name in ('dashboard', 'supervisor'):
                 return True
-            return self.intent['system'] == 'running' and self.intent['components'].get(name, True)
+            default = name not in FRONTENDS or name == self.preferred_frontend
+            return self.intent['system'] == 'running' and self.intent['components'].get(name, default)
 
     def network_changed(self):
         with self.lock:

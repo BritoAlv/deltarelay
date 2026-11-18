@@ -222,6 +222,13 @@ class CoordinationTest(unittest.TestCase):
             subject.coordinator.stop_system()
         self.assertIn('gate', subject.snapshot()['topology']['shutdown_blockers'])
 
+    def test_openchamber_without_a_stop_capability_blocks_system_shutdown(self):
+        self.config['components']['openchamber'] = {'start_command': ['openchamber', 'start']}
+        subject = self.supervisor()
+        with self.assertRaisesRegex(ProviderError, '^shutdown_not_configured$'):
+            subject.coordinator.stop_system()
+        self.assertIn('openchamber', subject.snapshot()['topology']['shutdown_blockers'])
+
     def test_duplicate_request_id_does_not_start_a_second_operation(self):
         self.add_component('desktop')
         with patch.dict(os.environ, {'DISPLAY': ':test'}):

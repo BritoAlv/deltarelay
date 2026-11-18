@@ -1,13 +1,13 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { edgeChannel, isTopology, nodePresentation, observationStale, type TopologyEdge } from "../src/lib/topology.js"
-import { edgePath, mapBoundaries, mapHeight, mapLayerSegments, mapNodes, mapRegions, mapWidth, nodeHeight, nodeWidth, transportBoundary } from "../src/lib/topology-layout.js"
+import { edgePath, mapBoundaries, mapHeight, mapLayerSegments, mapNodes, mapRegions, mapWidth, nodeHeight, nodeWidth, responsePath, transportBoundary } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
 
 test("shared topology validates bounded nodes, edges, ownership and action contracts", () => {
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
-  assert.equal(value.nodes.length, 16)
+  assert.equal(value.nodes.length, 17)
   const node = value.nodes[0]!
   for (const changed of [{ ...value, version: 2 }, { ...value, nodes: [...value.nodes, node] }, { ...value, nodes: [{ ...node, actions: ["shell"] }] }, { ...value, nodes: [{ ...node, owner: "arbitrary-process" }] }, { ...value, network: { generation: -1, changed_at: null } }, { ...value, edges: [{ ...value.edges[0], target: "arbitrary-process" }] }, { ...value, run: {} }]) {
     assert.equal(isTopology(changed), false)
@@ -35,10 +35,10 @@ test("request-handling arrows are separate from checks and management, regardles
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
   assert.deepEqual(value.edges.filter((edge) => edgeChannel(edge) === "request").map((edge) => edge.id), [
-    "vscode_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
+    "vscode_gate", "openchamber_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
     "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_storage", "relay_provider",
   ])
-  for (const id of ["gate_gateway", "supervisor_gate", "dashboard_ui_dashboard", "network_tunnel", "remote_relay", "dashboard_supervisor", "remote_provider_relay"]) {
+  for (const id of ["gate_gateway", "supervisor_gate", "supervisor_openchamber", "dashboard_ui_dashboard", "network_tunnel", "remote_relay", "dashboard_supervisor", "remote_provider_relay"]) {
     const edge: TopologyEdge = value.edges.find((item) => item.id === id)!
     assert.equal(edgeChannel(edge), "control", id)
     assert.equal(edgeChannel({ ...edge, state: "blocked" }), "control", `${id} when blocked`)
@@ -49,7 +49,7 @@ test("request-handling arrows are separate from checks and management, regardles
 
 test("every process boundary encloses exactly its runtime and owned components, with room for its heading", () => {
   assert.deepEqual(Object.fromEntries(mapBoundaries.filter((boundary) => boundary.kind === "process").map((boundary) => [boundary.id, boundary.members])), {
-    vscode: ["vscode"], desktop: ["desktop"], opencode: ["opencode", "plugin"], gateway: ["gateway"],
+    vscode: ["vscode"], desktop: ["desktop"], openchamber: ["openchamber"], opencode: ["opencode", "plugin"], gateway: ["gateway"],
     gate: ["gate"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"],
     supervisor: ["supervisor"], remote_provider: ["remote_provider"],
   })
@@ -95,10 +95,34 @@ test("aligned connection arrows attach to the facing sides in both directions", 
 })
 
 test("process boundaries carry the frontend or backend side used by the legend", () => {
-  assert.deepEqual(mapBoundaries.filter((boundary) => boundary.side === "frontend").map((boundary) => boundary.id), ["vscode", "desktop", "dashboard_ui"])
+  assert.deepEqual(mapBoundaries.filter((boundary) => boundary.side === "frontend").map((boundary) => boundary.id), ["vscode", "desktop", "openchamber", "dashboard_ui"])
   assert.deepEqual(mapBoundaries.filter((boundary) => boundary.side === "backend").map((boundary) => boundary.id), ["opencode", "gateway", "gate", "tunnel", "relay", "dashboard", "supervisor", "remote_provider"])
   for (const boundary of mapBoundaries.filter((boundary) => boundary.kind === "process")) assert.ok(boundary.side, `${boundary.id}: process side`)
   for (const id of ["network", "provider"]) assert.equal(mapBoundaries.find((boundary) => boundary.id === id)!.side, undefined, `${id}: not a frontend/backend process`)
+})
+
+test("OpenChamber is a supervised frontend that attaches only through the shared frontend gate", () => {
+  const value = readContract("topology-v1.json")
+  assert.ok(isTopology(value))
+  const node = value.nodes.find((item) => item.id === "openchamber")!
+  assert.equal(node.label, "OpenChamber")
+  assert.equal(node.kind, "app")
+  assert.equal(node.group, "local")
+  assert.equal(node.owner, "supervisor")
+  const attach = value.edges.find((item) => item.id === "openchamber_gate")!
+  assert.deepEqual([attach.source, attach.target, attach.relation, attach.protocol], ["openchamber", "gate", "traffic", "Attach-only local HTTP"])
+  assert.equal(edgeChannel(attach), "request")
+  const manage = value.edges.find((item) => item.id === "supervisor_openchamber")!
+  assert.deepEqual([manage.source, manage.target, manage.relation, manage.protocol], ["supervisor", "openchamber", "manages", "Configured lifecycle"])
+  assert.equal(edgeChannel(manage), "control")
+
+  const mapped = mapNodes.find((item) => item.id === "openchamber")!
+  assert.deepEqual(mapped, { id: "openchamber", label: "OpenChamber", icon: "openchamber", role: "App", x: 55, y: 645 })
+  const boundary = mapBoundaries.find((item) => item.id === "openchamber")!
+  assert.equal(boundary.kind, "process")
+  assert.equal(boundary.side, "frontend")
+  assert.deepEqual(boundary.members, ["openchamber"])
+  assert.match(boundary.detail, /shared OpenCode service only through the frontend health gate.*not independently observed/)
 })
 
 test("frontend divider only spans rows where a frontend sits beside a backend", () => {
@@ -145,6 +169,9 @@ test("reflowed map keeps every node, region and routed lane inside its bounds wi
   assert.equal(edgePath("gate", "opencode"), `M${305 + nodeWidth / 2},${130 + nodeHeight} V390`)
   assert.equal(edgePath("gate", "gateway"), `M${305 + nodeWidth},${130 + nodeHeight / 2} H840 V390`)
   assert.equal(edgePath("supervisor", "gate"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V285 H350 V${130 + nodeHeight}`)
+  assert.equal(edgePath("supervisor", "openchamber"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V560 H150 V645`)
+  assert.equal(edgePath("openchamber", "gate"), `M${55 + nodeWidth},${645 + nodeHeight / 2} H265 V300 H350 V${130 + nodeHeight}`)
+  assert.equal(responsePath("openchamber", "gate"), `M${305 + nodeWidth / 2 + 16},${130 + nodeHeight} V301 H281 V${645 + nodeHeight / 2 + 16} H${55 + nodeWidth}`)
 })
 
 test("map arrows never cross unrelated component cards or process boundaries", () => {

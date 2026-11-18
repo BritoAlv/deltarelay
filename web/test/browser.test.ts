@@ -400,7 +400,7 @@ test("all operational components use single table rows with descriptions and inl
   await app.refresh()
   const doc = page.document
   const rows = [...doc.querySelectorAll<HTMLElement>("[data-component-id]")]
-  assert.equal(rows.length, 11)
+  assert.equal(rows.length, 12)
   assert.equal(doc.querySelector(".resource-grid, .resource-card, .component-columns, [data-component-group], [data-component-more], .component-action-menu"), null)
   assert.deepEqual([...doc.querySelectorAll("#component-table-scroll th")].map((th) => th.textContent?.trim()), ["Component", "Type", "Description", "Status", "Lifecycle", "Location", "Actions"])
   for (const row of rows) {
@@ -464,21 +464,21 @@ test("component column filters combine with search and sort the entire table", a
   const applications = popover.querySelector<HTMLInputElement>('input[value="Applications"]')!
   applications.checked = true
   page.fire(applications, "change")
-  assert.equal(rows.filter((row) => !row.hidden).length, 3)
+  assert.equal(rows.filter((row) => !row.hidden).length, 4)
   assert.equal(doc.querySelector('button[data-filter-key="type"]')?.getAttribute("data-active"), "true")
-  assert.equal(total.textContent, "3")
-  assert.match(summary.textContent ?? "", /3 of 11 components · 1 filter active · default order/)
+  assert.equal(total.textContent, "4")
+  assert.match(summary.textContent ?? "", /4 of 12 components · 1 filter active · default order/)
   assert.equal(new URL(page.window.location.href).searchParams.get("type"), "Applications")
 
   filter.value = "OpenCode"
   page.fire(filter, "input")
-  assert.equal(rows.filter((row) => !row.hidden).length, 3, "type and search filters combine across names and descriptions")
+  assert.equal(rows.filter((row) => !row.hidden).length, 4, "type and search filters combine across names and descriptions")
   filter.value = "remote-host"
   page.fire(filter, "input")
   assert.equal(rows.filter((row) => !row.hidden).length, 0)
   assert.equal(doc.querySelector<HTMLElement>("#component-empty")!.hidden, false)
   doc.querySelector<HTMLButtonElement>("#clear-component-filters-empty")!.click()
-  assert.equal(rows.filter((row) => !row.hidden).length, 11)
+  assert.equal(rows.filter((row) => !row.hidden).length, 12)
   assert.equal(filter.value, "")
   assert.equal(new URL(page.window.location.href).searchParams.has("type"), false)
 
@@ -534,11 +534,11 @@ test("component filters restore from URLs, expose description text, and close wi
   page.fire(doc.querySelector("#component-table-scroll")!, "scroll")
   assert.equal(popover.hidden, true)
   doc.querySelector<HTMLButtonElement>("#clear-component-filters")!.click()
-  assert.equal(visible().length, 11)
+  assert.equal(visible().length, 12)
   openComponentFilter(doc, "lifecycle").querySelector<HTMLInputElement>('input[value="Running"]')!.click()
   assert.ok(visible().every((row) => row.querySelector("[data-component-lifecycle]")?.textContent === "Running"))
   doc.querySelector<HTMLButtonElement>("#clear-component-filter")!.click()
-  assert.equal(visible().length, 11)
+  assert.equal(visible().length, 12)
   openComponentFilter(doc, "status").querySelector<HTMLInputElement>('input[value="Ready"]')!.click()
   assert.ok(visible().every((row) => row.querySelector("[data-component-status]")?.textContent === "Ready"))
   doc.querySelector<HTMLButtonElement>("#clear-component-filters")!.click()
@@ -569,7 +569,7 @@ test("architecture retains its complete legend and highlights management arrows 
   assert.equal(view.querySelector("#map-management"), null)
    assert.equal(view.querySelectorAll('.legend-toggle[aria-pressed="true"]').length, 3)
    assert.equal(view.querySelectorAll(".map-edge:not(.response)").length, status.topology!.edges.length, "all connections start visible")
-   assert.equal(view.querySelectorAll(".map-edge.response").length, 8)
+   assert.equal(view.querySelectorAll(".map-edge.response").length, 9)
    assert.equal(view.querySelectorAll(".map-layer-separation line").length, mapLayerSegments.length)
    assert.equal(view.querySelector('[data-edge-id="relay_storage_response"]'), null, "storage is not a return hop")
    assert.match(view.querySelector('[data-edge-id="relay_provider_response"] title')?.textContent ?? "", /provider → relay/)
@@ -2212,6 +2212,7 @@ test("map prominently encloses every process, its modules and owned files, witho
   const doc = page.document
   const role = (id: string) => doc.querySelector(`[data-node-id="${id}"] .map-node-role`)?.textContent
   assert.equal(role("vscode"), "Editor")
+  assert.equal(role("openchamber"), "App")
   assert.equal(role("opencode"), "Process")
   assert.equal(role("plugin"), "Module")
   assert.equal(role("gate"), "Process")
@@ -2225,14 +2226,14 @@ test("map prominently encloses every process, its modules and owned files, witho
     const x = Number(group.getAttribute("x")), y = Number(group.getAttribute("y"))
     return node.x >= x && node.y >= y && node.x + nodeWidth <= x + Number(group.getAttribute("width")) && node.y + nodeHeight <= y + Number(group.getAttribute("height"))
   }
-  for (const [id, members] of Object.entries({ vscode: ["vscode"], desktop: ["desktop"], opencode: ["opencode", "plugin"], gateway: ["gateway"], gate: ["gate"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
+  for (const [id, members] of Object.entries({ vscode: ["vscode"], desktop: ["desktop"], openchamber: ["openchamber"], opencode: ["opencode", "plugin"], gateway: ["gateway"], gate: ["gate"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
     const outline = doc.querySelector(`[data-map-group="${id}"]`)!
     assert.equal(outline.getAttribute("data-boundary-kind"), "process", id)
     assert.ok(outline.classList.contains("map-process"), `${id}: prominent process outline`)
     assert.match(doc.querySelector(`#map-boundary-${id} [data-boundary-label]`)?.textContent ?? "", /PROCESS/, id)
     assert.deepEqual(mapNodes.filter((node) => contains(id, node.id)).map((node) => node.id), members, id)
   }
-  for (const [id, side] of Object.entries({ vscode: "frontend", desktop: "frontend", dashboard_ui: "frontend", opencode: "backend", gateway: "backend", gate: "backend", relay: "backend", dashboard: "backend", supervisor: "backend", remote_provider: "backend" })) {
+  for (const [id, side] of Object.entries({ vscode: "frontend", desktop: "frontend", openchamber: "frontend", dashboard_ui: "frontend", opencode: "backend", gateway: "backend", gate: "backend", relay: "backend", dashboard: "backend", supervisor: "backend", remote_provider: "backend" })) {
     assert.ok(doc.querySelector(`[data-map-group="${id}"]`)!.classList.contains(`map-${side}`), `${id}: ${side} outline`)
     assert.ok(doc.querySelector(`#map-boundary-${id}`)!.classList.contains(`map-${side}`), `${id}: ${side} heading`)
   }
@@ -2255,6 +2256,34 @@ test("map prominently encloses every process, its modules and owned files, witho
     const description = doc.querySelector(`[data-node-id="${node.id}"]`)?.getAttribute("aria-describedby")
     assert.ok(description && doc.getElementById(description), `${node.id}: accessible boundary description`)
   }
+  await page.close()
+})
+
+test("OpenChamber is a supervised frontend application attached through the shared frontend gate", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const app = startSystemStatus(page.document, { autoStart: false })
+  await app.refresh()
+  const doc = page.document
+  const row = doc.querySelector<HTMLElement>('[data-component-id="openchamber"]')!
+  assert.equal(row.querySelector("[data-component-type]")?.textContent, "Applications")
+  assert.equal(row.querySelector("[data-component-description]")?.textContent, "Supervised frontend that attaches to the shared OpenCode service through the frontend health gate.")
+  const node = doc.querySelector<HTMLButtonElement>('[data-node-id="openchamber"]')!
+  assert.equal(node.querySelector("strong")?.textContent, "OpenChamber")
+  assert.equal(node.querySelector(".map-node-role")?.textContent, "App")
+  doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
+  const attach = doc.querySelector('[data-edge-id="openchamber_gate"]')!
+  assert.ok(attach.classList.contains("request"))
+  assert.match(attach.querySelector("title")?.textContent ?? "", /Model request flow · openchamber → gate: Attach-only local HTTP/)
+  const manage = doc.querySelector('[data-edge-id="supervisor_openchamber"]')!
+  assert.ok(manage.classList.contains("control"))
+  node.click()
+  assert.equal(node.getAttribute("aria-pressed"), "true")
+  assert.ok(doc.querySelector('[data-edge-id="openchamber_gate"]')!.classList.contains("selected"))
+  assert.ok(doc.querySelector('[data-edge-id="supervisor_openchamber"]')!.classList.contains("selected"))
+  assert.equal(doc.querySelector("#map-selection")?.textContent, "OpenChamber · 3 visible arrows highlighted")
+  assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  app.destroy()
   await page.close()
 })
 
@@ -2320,13 +2349,13 @@ test("controls show the component table separately from the read-only map and po
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.equal(doc.querySelectorAll("[data-node-id]").length, 16)
+  assert.equal(doc.querySelectorAll("[data-node-id]").length, 17)
   assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Cache \/ saved responses \(Files\).*Highlight connections/)
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
   assert.equal(doc.querySelector("#auth-countdown"), null)
   assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))], ["/api/system", "/api/system/setup"])
-  assert.equal(doc.querySelectorAll("[data-component-id]").length, 11)
+  assert.equal(doc.querySelectorAll("[data-component-id]").length, 12)
   assert.ok(doc.querySelector('[data-component-id="supervisor"]'))
   assert.ok(doc.querySelector('[data-component-id="dashboard"]'))
   assert.ok(doc.querySelector('[data-component-id="gate"]'), "gate lifecycle controls are present")
@@ -2392,7 +2421,7 @@ test("a healthy gate keeps local sessions available during a relay outage while 
   const gate = status.topology!.nodes.find((node) => node.id === "gate")!
   gate.lifecycle = "running"
   gate.readiness = "ready"
-  gate.detail = "Listener and local backend ready. Relay unavailable: gateway_down. Varro can open sessions; while the local gateway is running, prompts wait for relay recovery within its retry window. The gate is not restarted."
+  gate.detail = "Listener and local backend ready. Relay unavailable: gateway_down. Attached frontends can open sessions; while the local gateway is running, prompts wait for relay recovery within its retry window. The gate is not restarted."
   status.topology!.edges.find((edge) => edge.id === "gate_opencode")!.state = "ready"
   status.topology!.edges.find((edge) => edge.id === "gate_gateway")!.state = "not_ready"
   page.setFetch(() => json(status))
@@ -2404,8 +2433,8 @@ test("a healthy gate keeps local sessions available during a relay outage while 
   assert.equal(card.querySelector("[data-component-lifecycle]")?.textContent, "Running")
   doc.querySelector<HTMLButtonElement>('[data-component-detail="gate"]')!.click()
   assert.match(doc.querySelector("#node-inspector-detail")?.textContent ?? "", /Relay unavailable: gateway_down/)
-  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Varro health gate → OpenCode server.*Ready/s)
-  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Varro health gate → Local gateway.*Not ready/s)
+  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Frontend health gate → OpenCode server.*Ready/s)
+  assert.match(doc.querySelector("#node-connections")?.textContent ?? "", /Frontend health gate → Local gateway.*Not ready/s)
   assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false, "relay failure never triggers a gate action")
   system.destroy()
   await page.close()

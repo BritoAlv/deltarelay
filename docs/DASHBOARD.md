@@ -35,7 +35,8 @@ dashboard.
 
 ## What you can see
 
-For a new deployment, run `./startup.sh --no-desktop` and use **System controls →
+For a new deployment, run `./startup.sh --no-frontend` (or its alias
+`--no-desktop`) and use **System controls →
 Set up remote host**. The dashboard can install/configure the relay on an existing
 SSH host or Codespace after confirmation; see [remote setup](REMOTE_SETUP.md).
 
@@ -49,14 +50,17 @@ infer a working connection merely because two processes are running.
 
 - **System controls** has **Controls**, **Architecture** (read-only), and
   **Settings** tabs. It shows the request paths Desktop/TUI → OpenCode server →
-  plugin → gateway → transport → relay → provider, and VS Code/Varro → Varro
-  health gate → the same shared OpenCode server, plus the separate
-  dashboard/supervisor control plane. The component table shows type, description,
-  status, lifecycle, location and configured actions, with search and per-column
-  filters like Sessions. On narrow screens it scrolls horizontally with component
-  names pinned, rather than stacking each item. The architecture map highlights connections when
-  you select a node. The current automatic recovery step is highlighted in the
-  Controls view.
+  plugin → gateway → transport → relay → provider, the supervised frontends
+  OpenChamber and VS Code/Varro → shared frontend health gate → the same shared
+  OpenCode server, plus the separate dashboard/supervisor control plane. The
+  component table shows type, description, status, lifecycle, location and
+  configured actions, with search and per-column filters like Sessions. Its
+  twelve rows cover the eight configured-component inventory entries plus the
+  editor, remote host, supervisor and adapter context. On narrow screens it
+  scrolls horizontally with component names pinned, rather than stacking each
+  item. The read-only map has 17 nodes and 24 edges and highlights connections
+  when you select a node. The current automatic recovery step is highlighted in
+  the Controls view.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed, cancelled, and legacy attempts, plus
   negative savings. Failures and cancellations are counted separately; a client
@@ -233,7 +237,8 @@ dashboard command needs no pnpm, Node, package store, or internet at runtime.
 
 With a current executable-provider configuration, run
 `./startup.sh --config /private/supervisor.json` to start/reuse the dashboard
-before background recovery, including with `--no-desktop`. The configuration
+before background recovery, including with `--no-frontend` (or its alias
+`--no-desktop`). The configuration
 selects the gateway, token file, and dashboard address. Missing/stale builds use
 Go and the offline pnpm cache. Use `--no-dashboard` to skip a new dashboard
 launch. Existing services are not automatically replaced to apply upgrades.

@@ -8,12 +8,26 @@ import urllib.parse
 from remote_provider import ProviderError as ControlError, origin, validate_spec
 
 
-COMPONENTS = ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop')
-LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Varro health gate', 'Local gateway', 'Remote host connection',
-                               'Remote relay', 'OpenCode service', 'Isolated Desktop')))
+COMPONENTS = ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'openchamber')
+LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Frontend health gate', 'Local gateway', 'Remote host connection',
+                               'Remote relay', 'OpenCode service', 'Isolated Desktop', 'OpenChamber')))
+FRONTENDS = ('openchamber', 'desktop')
 DEFAULT_INTERNET_CHECK_URL = 'https://example.com/'
 DEFAULT_GATE_URL = 'http://127.0.0.1:18789'
 INTERNET_CHECK_INTERVAL = 15
+
+
+def launchable(spec):
+    return isinstance(spec, dict) and bool(spec.get('command') or spec.get('start_command'))
+
+
+def preferred_frontend(config):
+    """Return the launchable frontend the supervisor starts by default."""
+    components = config.get('components', {})
+    for name in FRONTENDS:
+        if launchable(components.get(name)):
+            return name
+    return None
 
 
 def loopback_origin(value, https=False):

@@ -25,7 +25,7 @@ from activity import ActivityJournal, operation_id
 
 from .components import registry
 from .config import COMPONENTS, INTERNET_CHECK_INTERVAL, default_gate_decision, enable_default_gate, validate
-from .process import ProcessManager, process
+from .process import GRAPHICAL_COMPONENTS, ProcessManager, graphical_session_available, process
 from .probes import RelayProbe
 from .recovery import RecoveryPolicy
 from .state import SupervisorState, save_json, stamp
@@ -206,7 +206,7 @@ class Supervisor:
         # in-progress lifecycle transition or duplicating network traffic.
         if self.operation.locked():
             return
-        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'tunnel'):
+        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'openchamber', 'tunnel'):
             try:
                 self.coordinator.adapters[name].observe()
             except (OSError, ValueError, ControlError):
@@ -348,6 +348,8 @@ class Supervisor:
             command = spec.get('start_command')
             if not command:
                 raise ControlError('component_unmanaged')
+            if name in GRAPHICAL_COMPONENTS and not graphical_session_available():
+                raise ControlError('graphical_session_required')
             self._run(command, env=spec.get('env'))
             self.state.set_component(name, 'started')
             return
@@ -364,6 +366,8 @@ class Supervisor:
         if 'command' not in spec:
             if not spec.get('restart_command'):
                 raise ControlError('component_unmanaged')
+            if name in GRAPHICAL_COMPONENTS and not graphical_session_available():
+                raise ControlError('graphical_session_required')
             self._run(spec['restart_command'], env=spec.get('env'))
             self.state.set_component(name, 'started')
             return
@@ -549,7 +553,7 @@ class Supervisor:
             raise ControlError('confirmation_required')
         if action == 'wake' and (name != 'remote' or not self.supports('host.wake')):
             raise ControlError('invalid_action')
-        if action == 'stop' and name not in ('gate', 'gateway', 'tunnel', 'opencode', 'desktop', 'remote', 'all'):
+        if action == 'stop' and name not in ('gate', 'gateway', 'tunnel', 'opencode', 'desktop', 'openchamber', 'remote', 'all'):
             raise ControlError('invalid_action')
         if action == 'stop' and name == 'remote' and not self.supports('host.stop'):
             raise ControlError('invalid_action')

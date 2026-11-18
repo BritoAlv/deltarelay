@@ -160,8 +160,17 @@ model-request/response flow from checks, recovery, and management. Request conte
 and forwarding credentials still pass through the trusted relay. See
 [architecture](docs/ARCHITECTURE.md).
 
-On PCs that use VS Code, Varro attaches through the supervisor-managed loopback
-health gate to the **same** shared OpenCode service as Desktop/TUI:
+OpenChamber Desktop is an optional attach-only graphical frontend for the
+**same** shared OpenCode service: `OpenChamber → shared frontend gate → OpenCode
+service`. When `components.openchamber` is configured with a launchable command,
+the supervisor starts it as the preferred managed frontend; a configured
+OpenCode Desktop remains listed and manually startable but is not auto-started.
+If OpenChamber is not configured, Desktop remains the fallback. OpenChamber
+never starts, stops, restarts, or updates OpenCode. Installing its `.deb` does not
+configure or start it. See [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
+
+On PCs that use VS Code, Varro attaches through the same supervisor-managed
+loopback health gate to the shared OpenCode service:
 `VS Code/Varro → gate → OpenCode service`, alongside
 `Desktop/TUI → OpenCode service`. The gate is default-on and never starts,
 restarts, or replaces the backend. If the relay is unavailable, Varro can still
@@ -171,6 +180,7 @@ dedicated profile, keep
 `varro.server.port` at `18789` with `autoStart` and `autoUpdate` off, then launch
 that profile. See the [Varro quick
 integration](docs/VARRO_VSCODE.md#quick-integration) for the full sequence.
+OpenChamber and Varro can attach at the same time.
 
 ### Security and limitations
 
@@ -189,8 +199,9 @@ integration](docs/VARRO_VSCODE.md#quick-integration) for the full sequence.
 ## 5 - Instructions to install
 
 Installation has three core parts: build the local tool and dashboard, set up an
-existing trusted remote host, and enable the OpenCode plugin. Varro in VS Code is
-an optional additional integration that uses the same shared OpenCode service.
+existing trusted remote host, and enable the OpenCode plugin. Varro in VS Code
+and OpenChamber Desktop are optional frontends for the same shared OpenCode
+service; OpenChamber is the default managed frontend when configured.
 
 ### Requirements
 
@@ -203,9 +214,15 @@ an optional additional integration that uses the same shared OpenCode service.
   requires an authenticated current `gh` CLI and an existing Codespace.
 - **OpenCode integration:** OpenCode V2, a working provider connection, and Node.js
   22+. The plugin has no npm dependencies.
+- **Frontend:** OpenCode Desktop, TUI, or the optional OpenChamber Desktop. All
+  attach to the same OpenCode service.
 - **Varro integration (optional):** VS Code 1.107+ and a Varro build with
-  attach-only/v2 support (0.34.6 was checked). The supervisor starts the loopback
-  gate; Varro must not manage a separate OpenCode server.
+  attach-only/v2 support (0.34.6 was checked). The supervisor starts the shared
+  loopback gate; Varro must not manage a separate OpenCode server.
+- **OpenChamber integration (optional):** Ubuntu/Debian with a graphical session,
+  OpenChamber Desktop 2.7.2 from the official `.deb`, `curl`, and a private local
+  token. The supervisor gate and OpenCode service must be healthy. The package
+  does not configure or start OpenChamber by itself.
 
 ### Build and first-time setup
 
@@ -218,7 +235,7 @@ go build -trimpath -o bin/deltarelay ./cmd/deltarelay
 After preparing the [dashboard dependencies](docs/DASHBOARD.md), start setup:
 
 ```sh
-uv run ./deltarelay start --no-desktop
+uv run ./deltarelay start --no-frontend
 ```
 
 Open **http://127.0.0.1:8790/controls → Set up remote host** and select an existing
@@ -236,6 +253,13 @@ gate as described in [Varro + VS Code](docs/VARRO_VSCODE.md). The supervisor
 starts the gate by default; you do not run a separate gate command. The
 dashboard's **Open** action can launch the configured profile once after
 `vscode.open_command` is set.
+
+To use OpenChamber Desktop, install the official `.deb`, verify its SHA-256, add
+`components.openchamber` to the private supervisor configuration, and restart
+the supervisor. When configured, it becomes the preferred managed frontend and
+the supervisor starts it by default on normal startup and **Start system**.
+A configured OpenCode Desktop can still be started manually. See
+[OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
 
 ## 6 - Instructions to run
 
@@ -258,10 +282,13 @@ uv run ./deltarelay start --config /private/supervisor.json
 ```
 
 Replace `/private/supervisor.json` with your actual configuration file. To start
-the local controls and network recovery without launching OpenCode/Desktop, add
-`--no-desktop` to either command. `--no-desktop` does not disable the Varro health
-gate: it still starts with the supervisor and never starts or restarts the
-OpenCode backend.
+the local controls and network recovery without launching OpenCode or the managed
+frontend, add `--no-frontend` to either command. `--no-desktop` remains a
+supported alias. Either flag skips the initial launch and leaves OpenCode plus
+both managed frontends out of automatic startup; it does not stop an already
+running frontend and does not disable the shared frontend health gate, which
+still starts with the supervisor and never starts or restarts the OpenCode
+backend.
 
 Open **http://127.0.0.1:8790/controls** (or your configured dashboard address) to
 check connection status. Local startup readiness does not guarantee that the
@@ -332,6 +359,7 @@ Installed-OpenCode tests (`make opencode-test`) and performance comparisons
 ## Documentation
 
 - [OpenCode Desktop and VPS setup](docs/SETUP.md)
+- [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md)
 - [Varro + VS Code integration](docs/VARRO_VSCODE.md)
 - [Automatic remote setup](docs/REMOTE_SETUP.md)
 - [Per-host profiles and Codespace organization](docs/CODESPACES.md)
@@ -346,8 +374,10 @@ Installed-OpenCode tests (`make opencode-test`) and performance comparisons
 
 ### Client integration
 
-DeltaRelay is currently designed for **OpenCode V2, including OpenCode Desktop**.
-The installation instructions and plugin integration target these clients.
+DeltaRelay is currently designed for **OpenCode V2, including OpenCode Desktop
+and OpenChamber as a desktop frontend**. The installation instructions and
+plugin integration target this service. OpenChamber and Varro are frontends, not
+separate relay integrations.
 
 The relay's underlying protocol is provider-independent, but that does **not**
 make it a drop-in replacement for every coding agent or chat interface. Clients

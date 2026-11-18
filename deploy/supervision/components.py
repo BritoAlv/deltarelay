@@ -43,6 +43,8 @@ class LocalComponent:
             detail = 'Read-only API check against the configured private service registration.'
         elif name == 'desktop':
             detail = 'Verified Desktop process; attachment to the OpenCode server is not independently observable.'
+        elif name == 'openchamber':
+            detail = 'Verified OpenChamber frontend process; attachment to the health gate is not independently observable.'
         elif name == 'tunnel':
             readiness = 'ready' if s.state.relay_value() == 'connected' else readiness
             detail = 'Process and authenticated end-to-end connectivity are checked separately.'
@@ -157,6 +159,6 @@ class RemoteProvider:
 
 def registry(supervisor):
     return {**{name: LocalComponent(supervisor, name)
-               for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'tunnel')},
+               for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'openchamber', 'tunnel')},
             'remote': RemoteHost(supervisor), 'relay': RemoteRelay(supervisor),
             'remote_provider': RemoteProvider(supervisor)}

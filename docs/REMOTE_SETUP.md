@@ -3,8 +3,13 @@
 For a new installation, run from the checkout:
 
 ```sh
-./startup.sh --no-desktop
+./startup.sh --no-frontend
 ```
+
+`--no-frontend` skips the initial OpenCode and managed-frontend launch and leaves
+them out of automatic startup; its older alias `--no-desktop` is equivalent. The
+dashboard and shared frontend health gate still start, and an already running
+frontend is not stopped.
 
 If the default private supervisor configuration does not exist, startup creates
 local onboarding configuration and opens the dashboard services without attempting

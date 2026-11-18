@@ -10,7 +10,7 @@ from remote_provider import ProviderError as ControlError, environment, private_
 from .build import prepare_build
 from .history import configure as configure_history
 
-from .config import validate
+from .config import preferred_frontend, validate
 from .control import control_request, controller_status
 
 
@@ -28,7 +28,10 @@ def start(project, config_file, no_dashboard=False, no_desktop=False, report=Non
         if not no_dashboard:
             # Make a repeated startup useful after an earlier --no-dashboard or a
             # stopped dashboard, without stopping anything that is already live.
-            for component in ('dashboard',) + (() if no_desktop else ('opencode', 'desktop')):
+            frontend = preferred_frontend(config)
+            components = ('dashboard',) + (() if no_desktop else
+                                            (('opencode', frontend) if frontend else ('opencode',)))
+            for component in components:
                 control_request(directory / 'supervisor.sock', 'POST', '/action',
                                 {'component': component, 'action': 'start'})
     else:

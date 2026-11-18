@@ -3,6 +3,12 @@
 This guide is self-contained for a fresh clone; no original developer paths,
 private test profiles, or Codespace deployment are required.
 
+OpenCode Desktop is the default frontend in this guide. OpenChamber Desktop is an
+optional attach-only alternative for the same OpenCode v2 service; it uses the
+shared frontend health gate and can run alongside Desktop, TUI, and Varro. See
+[OpenChamber + DeltaRelay](OPENCHAMBER.md). Installing OpenChamber does not change
+the plugin setup below or start a second server.
+
 For an existing Linux SSH host or Codespace, [dashboard remote setup](REMOTE_SETUP.md)
 automates the build, credential generation, transfer, startup, identity pin, and
 local connection configuration. The instructions below remain the manual path,
@@ -46,8 +52,9 @@ are forwarded for the original API request, without translating model formats.
 - One trusted tenant and **one server process per data directory**. Keep public
   exposure off until you have configured TLS and the resource limits yourself.
 
-Do not point Desktop at a remote OpenCode server by accident: the plugin and
-local gateway must run next to the OpenCode server making the provider calls.
+Do not point Desktop, OpenChamber, or another frontend at a remote OpenCode
+server by accident: the plugin and local gateway must run next to the OpenCode
+server making the provider calls.
 
 ## 1. Build
 
@@ -233,7 +240,7 @@ working directory. The token path defaults to
 location, run it with `DELTARELAY_LOCAL_TOKEN_FILE` set to that file's path.
 
 Merge the generated plugin entry **last** into the existing `plugins` array in the
-configuration used by Desktop's server, normally
+configuration used by the shared OpenCode server, normally
 `${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.jsonc`. Preserve unrelated
 configuration; do not replace that file with the fragment. The generated paths
 are absolute and belong in your private config, **not in the repository**. There
@@ -267,7 +274,9 @@ If you move the checkout or copy the plugin elsewhere, rerun that directory's
 `config.mjs` and update only the corresponding plugin entry.
 
 OpenCode watches configuration; use `/reload` if you need to force a reload.
-There is no need to restart Desktop merely to apply this configuration.
+There is no need to restart Desktop, OpenChamber, or TUI merely to apply this
+configuration. All frontends that attach to the service use the same loaded
+plugin and gateway path.
 
 While enabled, the plugin:
 

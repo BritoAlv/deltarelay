@@ -1,6 +1,6 @@
 import { nullableTimestamp, object, timestamp } from "./validation.js"
 
-export const nodeIDs = ["vscode", "desktop", "opencode", "plugin", "gate", "gateway", "tunnel", "network", "remote", "relay", "storage", "provider", "dashboard_ui", "dashboard", "supervisor", "remote_provider"] as const
+export const nodeIDs = ["vscode", "desktop", "openchamber", "opencode", "plugin", "gate", "gateway", "tunnel", "network", "remote", "relay", "storage", "provider", "dashboard_ui", "dashboard", "supervisor", "remote_provider"] as const
 export type NodeID = typeof nodeIDs[number]
 export type ComponentAction = "start" | "recover" | "restart" | "wake" | "stop" | "open"
 export type Readiness = "ready" | "not_ready" | "unknown" | "blocked"
@@ -35,7 +35,7 @@ export interface TopologyEdge {
 // separate HTTP hops. Classify the actual request path explicitly; route/host
 // prerequisites and control-plane edges describe checks or management instead.
 const requestPathEdges = new Set([
-  "vscode_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
+  "vscode_gate", "openchamber_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
   "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_storage", "relay_provider",
 ])
 

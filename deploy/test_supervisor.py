@@ -619,14 +619,86 @@ class SupervisorTest(unittest.TestCase):
             subject.operation.release()
 
     def test_manual_recover_all_starts_local_services_even_when_remote_is_down(self):
-        for name in ('dashboard', 'gateway', 'opencode', 'desktop'): self.component(name)
+        for name in ('dashboard', 'gateway', 'opencode', 'desktop', 'openchamber'): self.component(name)
         subject = self.supervisor()
         with patch.object(subject, 'start_component') as start, \
                 patch.object(subject.coordinator, 'connection', side_effect=control.ControlError('host_stopped')):
             subject.submit({'component': 'all', 'action': 'recover'})
             self.wait_job(subject)
-        self.assertEqual([call.args[0] for call in start.call_args_list], ['dashboard', 'gateway', 'opencode', 'desktop'])
+        self.assertEqual([call.args[0] for call in start.call_args_list], ['dashboard', 'gateway', 'opencode', 'openchamber'])
         self.assertEqual(subject.state.recovery_copy()['last_error'], 'host_stopped')
+
+    def test_preferred_frontend_prefers_openchamber_and_falls_back_to_desktop(self):
+        self.component('desktop')
+        self.component('openchamber')
+        subject = self.supervisor()
+        self.assertEqual(subject.state.preferred_frontend, 'openchamber')
+        self.assertTrue(subject.state.wanted('openchamber'))
+        self.assertFalse(subject.state.wanted('desktop'))
+        self.assertEqual(startup_components(subject), ['openchamber'])
+        del self.config['components']['openchamber']
+        fallback = self.supervisor()
+        self.assertEqual(fallback.state.preferred_frontend, 'desktop')
+        self.assertTrue(fallback.state.wanted('desktop'))
+        self.assertEqual(startup_components(fallback), ['desktop'])
+
+    def test_openchamber_start_launches_once_without_restarting_or_recovering_other_services(self):
+        self.component('openchamber')
+        subject = self.supervisor()
+        with patch.dict(os.environ, {'DISPLAY': ':test'}), \
+                patch.object(subject, 'restart_component') as restart, patch.object(subject, 'recover') as recover, \
+                patch.object(subject, 'remote') as remote:
+            subject.submit({'component': 'openchamber', 'action': 'start'})
+            self.wait_job(subject)
+            self.assertEqual(subject.state.recovery_copy()['last_error'], '')
+            first = subject.processes.children['openchamber']
+            self.addCleanup(self.cleanup_child, first)
+            subject.submit({'component': 'openchamber', 'action': 'start'})
+            self.wait_job(subject)
+            self.assertIs(subject.processes.children['openchamber'], first)
+            self.assertIsNone(first.poll())
+            self.assertEqual(subject.state.states_copy()['openchamber'], 'running')
+            self.assertEqual(list(subject.processes.children), ['openchamber'])
+            restart.assert_not_called()
+            recover.assert_not_called()
+            remote.assert_not_called()
+
+    def test_openchamber_start_without_a_graphical_session_reports_a_safe_error(self):
+        self.component('openchamber')
+        subject = self.supervisor()
+        with patch.dict(os.environ, {'DISPLAY': '', 'WAYLAND_DISPLAY': ''}):
+            subject.submit({'component': 'openchamber', 'action': 'start'})
+            self.wait_job(subject)
+        self.assertEqual(subject.state.recovery_copy()['last_error'], 'graphical_session_required')
+        self.assertFalse(subject.processes.children)
+
+    def test_openchamber_stop_is_a_confirmed_supported_action(self):
+        self.component('openchamber')
+        subject = self.supervisor()
+        with patch.object(subject, 'stop_component') as stop:
+            with self.assertRaisesRegex(control.ControlError, '^confirmation_required$'):
+                subject.submit({'component': 'openchamber', 'action': 'stop'})
+            subject.submit({'component': 'openchamber', 'action': 'stop', 'confirmed': True})
+            self.wait_job(subject)
+        stop.assert_called_once_with('openchamber')
+
+    def test_openchamber_is_readopted_by_profile_match_after_an_update_relaunch(self):
+        command = [sys.executable, '-c', 'import time; time.sleep(120)', 'openchamber-update-test']
+        self.config['components']['openchamber'] = {
+            'command': command,
+            'match': [sys.executable, 'openchamber-update-test'],
+            'pid_file': str(self.root / 'openchamber.pid'),
+        }
+        subject = self.supervisor()
+        with patch.dict(os.environ, {'DISPLAY': ':test'}):
+            subject.start_component('openchamber')
+        child = subject.processes.children['openchamber']
+        self.addCleanup(self.cleanup_child, child)
+        self.assertEqual(subject._identity('openchamber')['pid'], child.pid)
+        # An in-app update relaunches outside the wrapper and leaves the old PID
+        # file stale. The profile-specific match must adopt the new process.
+        (self.root / 'openchamber.pid').write_text('999999\n')
+        self.assertEqual(subject._identity('openchamber')['pid'], child.pid)
 
     def test_desktop_start_launches_once_without_restarting_or_recovering_other_services(self):
         self.component('desktop')
@@ -869,17 +941,17 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(command[command.index('--listen') + 1], '127.0.0.1:18789')
         self.assertEqual(defaulted.config['components']['gate']['port'], 18789)
 
-    def test_startup_lane_keeps_gate_independent_of_provider_and_desktop_flags(self):
+    def test_startup_lane_keeps_gate_independent_of_provider_and_frontend_flags(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'
-        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop'):
+        for name in ('dashboard', 'gate', 'gateway', 'opencode', 'desktop', 'openchamber'):
             self.component(name)
         subject = self.supervisor()
         self.assertEqual(startup_components(subject),
-                         ['dashboard', 'gate', 'gateway', 'opencode', 'desktop'])
+                         ['dashboard', 'gate', 'gateway', 'opencode', 'openchamber'])
         subject.provider = None
-        self.assertEqual(startup_components(subject), ['dashboard', 'gate', 'opencode', 'desktop'])
+        self.assertEqual(startup_components(subject), ['dashboard', 'gate', 'opencode', 'openchamber'])
         self.assertEqual(startup_components(subject, no_desktop=True), ['dashboard', 'gate'])
-        self.assertEqual(startup_components(subject, no_dashboard=True), ['gate', 'opencode', 'desktop'])
+        self.assertEqual(startup_components(subject, no_dashboard=True), ['gate', 'opencode', 'openchamber'])
 
     def test_gate_starts_without_a_provider_and_only_restarts_on_liveness_failure(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'
@@ -945,7 +1017,7 @@ class SupervisorTest(unittest.TestCase):
 
     def test_system_shutdown_stops_gate_before_backend_components(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'
-        for name in ('gate', 'desktop', 'opencode', 'gateway', 'tunnel'):
+        for name in ('gate', 'desktop', 'openchamber', 'opencode', 'gateway', 'tunnel'):
             self.component(name)
         subject = self.supervisor()
         calls = []
@@ -954,7 +1026,7 @@ class SupervisorTest(unittest.TestCase):
                           control.Observation('stopped', 'not_ready', '')):
             subject.coordinator.stop_system()
         stops = [name for name, action in calls if action == 'stop']
-        self.assertEqual(stops[:5], ['gate', 'desktop', 'opencode', 'gateway', 'tunnel'])
+        self.assertEqual(stops[:6], ['gate', 'openchamber', 'desktop', 'opencode', 'gateway', 'tunnel'])
 
     def test_gate_stop_is_a_confirmed_supported_action(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'
@@ -995,7 +1067,7 @@ class SupervisorTest(unittest.TestCase):
                 subject.state.observe(node, control.Observation('running', state, ''))
                 if reason == 'gateway_down':
                     self.assertIn('Relay unavailable: gateway_down.', gate()['detail'])
-                    self.assertIn('Varro can open sessions', gate()['detail'])
+                    self.assertIn('Attached frontends can open sessions', gate()['detail'])
                 else:
                     self.assertIn(f'Local backend unavailable: {reason}.', gate()['detail'])
                 self.assertEqual(gate()['readiness'], 'ready')
@@ -1010,12 +1082,12 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual(gate()['detail'], 'Listener ready. Backend readiness not yet verified by independent probes.')
         self.assertEqual(edge('gate_opencode')['state'], 'unknown')
         subject.state.observe('gate', control.Observation('stopped', 'not_ready', ''))
-        self.assertIn('Stopped. Varro cannot connect.', gate()['detail'])
+        self.assertIn('Stopped. Varro and OpenChamber cannot connect.', gate()['detail'])
         self.assertEqual(edge('vscode_gate')['state'], 'not_ready')
         unconfigured = control.Supervisor(self.config | {'components': {}})
         self.addCleanup(unconfigured.close)
         node = next(node for node in unconfigured.snapshot()['topology']['nodes'] if node['id'] == 'gate')
-        self.assertEqual(node['detail'], 'Not configured. Add components.gate to run Varro attach-only through the supervisor.')
+        self.assertEqual(node['detail'], 'Not configured. Add components.gate to run Varro or OpenChamber attach-only through the supervisor.')
 
     def test_managed_reload_can_add_gate_without_replacing_a_running_owner(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'

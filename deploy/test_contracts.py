@@ -49,14 +49,16 @@ class SharedContractTest(unittest.TestCase):
                           ('relay_token_file', 'local_token_file', 'relay_state_file')}}
             config['remote'] = {'command': ['/sanitized/provider'], 'config_file': str(Path(root) / 'provider.json')}
             subject = Supervisor(config)
-            self.addCleanup(subject.close)
-            with patch.object(supervision_state, 'stamp', return_value='2026-11-01T12:00:00Z'):
-                observed = subject.snapshot()
-                self.assertEqual(observed, read('supervisor-v2.json'))
-                self.assertEqual(observed['topology']['version'], 1)
-                self.assertEqual(len(observed['topology']['nodes']), 16)
-                self.assertFalse(any(node['actions'] for node in observed['topology']['nodes']))
-            self.assertEqual(subject.processes.children, {})
+            try:
+                with patch.object(supervision_state, 'stamp', return_value='2026-11-01T12:00:00Z'):
+                    observed = subject.snapshot()
+                    self.assertEqual(observed, read('supervisor-v2.json'))
+                    self.assertEqual(observed['topology']['version'], 1)
+                    self.assertEqual(len(observed['topology']['nodes']), 17)
+                    self.assertFalse(any(node['actions'] for node in observed['topology']['nodes']))
+                self.assertEqual(subject.processes.children, {})
+            finally:
+                subject.close()
 
     def test_provider_metadata_and_browser_remote_constraints_agree(self):
         for case in read('system-cases.json'):

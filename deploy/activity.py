@@ -287,9 +287,11 @@ class ActivityJournal:
     def close(self):
         self.cancel.set()
         self.wake.set()
+        # The writer may be in a slow fsync or a contended test temp directory.
+        # Let it observe cancellation before the caller removes private state.
         if self.follower_thread is not None:
-            self.follower_thread.join(timeout=2)
-        self.writer_thread.join(timeout=2)
+            self.follower_thread.join(timeout=10)
+        self.writer_thread.join(timeout=10)
         self.flush()
 
     def read(self, after=None, before=None, limit=100):

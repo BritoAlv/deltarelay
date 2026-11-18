@@ -7,13 +7,13 @@ args=()
 config=0
 while (($#)); do
   case "$1" in
-    --no-desktop|--no-dashboard) args+=("$1"); shift ;;
+    --no-desktop|--no-frontend|--no-dashboard) args+=("$1"); shift ;;
     --config)
       (($# >= 2)) || { echo 'startup.sh: --config needs a private JSON file' >&2; exit 1; }
       args+=(--config "$2"); config=1; shift 2 ;;
     -h|--help)
       cat <<'EOF'
-Usage: ./startup.sh [--no-desktop] [--no-dashboard] [--config /private/profile.local.json]
+Usage: ./startup.sh [--no-frontend|--no-desktop] [--no-dashboard] [--config /private/profile.local.json]
 
 Start/reuse the persistent local supervisor and dashboard before network recovery.
 --config selects a private remote-host deployment and its provider plugin.
@@ -26,7 +26,7 @@ The supervisor survives closing the terminal or browser. Dashboard settings sele
 automatic reconnect and remote-host auto-wake (off initially, because billing may resume).
 Wake/Stop appear only when supported. Restarts never erase tokens, cache, or history.
 Stop local services and confirm remote shutdown with: ./deltarelay stop --yes
---no-desktop skips the initial OpenCode/Desktop launch.
+--no-frontend (alias --no-desktop) skips the initial OpenCode and managed frontend launch.
 --no-dashboard skips a new dashboard launch; existing services are left running.
 Configure the dashboard address in the private supervisor configuration.
 EOF

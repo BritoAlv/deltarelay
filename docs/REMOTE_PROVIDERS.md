@@ -56,15 +56,21 @@ fragments are forbidden. A plugin cannot redirect the gateway to a different hos
 
 When `remote` is configured, omit `codespace`, `components.tunnel`, and
 `components.relay`: two owners of the remote connection/service are an error.
-Local dashboard, gateway, and optional OpenCode/Desktop components remain normal
-supervisor components.
+Local dashboard, gateway, OpenCode, and optional frontend components
+(OpenChamber/Desktop) remain normal supervisor components. The first launchable
+frontend is the preferred one; see
+[supervision](SUPERVISION.md#configure-an-existing-remote-host).
 
 Check only the read-only plugin operations, then start:
 
 ```sh
 python3 -B deploy/check_remote_provider.py --config /private/supervisor.json
-./startup.sh --config /private/supervisor.json --no-desktop
+./startup.sh --config /private/supervisor.json --no-frontend
 ```
+
+`--no-frontend` (alias `--no-desktop`) skips the initial OpenCode and managed
+frontend launch and keeps them out of automatic startup without disabling the
+dashboard or shared gate.
 
 The checker validates schema/version, URL agreement, stable descriptions and
 connection specifications, and status. It never launches a tunnel, performs a

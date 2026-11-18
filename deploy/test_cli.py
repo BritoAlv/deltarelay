@@ -35,6 +35,13 @@ class CLITest(unittest.TestCase):
 
     @patch.object(cli, 'start')
     @patch.object(cli, 'create_config')
+    def test_no_frontend_alias_sets_the_same_option(self, create, start):
+        code, _, errors = self.invoke('start', '--no-frontend', '--config', '/private/host.json')
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(start.call_args.args[2:], (False, True))
+
+    @patch.object(cli, 'start')
+    @patch.object(cli, 'create_config')
     def test_explicit_configuration_never_initializes_setup(self, create, start):
         code, output, _ = self.invoke('start', '--config', '/private configuration/host.json', '--color', 'always')
         self.assertEqual(code, 0)

@@ -48,6 +48,11 @@ class StartupScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('/private configuration/vps.json', json.loads(self.events.read_text()))
 
+    def test_no_frontend_alias_is_forwarded(self):
+        result = self.startup('--no-frontend')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--no-frontend', json.loads(self.events.read_text()))
+
     def test_missing_configuration_launches_first_run_setup_without_discovering_private_profiles(self):
         self.config.unlink()
         self.environment['DELTARELAY_PROFILE'] = str(self.root)
@@ -103,6 +108,20 @@ class LauncherTest(unittest.TestCase):
         launcher.start(self.root, self.path, no_desktop=True)
         build.assert_not_called()
         self.assertEqual(request.call_args.args[2:], ('/action', {'component': 'dashboard', 'action': 'start'}))
+
+    @patch('builtins.print')
+    @patch.object(launcher, 'prepare_build')
+    @patch.object(launcher, 'control_request')
+    @patch.object(launcher, 'controller_status', return_value={'version': 2})
+    def test_existing_supervisor_starts_only_the_preferred_frontend(self, status, request, build, output):
+        self.config['components'] = {
+            'desktop': {'command': [sys.executable, '-c', 'pass'], 'pid_file': str(self.root / 'desktop.pid')},
+            'openchamber': {'command': [sys.executable, '-c', 'pass'], 'pid_file': str(self.root / 'openchamber.pid')},
+        }
+        self.save()
+        launcher.start(self.root, self.path)
+        self.assertEqual([call.args[3]['component'] for call in request.call_args_list],
+                         ['dashboard', 'opencode', 'openchamber'])
 
     @patch('builtins.print')
     @patch.object(launcher.subprocess, 'Popen')

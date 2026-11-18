@@ -10,9 +10,10 @@ from . import state as supervisor_state
 NODES = (
     ('vscode', 'Varro in VS Code', 'editor', 'local', 'user'),
     ('desktop', 'OpenCode Desktop', 'desktop', 'local', 'opencode'),
+    ('openchamber', 'OpenChamber', 'app', 'local', 'supervisor'),
     ('opencode', 'OpenCode server', 'server', 'local', 'supervisor'),
     ('plugin', 'DeltaRelay plugin', 'plugin', 'local', 'opencode'),
-    ('gate', 'Varro health gate', 'gate', 'local', 'supervisor'),
+    ('gate', 'Frontend health gate', 'gate', 'local', 'supervisor'),
     ('gateway', 'Local gateway', 'gateway', 'local', 'supervisor'),
     ('tunnel', 'Connection transport', 'link', 'network', 'supervisor'),
     ('network', 'Internet / interfaces', 'network', 'network', 'external'),
@@ -28,6 +29,7 @@ NODES = (
 NODE_IDS = frozenset(row[0] for row in NODES)
 EDGES = (
     ('vscode', 'gate', 'traffic', 'Attach-only local HTTP'),
+    ('openchamber', 'gate', 'traffic', 'Attach-only local HTTP'),
     ('gate', 'opencode', 'traffic', 'Authenticated local HTTP'),
     ('gate', 'gateway', 'requires', 'Backend readiness probe'),
     ('desktop', 'opencode', 'traffic', 'Local API'),
@@ -42,6 +44,7 @@ EDGES = (
     ('dashboard_ui', 'dashboard', 'traffic', 'Same-origin controls'),
     ('dashboard', 'supervisor', 'manages', 'Private control socket'),
     ('supervisor', 'gate', 'manages', 'Configured lifecycle'),
+    ('supervisor', 'openchamber', 'manages', 'Configured lifecycle'),
     ('supervisor', 'desktop', 'manages', 'Configured lifecycle'),
     ('supervisor', 'opencode', 'manages', 'Configured lifecycle'),
     ('supervisor', 'gateway', 'manages', 'Configured lifecycle'),
@@ -54,7 +57,7 @@ EDGES = (
 
 def shutdown_blockers(state):
     return [name for name, spec in state._specs.items()
-            if name in ('desktop', 'opencode', 'gateway', 'gate', 'tunnel') and
+            if name in ('desktop', 'openchamber', 'opencode', 'gateway', 'gate', 'tunnel') and
             (spec.get('command') or spec.get('start_command')) and
             not (spec.get('command') or spec.get('stop_command'))]
 
@@ -207,19 +210,20 @@ def snapshot(state):
     if not gate_configured:
         gate.update(lifecycle='unmanaged', readiness='unknown', managed=False,
                     desired='unmanaged', actions=[],
-                    detail='Not configured. Add components.gate to run Varro attach-only through the supervisor.')
+                    detail='Not configured. Add components.gate to run Varro or OpenChamber attach-only through the supervisor.')
     elif gate['lifecycle'] == 'stopped':
-        gate['detail'] = 'Stopped. Varro cannot connect. Desktop/TUI and the shared OpenCode service are unaffected.'
+        gate['detail'] = ('Stopped. Varro and OpenChamber cannot connect. Desktop/TUI and the shared OpenCode '
+                          'service are unaffected.')
     elif gate['readiness'] == 'ready':
         if backend_ready is True:
             gate['detail'] = 'Listener ready. Backend ready: gateway forwarding, OpenCode service, and plugin verified.'
         elif local_ready is False:
             gate['detail'] = (f'Listener ready. Local backend unavailable: {local_reason}. '
-                              'Varro will receive 503; the gate is not restarted.')
+                              'Attached frontends will receive 503; the gate is not restarted.')
         elif backend_ready is False and local_ready is True:
             gate['detail'] = (f'Listener and local backend ready. Relay unavailable: {backend_reason}. '
-                              'Varro can open sessions; while the local gateway is running, prompts wait for relay '
-                              'recovery within its retry window. The gate is not restarted.')
+                              'Attached frontends can open sessions; while the local gateway is running, prompts '
+                              'wait for relay recovery within its retry window. The gate is not restarted.')
         elif backend_ready is False:
             gate['detail'] = (f'Listener ready. Relay unavailable: {backend_reason}. '
                               'Local readiness is not yet verified; the gate is not restarted.')
@@ -239,6 +243,18 @@ def snapshot(state):
             elif gate['readiness'] == 'ready':
                 status = 'ready'
             else:
+                status = 'not_ready'
+        elif (source, target) == ('openchamber', 'gate'):
+            frontend = by_id['openchamber']
+            if (not gate_configured or not frontend['managed'] or
+                    gate['readiness'] == 'unknown' or gate['lifecycle'] in ('unknown', 'unmanaged') or
+                    frontend['lifecycle'] in ('unknown', 'unmanaged')):
+                status = 'unknown'
+            elif frontend['lifecycle'] in ('stopped', 'stopping') or gate['lifecycle'] == 'stopped':
+                status = 'not_ready'
+            elif gate['readiness'] == 'ready' and frontend['lifecycle'] in ('running', 'started'):
+                status = 'ready'
+            elif gate['readiness'] == 'not_ready':
                 status = 'not_ready'
         elif (source, target) == ('gate', 'opencode'):
             if not gate_configured or gate['readiness'] == 'unknown' or local_ready is None:

@@ -56,7 +56,8 @@ def main(argv=None):
     launch = commands.add_parser('start', help='start/reuse the persistent supervisor and dashboard',
                                  description='Start local controls before remote recovery. Nothing is downloaded.')
     launch.add_argument('--config', type=Path, help='private supervisor JSON (defaults to XDG configuration)')
-    launch.add_argument('--no-desktop', action='store_true', help='skip the initial OpenCode/Desktop launch')
+    launch.add_argument('--no-desktop', '--no-frontend', dest='no_desktop', action='store_true',
+                        help='skip the initial OpenCode and managed frontend launch')
     launch.add_argument('--no-dashboard', action='store_true', help='skip a new dashboard launch; leave existing services running')
     launch.add_argument('--color', choices=('auto', 'always', 'never'), default='auto',
                         help='terminal styling (auto respects NO_COLOR and redirected output)')

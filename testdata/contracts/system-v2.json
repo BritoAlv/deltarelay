@@ -2,7 +2,6 @@
   "version": 2,
   "managed": true,
   "collected_at": "2026-11-01T12:00:00Z",
-  "csrf_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
   "settings": {
     "auto_reconnect": true,
     "auto_wake": false
@@ -21,8 +20,8 @@
   "remote": {
     "id": "custom",
     "label": "Remote host",
-    "host_state": "unknown",
-    "capabilities": []
+    "capabilities": [],
+    "host_state": "unknown"
   },
   "components": [
     {
@@ -34,7 +33,7 @@
     },
     {
       "id": "gate",
-      "label": "Varro health gate",
+      "label": "Frontend health gate",
       "state": "unmanaged",
       "can_start": false,
       "can_restart": false
@@ -73,12 +72,15 @@
       "state": "unmanaged",
       "can_start": false,
       "can_restart": false
+    },
+    {
+      "id": "openchamber",
+      "label": "OpenChamber",
+      "state": "unmanaged",
+      "can_start": false,
+      "can_restart": false
     }
   ],
-  "auth": {
-    "state": "not_configured",
-    "stale": false
-  },
   "topology": {
     "version": 1,
     "nodes": [
@@ -104,7 +106,22 @@
         "group": "local",
         "owner": "opencode",
         "managed": false,
-        "desired": "running",
+        "desired": "stopped",
+        "lifecycle": "unmanaged",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "No independent readiness evidence yet.",
+        "actions": []
+      },
+      {
+        "id": "openchamber",
+        "label": "OpenChamber",
+        "kind": "app",
+        "group": "local",
+        "owner": "supervisor",
+        "managed": false,
+        "desired": "stopped",
         "lifecycle": "unmanaged",
         "readiness": "unknown",
         "activity": "idle",
@@ -144,7 +161,7 @@
       },
       {
         "id": "gate",
-        "label": "Varro health gate",
+        "label": "Frontend health gate",
         "kind": "gate",
         "group": "local",
         "owner": "supervisor",
@@ -154,7 +171,7 @@
         "readiness": "unknown",
         "activity": "idle",
         "checked_at": null,
-        "detail": "Not configured. Add components.gate to run Varro attach-only through the supervisor.",
+        "detail": "Not configured. Add components.gate to run Varro or OpenChamber attach-only through the supervisor.",
         "actions": []
       },
       {
@@ -333,6 +350,14 @@
         "state": "unknown"
       },
       {
+        "id": "openchamber_gate",
+        "source": "openchamber",
+        "target": "gate",
+        "relation": "traffic",
+        "protocol": "Attach-only local HTTP",
+        "state": "unknown"
+      },
+      {
         "id": "gate_opencode",
         "source": "gate",
         "target": "opencode",
@@ -445,6 +470,14 @@
         "state": "unknown"
       },
       {
+        "id": "supervisor_openchamber",
+        "source": "supervisor",
+        "target": "openchamber",
+        "relation": "manages",
+        "protocol": "Configured lifecycle",
+        "state": "unknown"
+      },
+      {
         "id": "supervisor_desktop",
         "source": "supervisor",
         "target": "desktop",
@@ -511,5 +544,10 @@
     },
     "run": null,
     "shutdown_blockers": []
+  },
+  "csrf_token": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "auth": {
+    "state": "not_configured",
+    "stale": false
   }
 }

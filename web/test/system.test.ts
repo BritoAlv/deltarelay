@@ -64,13 +64,14 @@ test("control snapshots validate Go allowance meters", () => {
   }
 })
 
-test("gate is a bounded managed component and the inventory limit is seven", () => {
-  const gate = { id: "gate", label: "Varro health gate", state: "running", can_start: true, can_restart: true }
+test("gate is a bounded managed component and the inventory limit is eight", () => {
+  const gate = { id: "gate", label: "Frontend health gate", state: "running", can_start: true, can_restart: true }
   assert.equal(isSystemStatus({ ...status, components: [...status.components, gate] }), true)
-  const full = ["dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop"].map((id) => ({ id, label: id, state: "unmanaged", can_start: false, can_restart: false }))
+  const full = ["dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop", "openchamber"].map((id) => ({ id, label: id, state: "unmanaged", can_start: false, can_restart: false }))
   assert.equal(isSystemStatus({ ...status, components: full }), true)
   assert.equal(isSystemStatus({ ...status, components: [...full, gate] }), false)
   assert.equal(isSystemStatus({ ...status, components: [{ ...gate, id: "vscode" }] }), false)
+  assert.equal(isSystemStatus({ ...status, components: [{ ...gate, id: "openchamber", label: "OpenChamber" }] }), true)
 })
 
 test("connection state only blames the internet when the separate check also failed", () => {

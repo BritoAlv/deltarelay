@@ -12,7 +12,7 @@ import (
 // Unknown fields are still stripped, not forwarded to the browser.
 func decodeSupervisorStatus(data []byte) (SystemStatus, bool) {
 	var state SystemStatus
-	if json.Unmarshal(data, &state) != nil || state.Version != 2 || !state.Managed || !statusTimestamp(state.CollectedAt) || state.Recovery.Attempts < 0 || len(state.Components) > 7 {
+	if json.Unmarshal(data, &state) != nil || state.Version != 2 || !state.Managed || !statusTimestamp(state.CollectedAt) || state.Recovery.Attempts < 0 || len(state.Components) > 8 {
 		return SystemStatus{}, false
 	}
 	root := statusFields(data, "version", "managed", "collected_at", "settings", "recovery", "relay_state", "components")
@@ -50,7 +50,7 @@ func decodeSupervisorStatus(data []byte) (SystemStatus, bool) {
 			return SystemStatus{}, false
 		}
 		switch component.ID {
-		case "dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop":
+		case "dashboard", "gate", "gateway", "tunnel", "relay", "opencode", "desktop", "openchamber":
 		default:
 			return SystemStatus{}, false
 		}
