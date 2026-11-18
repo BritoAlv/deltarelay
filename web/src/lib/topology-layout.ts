@@ -8,11 +8,11 @@ export const nodeWidth = 190
 export const nodeHeight = 110
 export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").IconName; role: string; x: number; y: number }[] = [
   { id: "vscode", label: "Varro in VS Code", icon: "vscode", role: "Editor", x: 55, y: 130 },
-  { id: "desktop", label: "OpenCode Desktop", icon: "opencode", role: "App", x: 55, y: 390 },
-  { id: "openchamber", label: "OpenChamber", icon: "openchamber", role: "App", x: 55, y: 645 },
+  { id: "openchamber", label: "OpenChamber", icon: "openchamber", role: "App", x: 55, y: 390 },
+  { id: "desktop", label: "OpenCode Desktop", icon: "opencode", role: "App", x: 55, y: 645 },
   { id: "opencode", label: "OpenCode server", icon: "opencode", role: "Process", x: 305, y: 390 },
   { id: "plugin", label: "DeltaRelay plugin", icon: "plugin", role: "Module", x: 535, y: 390 },
-  { id: "gate", label: "Frontend health gate", icon: "gate", role: "Process", x: 305, y: 130 },
+  { id: "gate", label: "Frontend health gate", icon: "gate", role: "Process", x: 305, y: 190 },
   { id: "gateway", label: "Local gateway", icon: "shield", role: "Process", x: 795, y: 390 },
   { id: "network", label: "Internet / interfaces", icon: "globe", role: "Network", x: 535, y: 645 },
   { id: "tunnel", label: "Connection transport", icon: "link", role: "Transport", x: 795, y: 645 },
@@ -64,11 +64,11 @@ export interface MapBoundary extends BoundaryPresentation {
 // the supervisor manages other processes, but does not contain them.
 export const mapBoundaries: MapBoundary[] = [
   { id: "vscode", kind: "process", label: "PROCESS", title: "Varro in VS Code", detail: "Editor process opened on request. The supervisor never starts it automatically, restarts it, or observes it.", side: "frontend", members: ["vscode"], x: 35, y: 70, width: 230, height: 185 },
-  { id: "desktop", kind: "process", label: "PROCESS", title: "OpenCode Desktop", detail: "Desktop application, separate from the OpenCode server.", side: "frontend", members: ["desktop"], x: 35, y: 330, width: 230, height: 185 },
-  { id: "openchamber", kind: "process", label: "PROCESS", title: "OpenChamber", detail: "Frontend process. Attaches to the shared OpenCode service only through the frontend health gate; attachment is not independently observed.", side: "frontend", members: ["openchamber"], x: 35, y: 585, width: 230, height: 185 },
+  { id: "desktop", kind: "process", label: "PROCESS", title: "OpenCode Desktop", detail: "Desktop application, separate from the OpenCode server.", side: "frontend", members: ["desktop"], x: 35, y: 585, width: 230, height: 185 },
+  { id: "openchamber", kind: "process", label: "PROCESS", title: "OpenChamber", detail: "Frontend process. Attaches to the shared OpenCode service only through the frontend health gate; attachment is not independently observed.", side: "frontend", members: ["openchamber"], x: 35, y: 330, width: 230, height: 185 },
   { id: "opencode", kind: "process", label: "PROCESS", title: "OpenCode server", detail: "The DeltaRelay plugin is loaded inside the OpenCode server process, not a separate process.", side: "backend", members: ["opencode", "plugin"], x: 285, y: 330, width: 460, height: 185 },
   { id: "gateway", kind: "process", label: "PROCESS", title: "Local gateway", detail: "Local authenticated HTTP gateway process.", side: "backend", members: ["gateway"], x: 775, y: 330, width: 230, height: 185 },
-  { id: "gate", kind: "process", label: "PROCESS", title: "Frontend health gate", detail: "Supervised loopback health gate. It never owns or restarts the shared OpenCode service.", side: "backend", members: ["gate"], x: 285, y: 70, width: 225, height: 185 },
+  { id: "gate", kind: "process", label: "PROCESS", title: "Frontend health gate", detail: "Supervised loopback health gate. It never owns or restarts the shared OpenCode service.", side: "backend", members: ["gate"], x: 285, y: 130, width: 225, height: 185 },
   { id: "network", kind: "network", label: "NETWORK · NOT A PROCESS", title: "Internet / interfaces", detail: "Interfaces, routes and connectivity are prerequisites, not a relay process.", members: ["network"], x: 520, y: 585, width: 230, height: 185 },
   { id: "tunnel", ...transportBoundary(), side: "backend", members: ["tunnel"], x: 775, y: 585, width: 230, height: 185 },
   { id: "relay", kind: "process", label: "PROCESS + OWNED FILES", title: "DeltaRelay relay", detail: "The relay process owns the cache and saved-response files. These are persistent files, not a separate process, and survive process restarts.", note: "Owned files survive restarts", side: "backend", members: ["relay", "storage"], x: 1070, y: 310, width: 230, height: 410 },
@@ -104,13 +104,26 @@ export function edgePath(source: NodeID, target: NodeID): string {
   // Management links use the open lanes between boundaries, rather than
   // crossing unrelated process/component cards on the way to their targets.
   if (source === "supervisor") {
-    // The gate sits in the top row: reach it from the right-hand bus and the
-    // lane above the second row, entering left of its data link to OpenCode.
-    if (target === "gate") return `M${a.x + nodeWidth},${ay} H1048 V285 H350 V${b.y + nodeHeight}`
-    if (target === "openchamber") return `M${a.x + nodeWidth},${ay} H1048 V560 H150 V${b.y}`
+    // The gate sits in the top row: reach it from the right-hand bus and enter
+    // its right edge, clear of the attach fan and the gateway check lane.
+    if (target === "gate") return `M${a.x + nodeWidth},${ay} H1048 V285 H510 V275 H495`
+    // OpenChamber is the second-row attach frontend; Desktop is the third-row
+    // direct client. Enter the former from below and the latter from above.
+    if (target === "openchamber") return `M${a.x + nodeWidth},${ay} H1048 V560 H150 V${b.y + nodeHeight}`
+    if (target === "desktop") return `M${a.x + nodeWidth},${ay} H1048 V560 H150 V${b.y}`
     // A shared management lane between the second and third local component rows.
-    if (target === "desktop" || target === "opencode" || target === "gateway") return `M${a.x + nodeWidth},${ay} H1048 V560 H${bx} V${b.y + nodeHeight}`
+    if (target === "opencode" || target === "gateway") return `M${a.x + nodeWidth},${ay} H1048 V560 H${bx} V${b.y + nodeHeight}`
     if (target === "tunnel") return `M${a.x + nodeWidth},${ay} H890 V${b.y + nodeHeight}`
+  }
+  if (source === "vscode" && target === "gate") {
+    // Both attach-only frontends feed the gate: Varro steps down from the row
+    // above and OpenChamber steps up from the row below.
+    return `M${a.x + nodeWidth},${a.y + nodeHeight / 2} L${b.x},${b.y + nodeHeight / 2}`
+  }
+  if (source === "desktop" && target === "opencode") {
+    // Desktop keeps its direct server path as a diagonal below OpenChamber,
+    // instead of sharing the attach frontends' lane.
+    return `M${a.x + nodeWidth / 2},${a.y} L${b.x + 45},${b.y + nodeHeight}`
   }
   if (source === "gate" && target === "gateway") {
     // Health/check dependency, not a model-data hop: cross the open top row and
@@ -118,9 +131,9 @@ export function edgePath(source: NodeID, target: NodeID): string {
     return `M${a.x + nodeWidth},${ay} H840 V${b.y}`
   }
   if (source === "openchamber" && target === "gate") {
-    // The frontend attaches through the shared gate: climb the frontend/backend
-    // divider and enter the gate from below, clear of the editor attach link.
-    return `M${a.x + nodeWidth},${ay} H265 V300 H350 V${b.y + nodeHeight}`
+    // OpenChamber climbs into the gate from below-left, forming the second
+    // diagonal of the attach fan.
+    return `M${a.x + nodeWidth / 2},${a.y} L${b.x},${b.y + nodeHeight}`
   }
   if (source === "tunnel" && target === "relay") {
     // The relay is one row above the transport: climb the gap between the local
@@ -164,10 +177,17 @@ export function responsePath(source: NodeID, target: NodeID): string {
     // and the relay-owned cache files stay clear.
     return `M${a.x + nodeWidth},${a.y + nodeHeight / 2 + lane} H1308 V${b.y + nodeHeight / 2 - lane} H${b.x + nodeWidth}`
   }
+  if (source === "vscode" && target === "gate") {
+    // Return beside the attach diagonal, entering Varro from its right edge.
+    return `M${b.x + nodeWidth},${b.y + nodeHeight / 2 + lane} L${a.x},${a.y + nodeHeight / 2 + lane}`
+  }
+  if (source === "desktop" && target === "opencode") {
+    // Return beside the direct-to-server diagonal, clear of OpenChamber above.
+    return `M${b.x + nodeWidth / 2 + lane},${b.y} L${a.x + 45 + lane},${a.y + nodeHeight}`
+  }
   if (source === "openchamber" && target === "gate") {
-    // Return beside the attach route, following the divider before entering the
-    // frontend from its right edge.
-    return `M${a.x + nodeWidth / 2 + lane},${a.y + nodeHeight} V301 H281 V${b.y + nodeHeight / 2 + lane} H${b.x + nodeWidth}`
+    // Return beside the attach diagonal, entering the gate's lower edge.
+    return `M${b.x + nodeWidth / 2 + lane},${b.y} L${a.x + lane},${a.y + nodeHeight}`
   }
   if (a.y === b.y) return a.x < b.x
     ? `M${a.x + nodeWidth},${ay} H${b.x}`

@@ -85,7 +85,7 @@ test("transport boundaries describe configured processes versus paths, not readi
 })
 
 test("aligned connection arrows attach to the facing sides in both directions", () => {
-  for (const [source, target] of [["desktop", "opencode"], ["opencode", "desktop"], ["relay", "storage"], ["storage", "relay"]] as const) {
+  for (const [source, target] of [["gate", "opencode"], ["opencode", "gate"], ["relay", "storage"], ["storage", "relay"]] as const) {
     const a = mapNodes.find((node) => node.id === source)!, b = mapNodes.find((node) => node.id === target)!
     const expected = a.y === b.y
       ? `M${a.x + (a.x < b.x ? nodeWidth : 0)},${a.y + nodeHeight / 2} H${b.x + (a.x > b.x ? nodeWidth : 0)}`
@@ -117,7 +117,7 @@ test("OpenChamber is a supervised frontend that attaches only through the shared
   assert.equal(edgeChannel(manage), "control")
 
   const mapped = mapNodes.find((item) => item.id === "openchamber")!
-  assert.deepEqual(mapped, { id: "openchamber", label: "OpenChamber", icon: "openchamber", role: "App", x: 55, y: 645 })
+  assert.deepEqual(mapped, { id: "openchamber", label: "OpenChamber", icon: "openchamber", role: "App", x: 55, y: 390 })
   const boundary = mapBoundaries.find((item) => item.id === "openchamber")!
   assert.equal(boundary.kind, "process")
   assert.equal(boundary.side, "frontend")
@@ -128,7 +128,7 @@ test("OpenChamber is a supervised frontend that attaches only through the shared
 test("frontend divider only spans rows where a frontend sits beside a backend", () => {
   const dividerX = 275
   for (const segment of mapLayerSegments) {
-    const row = mapBoundaries.filter((boundary) => boundary.y === segment.y1 && boundary.y + boundary.height === segment.y2)
+    const row = mapBoundaries.filter((boundary) => boundary.y < segment.y2 && boundary.y + boundary.height > segment.y1)
     assert.ok(row.some((boundary) => boundary.x + boundary.width <= dividerX), `${segment.y1}: frontend side`)
     assert.ok(row.some((boundary) => boundary.x >= dividerX), `${segment.y1}: backend side`)
   }
@@ -158,34 +158,60 @@ test("reflowed map keeps every node, region and routed lane inside its bounds wi
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
   for (const edge of value.edges) {
-    for (const command of edgePath(edge.source, edge.target).matchAll(/([MHV])([\d.]+)(?:,([\d.]+))?/g)) {
-      const x = command[1] === "V" ? null : Number(command[2])
-      const y = command[1] === "H" ? null : Number(command[1] === "M" ? command[3] : command[2])
+    for (const command of edgePath(edge.source, edge.target).matchAll(/([MHVL])([\d.]+)(?:,([\d.]+))?/g)) {
+      const type = command[1]
+      const x = type === "V" ? null : Number(command[2])
+      const y = type === "H" ? null : Number(type === "M" || type === "L" ? command[3] : command[2])
       if (x !== null) assert.ok(x >= 0 && x <= mapWidth, `${edge.id} x=${x}`)
       if (y !== null) assert.ok(y >= 0 && y <= mapHeight, `${edge.id} y=${y}`)
     }
   }
-  assert.equal(edgePath("vscode", "gate"), `M${55 + nodeWidth},${130 + nodeHeight / 2} H305`)
-  assert.equal(edgePath("gate", "opencode"), `M${305 + nodeWidth / 2},${130 + nodeHeight} V390`)
-  assert.equal(edgePath("gate", "gateway"), `M${305 + nodeWidth},${130 + nodeHeight / 2} H840 V390`)
-  assert.equal(edgePath("supervisor", "gate"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V285 H350 V${130 + nodeHeight}`)
-  assert.equal(edgePath("supervisor", "openchamber"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V560 H150 V645`)
-  assert.equal(edgePath("openchamber", "gate"), `M${55 + nodeWidth},${645 + nodeHeight / 2} H265 V300 H350 V${130 + nodeHeight}`)
-  assert.equal(responsePath("openchamber", "gate"), `M${305 + nodeWidth / 2 + 16},${130 + nodeHeight} V301 H281 V${645 + nodeHeight / 2 + 16} H${55 + nodeWidth}`)
+  assert.equal(edgePath("vscode", "gate"), `M${55 + nodeWidth},${130 + nodeHeight / 2} L305,${190 + nodeHeight / 2}`)
+  assert.equal(edgePath("gate", "opencode"), `M${305 + nodeWidth / 2},${190 + nodeHeight} V390`)
+  assert.equal(edgePath("gate", "gateway"), `M${305 + nodeWidth},${190 + nodeHeight / 2} H840 V390`)
+  assert.equal(edgePath("supervisor", "gate"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V285 H510 V275 H495`)
+  assert.equal(edgePath("supervisor", "openchamber"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V560 H150 V${390 + nodeHeight}`)
+  assert.equal(edgePath("supervisor", "desktop"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V560 H150 V645`)
+  assert.equal(edgePath("openchamber", "gate"), `M${55 + nodeWidth / 2},390 L305,${190 + nodeHeight}`)
+  assert.equal(edgePath("desktop", "opencode"), `M${55 + nodeWidth / 2},645 L${305 + 45},${390 + nodeHeight}`)
+  assert.equal(responsePath("vscode", "gate"), `M${55 + nodeWidth},${130 + nodeHeight / 2 + 16} L305,${190 + nodeHeight / 2 + 16}`)
+  assert.equal(responsePath("openchamber", "gate"), `M${55 + nodeWidth / 2 + 16},390 L${305 + 16},${190 + nodeHeight}`)
+  assert.equal(responsePath("desktop", "opencode"), `M${55 + nodeWidth / 2 + 16},645 L${305 + 45 + 16},${390 + nodeHeight}`)
 })
 
 test("map arrows never cross unrelated component cards or process boundaries", () => {
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
   type Point = { x: number; y: number }
-  const crosses = (a: Point, b: Point, rect: { x: number; y: number; width: number; height: number }) => a.x === b.x
-    ? a.x > rect.x && a.x < rect.x + rect.width && Math.max(a.y, b.y) > rect.y && Math.min(a.y, b.y) < rect.y + rect.height
-    : a.y > rect.y && a.y < rect.y + rect.height && Math.max(a.x, b.x) > rect.x && Math.min(a.x, b.x) < rect.x + rect.width
+  // Liang–Barsky segment/AABB clip; touching an edge counts as crossing, while
+  // source and target boundaries are filtered out below.
+  const crosses = (a: Point, b: Point, rect: { x: number; y: number; width: number; height: number }) => {
+    const dx = b.x - a.x, dy = b.y - a.y
+    const p = [-dx, dx, -dy, dy]
+    const q = [a.x - rect.x, rect.x + rect.width - a.x, a.y - rect.y, rect.y + rect.height - a.y]
+    let t0 = 0, t1 = 1
+    for (let index = 0; index < 4; index++) {
+      if (p[index] === 0) {
+        if (q[index]! < 0) return false
+      } else {
+        const t = q[index]! / p[index]!
+        if (p[index]! < 0) {
+          if (t > t1) return false
+          if (t > t0) t0 = t
+        } else {
+          if (t < t0) return false
+          if (t < t1) t1 = t
+        }
+      }
+    }
+    return true
+  }
   for (const edge of value.edges) {
     let previous: Point = { x: 0, y: 0 }
-    for (const command of edgePath(edge.source, edge.target).matchAll(/([MHV])([\d.]+)(?:,([\d.]+))?/g)) {
-      const point = { x: command[1] === "V" ? previous.x : Number(command[2]), y: command[1] === "M" ? Number(command[3]) : command[1] === "V" ? Number(command[2]) : previous.y }
-      if (command[1] !== "M") {
+    for (const command of edgePath(edge.source, edge.target).matchAll(/([MHVL])([\d.]+)(?:,([\d.]+))?/g)) {
+      const type = command[1]
+      const point = { x: type === "V" ? previous.x : Number(command[2]), y: type === "H" ? previous.y : Number(type === "M" || type === "L" ? command[3] : command[2]) }
+      if (type !== "M") {
         for (const node of mapNodes.filter((node) => node.id !== edge.source && node.id !== edge.target)) {
           assert.equal(crosses(previous, point, { ...node, width: nodeWidth, height: nodeHeight }), false, `${edge.id} crosses ${node.id}`)
         }

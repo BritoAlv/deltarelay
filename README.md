@@ -150,9 +150,9 @@ and [retention and limits](docs/PROTOCOL.md#6-retention-and-limits).
 
 ### Local workspace, remote relay, and controls
 
-![Actual dashboard architecture map showing Varro in VS Code and its health gate, local OpenCode components, encrypted tunnel, remote relay and storage, model provider, and the independent dashboard and recovery control plane.](docs/images/dashboard-architecture.png)
+![Actual dashboard architecture map showing OpenChamber and Varro in VS Code attaching through their shared frontend health gate, local OpenCode components, encrypted tunnel, remote relay and storage, model provider, and the independent dashboard and recovery control plane.](docs/images/dashboard-architecture.png)
 
-Actual dashboard architecture view captured November 12, 2026 (local time),
+Actual dashboard architecture view captured November 18, 2026 (local time),
 using GitHub Codespaces as the remote host. It is a read-only map of live
 supervisor topology: selecting a component highlights its connections, while
 lifecycle state and actions are on the **Controls** tab. The map distinguishes
