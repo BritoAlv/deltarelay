@@ -12,6 +12,9 @@ COMPONENTS = ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'de
 LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Frontend health gate', 'Local gateway', 'Remote host connection',
                                'Remote relay', 'OpenCode service', 'Isolated Desktop', 'OpenChamber')))
 FRONTENDS = ('openchamber', 'desktop')
+# OpenChamber is manual-only: it is started from the dashboard's component
+# controls and never by normal startup or Start system.
+AUTO_FRONTENDS = ('desktop',)
 DEFAULT_INTERNET_CHECK_URL = 'https://example.com/'
 DEFAULT_GATE_URL = 'http://127.0.0.1:18789'
 INTERNET_CHECK_INTERVAL = 15
@@ -22,9 +25,13 @@ def launchable(spec):
 
 
 def preferred_frontend(config):
-    """Return the launchable frontend the supervisor starts by default."""
+    """Return the launchable frontend the supervisor starts by default.
+
+    Only Desktop is auto-started. OpenChamber is intentionally manual: the
+    dashboard's Start action launches it without changing this default.
+    """
     components = config.get('components', {})
-    for name in FRONTENDS:
+    for name in AUTO_FRONTENDS:
         if launchable(components.get(name)):
             return name
     return None

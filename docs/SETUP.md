@@ -5,7 +5,8 @@ private test profiles, or Codespace deployment are required.
 
 OpenCode Desktop is the default frontend in this guide. OpenChamber Desktop is an
 optional attach-only alternative for the same OpenCode v2 service; it uses the
-shared frontend health gate and can run alongside Desktop, TUI, and Varro. See
+shared frontend health gate, starts only from the dashboard's component controls,
+and can run alongside Desktop, TUI, and Varro. See
 [OpenChamber + DeltaRelay](OPENCHAMBER.md). Installing OpenChamber does not change
 the plugin setup below or start a second server.
 

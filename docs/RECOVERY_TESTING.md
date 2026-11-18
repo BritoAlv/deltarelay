@@ -46,7 +46,7 @@ Suggested handoff to the independent OpenCode instance:
    contain the DeltaRelay plugin and does **not** submit to the local gateway.
    Verify its model request works directly before toggling the managed stack.
    Keep it in a separate terminal/window from the managed frontend instance
-   (OpenChamber when preferred, otherwise Desktop).
+   (Desktop when configured; OpenChamber is manual-only).
 5. Record a baseline in the dashboard map and in a terminal:
 
    ```sh
@@ -70,14 +70,14 @@ Suggested handoff to the independent OpenCode instance:
   change. Recovery continues with the dashboard closed.
 - The supervisor checks the actual authenticated relay path before changing a
   service. A route change alone never restarts a healthy component.
-- The managed frontend (OpenChamber when configured, otherwise Desktop), the
-  OpenCode server, and the gateway keep the same PIDs across an unrelated
-  transport repair. The tunnel may be rebuilt; the remote host and relay should
-  not be restarted unless the verified path requires it.
-- When OpenChamber is the preferred frontend, Desktop is not auto-started.
-  Substitute OpenChamber in frontend checks and verify Desktop remains manually
-  startable. Closing or stopping a frontend must not stop the shared gate,
-  OpenCode service, gateway, or tunnel.
+- The managed frontend (Desktop when configured), the OpenCode server, and the
+  gateway keep the same PIDs across an unrelated transport repair. The tunnel may
+  be rebuilt; the remote host and relay should not be restarted unless the
+  verified path requires it.
+- OpenChamber is manual-only: normal startup and **Start system** do not launch
+  it; start it from the dashboard component controls. Desktop remains the
+  default auto-start frontend; verify it remains startable and that stopping one
+  frontend does not stop the shared gate, OpenCode service, gateway, or tunnel.
 - A running host, a started command, and a provider "running" response are not
   reported as connection success. Only authenticated relay health with the pinned
   identity completes recovery.

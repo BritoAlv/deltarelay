@@ -141,25 +141,26 @@ and a private `pid_file`. An optional OpenChamber entry uses
 [OpenChamber + DeltaRelay](OPENCHAMBER.md#supervised-launch), and a private
 `pid_file`. Both frontends need the supervisor to inherit a graphical session.
 
-The frontends are `openchamber` and `desktop`. The first launchable one in that
-order is the **preferred frontend**; the supervisor starts only that frontend by
-default on initial startup and **Start system**. If `components.openchamber` is
-launchable, it becomes the default and a configured OpenCode Desktop remains
-listed and manually startable but is not auto-started. If OpenChamber is not
-configured, Desktop remains the fallback default. Installing the OpenChamber
-package does not configure or start it. Stopping the preferred frontend does not
-make the other one the fallback; it stays stopped until you start it. Remove
-`components.openchamber` and restart the supervisor to restore Desktop as the
-fallback.
+The frontends are `openchamber` and `desktop`. Desktop is the only auto-start
+frontend: when configured, the supervisor starts it by default on initial
+startup and **Start system**. OpenChamber is manual-only; configuring
+`components.openchamber` lists it as a managed component that starts only from
+its dashboard control. A configured OpenCode Desktop remains listed and
+manually startable while OpenChamber runs, and both can be open at once. If
+Desktop is not configured, startup launches no frontend; start OpenChamber from
+the dashboard when needed. Installing the OpenChamber package does not configure
+or start it. Stopping a frontend keeps it stopped until you start it.
 
 OpenChamber is attach-only through the shared gate. It never starts, stops,
 restarts, or updates OpenCode, and the gate never owns the OpenCode service.
-Startup order is `dashboard`, `gate`, `gateway`, `opencode`, then the preferred
-frontend. **Shut down system** stops `gate` first, then `openchamber`, `desktop`,
-`opencode`, `gateway`, and `tunnel`, so attached frontends lose access before
-the backend is stopped. A frontend the user closes is not automatically
-restarted; its component Start action brings it back. **Start system** starts the
-preferred frontend when its desired state is running.
+Startup order is `dashboard`, `gate`, `gateway`, `opencode`, then the default
+frontend (Desktop when configured). **Shut down system** stops `gate` first, then
+`openchamber`, `desktop`, `opencode`, `gateway`, and `tunnel`, so attached
+frontends lose access before the backend is stopped. A frontend the user closes
+is not automatically restarted; its component Start action brings it back.
+OpenChamber is never auto-started, so its Start action is the normal way to open
+it. **Start system** starts the default frontend when its desired state is
+running.
 
 Component IDs are `dashboard`, `gate`, `gateway`, `opencode`, `desktop`, and
 `openchamber`, plus the remote-provider `tunnel`/`relay` where configured. The
@@ -335,9 +336,10 @@ are invalid, the map reports the actual blocker instead of bypassing it.
   closed.
 - **Start system** resumes an intentionally stopped stack or performs a complete
   manual repair. It starts configured local applications, including the gate and
-  the preferred frontend, respects per-component desired state and
+  the default frontend (Desktop), respects per-component desired state and
   `--no-frontend`/`--no-desktop`, resumes automatic recovery, and then repairs the
-  connection. It asks for confirmation because
+  connection. OpenChamber is manual-only and is not opened by **Start system**.
+  It asks for confirmation because
   starting/waking remote compute may incur charges. Enabling automatic wake is
   not implied. A gate start failure is shown on the gate card but does not turn
   the rest of `Start system` into a failure; scheduled repair and the card retry

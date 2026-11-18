@@ -7,10 +7,10 @@ checked package is **OpenChamber Desktop 2.7.2**, installed from its Debian
 `.deb` at `/opt/OpenChamber/openchamber`.
 
 When `components.openchamber` is configured with a launchable command, the
-supervisor treats OpenChamber as the preferred managed frontend. A configured
-OpenCode Desktop remains listed and manually startable, but is not started
-automatically. If OpenChamber is not configured, Desktop remains the fallback
-default. Installing the package alone does not configure or start it.
+supervisor manages it as an attach-only component but never opens it
+automatically. Start it from the dashboard's **OpenChamber** controls whenever
+you need it. A configured OpenCode Desktop remains the default auto-start
+frontend. Installing the package alone does not configure or start it.
 
 ```text
 OpenChamber Desktop --\
@@ -154,21 +154,23 @@ uv run ./deltarelay start --config /private/supervisor.json
 ```
 
 Normal startup and **Start system** start `dashboard`, `gate`, `gateway`,
-`opencode`, then the preferred frontend when its desired state is running.
-OpenChamber is preferred when its component is launchable; otherwise Desktop is.
-A manually started Desktop is an explicit per-component choice and is not undone
-by the preferred policy.
+`opencode`, then the default frontend (Desktop when configured) when its desired
+state is running. OpenChamber is manual-only: it is never started by normal
+startup or **Start system**. Use the OpenChamber component's **Start** action in
+the dashboard. A manually started Desktop is an explicit per-component choice
+and is not undone by adding OpenChamber.
 
-To start local controls and recovery without launching OpenCode or either
-managed frontend, use `--no-frontend` (or its older alias `--no-desktop`):
+To start local controls and recovery without launching OpenCode or Desktop, use
+`--no-frontend` (or its older alias `--no-desktop`):
 
 ```sh
 uv run ./deltarelay start --config /private/supervisor.json --no-frontend
 ```
 
-This skips the **initial** launch and leaves OpenCode and both managed frontends
-out of automatic startup for that persisted intent. It does not stop an already
-running OpenChamber or Desktop, and it does not disable the gate or dashboard.
+This skips the **initial** OpenCode and Desktop launch and leaves both managed
+frontends out of automatic startup for that persisted intent. It does not stop
+an already running OpenChamber or Desktop, and it does not disable the gate or
+dashboard. OpenChamber is manual-only even without this flag.
 
 ## Isolated state
 
@@ -242,13 +244,10 @@ launcher; do not construct a partial environment by hand.
   A frontend you close yourself is not automatically restarted; use Start when
   you want it back.
 
-Stopping the OpenChamber component is not the same as changing the default
-frontend. While `components.openchamber` remains configured and launchable, it
-stays the preferred frontend; the stopped intent keeps it from relaunching until
-you use the component's Start action, and Desktop does not become the automatic
-fallback. **Start system** preserves that explicit per-component stop. Stop the
-component, remove it from the private configuration, and restart the supervisor
-to restore Desktop as the fallback default.
+Stopping the OpenChamber component does not change the startup policy.
+OpenChamber is never auto-started; a stopped component stays stopped until you
+use its **Start** action in the dashboard. Desktop, when configured, remains the
+default auto-start frontend and is not affected.
 
 ## Verify the attach path
 
@@ -328,33 +327,28 @@ Projects are frontend-local. OpenChamber stores its list under
 directories in OpenChamber if you want them listed there. The shared service
 still provides the same sessions for the same workspace.
 
-## Default frontend and manual Desktop
+## Frontend startup policy
 
-| Configured components | Default auto-start choice |
+| Configured components | Auto-start choice |
 | --- | --- |
-| `openchamber` launchable, with or without `desktop` | OpenChamber |
-| `desktop` only | OpenCode Desktop |
+| `desktop` launchable, with or without `openchamber` | OpenCode Desktop |
+| `openchamber` only | None; start OpenChamber from the dashboard |
 | Neither | None; the gate remains available for Varro/manual attach |
 
-The policy is configuration, not a preference saved by opening an app. Adding
-`components.openchamber` makes OpenChamber the preferred frontend; with its
-desired state running, normal startup and **Start system** launch it. Desktop
-stays listed in Controls and remains manually startable; both frontends can be
-open at once because they attach to the same service.
+OpenChamber is manual-only. Adding `components.openchamber` makes it available
+in Controls, but normal startup and **Start system** never launch it; use its
+**Start** action. Desktop remains the default auto-start frontend when
+configured. Both frontends can be open at once because they attach to the same
+shared service.
 
-To use Desktop manually while OpenChamber is preferred:
+To use both:
 
-1. Start OpenCode Desktop from the dashboard's component controls.
-2. OpenChamber and Desktop can run simultaneously. Neither owns the shared
-   OpenCode service, and closing one must not stop the other.
+1. Start OpenCode Desktop normally, or from the dashboard's component controls.
+2. Start OpenChamber from the dashboard's **OpenChamber** controls when you
+   want it.
 
-To return to the old default:
-
-1. Stop the OpenChamber component.
-2. Remove `components.openchamber` from the private supervisor configuration.
-3. Restart the supervisor and use **Start system**.
-4. Desktop is the fallback preferred frontend again. Its own configuration and
-   profile are unchanged.
+Neither owns the shared OpenCode service, and closing one must not stop the
+other. Removing `components.openchamber` does not delete its profile state.
 
 Do not remove or rewrite `components.desktop` merely to test OpenChamber.
 Installing the `.deb` is not configuration; it neither adds the component nor
@@ -547,8 +541,10 @@ exact absolute path and the profile-specific `--user-data-dir`.
       token file is mode `0600` and is not in the JSON.
 - [ ] `components.openchamber` is launchable; `match` includes the exact
       profile-specific `--user-data-dir`.
-- [ ] A normal start launches OpenChamber and not Desktop; `--no-frontend` (or
-      `--no-desktop`) skips both while leaving the dashboard and gate running.
+- [ ] A normal start launches Desktop and not OpenChamber; OpenChamber opens
+      only from its dashboard **Start** action. `--no-frontend` (or
+      `--no-desktop`) skips the initial Desktop launch while leaving the
+      dashboard and gate running.
 - [ ] The app log shows `Using external OpenCode server ... (skip-start mode)`
       and the gate URL; the internal UI port is not used as a gate or service
       port.
@@ -566,9 +562,9 @@ exact absolute path and the profile-specific `--user-data-dir`.
       untouched.
 - [ ] Closing the window follows the configured tray behavior; a full quit logs
       `Skipping OpenCode shutdown (external server)`.
-- [ ] A manual Desktop start still works while OpenChamber is preferred; removing
-      `components.openchamber` restores Desktop as the fallback without deleting
-      either frontend's state.
+- [ ] Desktop still starts by default and OpenChamber starts only from its
+      component control; removing `components.openchamber` leaves both
+      frontends' state intact.
 - [ ] Update, downgrade, and ordinary package removal leave
       `<profile>/openchamber` in place; no apt repository or dashboard update
       button was assumed.

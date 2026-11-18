@@ -2267,7 +2267,7 @@ test("OpenChamber is a supervised frontend application attached through the shar
   const doc = page.document
   const row = doc.querySelector<HTMLElement>('[data-component-id="openchamber"]')!
   assert.equal(row.querySelector("[data-component-type]")?.textContent, "Applications")
-  assert.equal(row.querySelector("[data-component-description]")?.textContent, "Supervised frontend that attaches to the shared OpenCode service through the frontend health gate.")
+  assert.equal(row.querySelector("[data-component-description]")?.textContent, "Supervised frontend that attaches to the shared OpenCode service through the frontend health gate. Start it from these controls; it never opens automatically.")
   const node = doc.querySelector<HTMLButtonElement>('[data-node-id="openchamber"]')!
   assert.equal(node.querySelector("strong")?.textContent, "OpenChamber")
   assert.equal(node.querySelector(".map-node-role")?.textContent, "App")

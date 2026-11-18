@@ -625,22 +625,31 @@ class SupervisorTest(unittest.TestCase):
                 patch.object(subject.coordinator, 'connection', side_effect=control.ControlError('host_stopped')):
             subject.submit({'component': 'all', 'action': 'recover'})
             self.wait_job(subject)
-        self.assertEqual([call.args[0] for call in start.call_args_list], ['dashboard', 'gateway', 'opencode', 'openchamber'])
+        self.assertEqual([call.args[0] for call in start.call_args_list], ['dashboard', 'gateway', 'opencode', 'desktop'])
         self.assertEqual(subject.state.recovery_copy()['last_error'], 'host_stopped')
 
-    def test_preferred_frontend_prefers_openchamber_and_falls_back_to_desktop(self):
+    def test_openchamber_is_manual_only_and_desktop_remains_the_default_frontend(self):
         self.component('desktop')
         self.component('openchamber')
         subject = self.supervisor()
-        self.assertEqual(subject.state.preferred_frontend, 'openchamber')
+        self.assertEqual(subject.state.preferred_frontend, 'desktop')
+        self.assertTrue(subject.state.wanted('desktop'))
+        self.assertFalse(subject.state.wanted('openchamber'))
+        self.assertEqual(startup_components(subject), ['desktop'])
+        # An explicit dashboard Start persists desired state, but still does not
+        # make OpenChamber part of the automatic startup lane.
+        intent = subject.state.intent_copy()
+        intent['components']['openchamber'] = True
+        subject.persist_intent(intent)
         self.assertTrue(subject.state.wanted('openchamber'))
-        self.assertFalse(subject.state.wanted('desktop'))
-        self.assertEqual(startup_components(subject), ['openchamber'])
-        del self.config['components']['openchamber']
-        fallback = self.supervisor()
-        self.assertEqual(fallback.state.preferred_frontend, 'desktop')
-        self.assertTrue(fallback.state.wanted('desktop'))
-        self.assertEqual(startup_components(fallback), ['desktop'])
+        self.assertEqual(startup_components(subject), ['desktop'])
+
+    def test_openchamber_without_desktop_is_not_auto_started(self):
+        self.component('openchamber')
+        subject = self.supervisor()
+        self.assertIsNone(subject.state.preferred_frontend)
+        self.assertFalse(subject.state.wanted('openchamber'))
+        self.assertEqual(startup_components(subject), [])
 
     def test_openchamber_start_launches_once_without_restarting_or_recovering_other_services(self):
         self.component('openchamber')
@@ -947,11 +956,11 @@ class SupervisorTest(unittest.TestCase):
             self.component(name)
         subject = self.supervisor()
         self.assertEqual(startup_components(subject),
-                         ['dashboard', 'gate', 'gateway', 'opencode', 'openchamber'])
+                         ['dashboard', 'gate', 'gateway', 'opencode', 'desktop'])
         subject.provider = None
-        self.assertEqual(startup_components(subject), ['dashboard', 'gate', 'opencode', 'openchamber'])
+        self.assertEqual(startup_components(subject), ['dashboard', 'gate', 'opencode', 'desktop'])
         self.assertEqual(startup_components(subject, no_desktop=True), ['dashboard', 'gate'])
-        self.assertEqual(startup_components(subject, no_dashboard=True), ['gate', 'opencode', 'openchamber'])
+        self.assertEqual(startup_components(subject, no_dashboard=True), ['gate', 'opencode', 'desktop'])
 
     def test_gate_starts_without_a_provider_and_only_restarts_on_liveness_failure(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'

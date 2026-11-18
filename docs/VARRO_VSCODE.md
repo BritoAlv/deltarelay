@@ -22,9 +22,10 @@ Desktop / TUI ---------> same shared OpenCode service
 ```
 
 OpenChamber is described in [OpenChamber + DeltaRelay](OPENCHAMBER.md). When it
-is configured, it is the supervisor's preferred managed frontend; a configured
-OpenCode Desktop remains listed and manually startable. The gate is shared,
-so neither frontend owns or changes the other's lifecycle.
+is configured, it is a managed attach-only frontend that starts only from the
+dashboard's component controls. A configured OpenCode Desktop remains the
+default auto-start frontend. The gate is shared, so neither frontend owns or
+changes the other's lifecycle.
 
 ## Quick integration
 

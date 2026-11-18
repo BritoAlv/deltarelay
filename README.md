@@ -163,11 +163,11 @@ and forwarding credentials still pass through the trusted relay. See
 OpenChamber Desktop is an optional attach-only graphical frontend for the
 **same** shared OpenCode service: `OpenChamber → shared frontend gate → OpenCode
 service`. When `components.openchamber` is configured with a launchable command,
-the supervisor starts it as the preferred managed frontend; a configured
-OpenCode Desktop remains listed and manually startable but is not auto-started.
-If OpenChamber is not configured, Desktop remains the fallback. OpenChamber
-never starts, stops, restarts, or updates OpenCode. Installing its `.deb` does not
-configure or start it. See [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
+the supervisor lists it as a managed component but never opens it automatically;
+start it from the dashboard's component controls. A configured OpenCode Desktop
+remains the default auto-start frontend. OpenChamber never starts, stops,
+restarts, or updates OpenCode. Installing its `.deb` does not configure or start
+it. See [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
 
 On PCs that use VS Code, Varro attaches through the same supervisor-managed
 loopback health gate to the shared OpenCode service:
@@ -201,7 +201,8 @@ OpenChamber and Varro can attach at the same time.
 Installation has three core parts: build the local tool and dashboard, set up an
 existing trusted remote host, and enable the OpenCode plugin. Varro in VS Code
 and OpenChamber Desktop are optional frontends for the same shared OpenCode
-service; OpenChamber is the default managed frontend when configured.
+service; Desktop is the default auto-start frontend, and OpenChamber is started
+from the dashboard's component controls.
 
 ### Requirements
 
@@ -256,9 +257,10 @@ dashboard's **Open** action can launch the configured profile once after
 
 To use OpenChamber Desktop, install the official `.deb`, verify its SHA-256, add
 `components.openchamber` to the private supervisor configuration, and restart
-the supervisor. When configured, it becomes the preferred managed frontend and
-the supervisor starts it by default on normal startup and **Start system**.
-A configured OpenCode Desktop can still be started manually. See
+the supervisor. When configured, it is listed as a managed component but is
+started only from the dashboard's component controls; normal startup and
+**Start system** never open it. A configured OpenCode Desktop remains the
+default auto-start frontend. See
 [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
 
 ## 6 - Instructions to run
