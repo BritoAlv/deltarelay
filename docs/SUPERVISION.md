@@ -189,8 +189,17 @@ restarts. The remote-host adapter is an on-demand executable, not a permanent
 server. Dashed boundaries identify hosts, networking, direct HTTPS paths, and
 external services rather than processes. A configured tunnel gets a process
 boundary; direct HTTPS does not. The model provider stays outside the relay and
-remote-host boundaries. Arrow colors distinguish model-request flow from checks,
-recovery, and management, independently of readiness or live request activity.
+remote-host boundaries. Model-request arrows point from caller to service;
+response arrows return from service to caller. The other channel covers checks,
+recovery, management, ownership, and read-only diagnostics, independently of
+readiness or live request activity. Dependency arrows point from the dependent
+to its prerequisite: gate → gateway for complete model-path readiness, and
+transport → network for a usable route. The relay → storage link describes
+ownership and read/write access to the request cache and response mailbox, not
+another model forwarding hop. Response bytes are persisted before resumable
+delivery. Dashboard → gateway shows read-only statistics/request inspection;
+dashboard → OpenCode shows optional read-only session/auth metadata. These
+diagnostics can be unavailable while dashboard → supervisor controls remain usable.
 The dashboard's **Architecture** tab shows this map read-only; lifecycle state and
 actions are on the **Controls** tab.
 

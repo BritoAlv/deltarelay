@@ -31,16 +31,25 @@ export interface TopologyEdge {
 }
 
 // The supervisor's "traffic" relation includes dashboard control traffic, while
-// provider hooks and relay storage are part of request handling without being
-// separate HTTP hops. Classify the actual request path explicitly; route/host
-// prerequisites and control-plane edges describe checks or management instead.
+// provider hooks are part of request handling without being a separate HTTP hop.
+// Classify the actual request path explicitly; storage ownership, route/host
+// prerequisites and read-only diagnostics are not model forwarding hops.
 const requestPathEdges = new Set([
   "vscode_gate", "openchamber_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
-  "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_storage", "relay_provider",
+  "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_provider",
 ])
 
 export function edgeChannel(edge: TopologyEdge): "request" | "control" {
   return requestPathEdges.has(edge.id) ? "request" : "control"
+}
+
+export function edgeDescription(edge: TopologyEdge): string {
+  if (edgeChannel(edge) === "request") return "Model request flow"
+  if (edge.id === "relay_storage") return "Storage ownership / read-write access"
+  if (edge.id === "dashboard_gateway" || edge.id === "dashboard_opencode") return "Read-only diagnostics"
+  if (edge.relation === "requires") return "Dependency / readiness check"
+  if (edge.relation === "contains") return "Ownership / containment"
+  return "Checks / recovery / management"
 }
 
 export interface RecoveryStep {

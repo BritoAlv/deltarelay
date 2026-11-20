@@ -7,6 +7,7 @@ endpoints were sampled. Dates and IDs are fixed so tests do not depend on clocks
 | --- | --- |
 | `dashboard-*.json` | Go dashboard/history/transfer serialization; TypeScript `isSnapshot` |
 | `supervisor-*.json`, `system-*.json` | Python supervisor snapshot; Go validation, enrichment, and serialization; TypeScript `isSystemStatus` and action routing |
+| `topology-v1.json` | Sanitized component/edge semantics; Go validation; TypeScript request/response direction and channel classification |
 | `state-history-*.json` | Python supervisor aggregate producer; Go bounded validation/proxy decoding; TypeScript `isSystemHistory` |
 | `provider-*.json` | Python executable-provider response consumer and bundled-provider request consumer; published-schema field/enum/limit parity |
 | `fingerprints.json` | Byte-exact JSON and SHA-256 goldens, checked against actual persisted request claims |
@@ -43,6 +44,11 @@ Active contract distinctions:
   empty.
 - Only current supervisor status is accepted, with `remote`, independent internet
   probe fields, and version 2. Unsupported versions fail validation.
+- Topology stays v1: traffic points from caller to service, `requires` from
+  dependent to prerequisite, and `contains` from owner to resource. Relay storage
+  includes request-cache and response-mailbox reads/writes, not a forwarding hop.
+  Dashboard diagnostics are read-only control-channel traffic; their readiness
+  is not inferred merely from running endpoint processes.
 - State history is version 1 with a fixed eight-state order, nonnegative integer
   seconds, at most 2,000 buckets, contiguous bucket starts, at most 6,000 exact
   intervals, and totals equal to the bucket sums. When `intervals_complete` is

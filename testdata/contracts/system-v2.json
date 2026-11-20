@@ -261,7 +261,7 @@
         "readiness": "unknown",
         "activity": "idle",
         "checked_at": null,
-        "detail": "Relay-owned cache and durable response mailbox; no independent storage probe or reset action.",
+        "detail": "Relay-owned request cache and response mailbox, read and written by the relay. Response bytes are persisted before resumable delivery. No independent storage probe or reset action.",
         "actions": []
       },
       {
@@ -414,9 +414,9 @@
         "state": "unknown"
       },
       {
-        "id": "network_tunnel",
-        "source": "network",
-        "target": "tunnel",
+        "id": "tunnel_network",
+        "source": "tunnel",
+        "target": "network",
         "relation": "requires",
         "protocol": "Usable route",
         "state": "unknown"
@@ -434,7 +434,7 @@
         "source": "relay",
         "target": "storage",
         "relation": "contains",
-        "protocol": "Durable relay data",
+        "protocol": "Owned request cache / response mailbox (read / write)",
         "state": "unknown"
       },
       {
@@ -451,6 +451,22 @@
         "target": "dashboard",
         "relation": "traffic",
         "protocol": "Same-origin controls",
+        "state": "unknown"
+      },
+      {
+        "id": "dashboard_gateway",
+        "source": "dashboard",
+        "target": "gateway",
+        "relation": "traffic",
+        "protocol": "Read-only statistics / request inspection",
+        "state": "unknown"
+      },
+      {
+        "id": "dashboard_opencode",
+        "source": "dashboard",
+        "target": "opencode",
+        "relation": "traffic",
+        "protocol": "Optional read-only session / auth metadata",
         "state": "unknown"
       },
       {

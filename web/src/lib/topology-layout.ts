@@ -71,7 +71,7 @@ export const mapBoundaries: MapBoundary[] = [
   { id: "gate", kind: "process", label: "PROCESS", title: "Frontend health gate", detail: "Supervised loopback health gate. It never owns or restarts the shared OpenCode service.", side: "backend", members: ["gate"], x: 285, y: 130, width: 225, height: 185 },
   { id: "network", kind: "network", label: "NETWORK · NOT A PROCESS", title: "Internet / interfaces", detail: "Interfaces, routes and connectivity are prerequisites, not a relay process.", members: ["network"], x: 520, y: 585, width: 230, height: 185 },
   { id: "tunnel", ...transportBoundary(), side: "backend", members: ["tunnel"], x: 775, y: 585, width: 230, height: 185 },
-  { id: "relay", kind: "process", label: "PROCESS + OWNED FILES", title: "DeltaRelay relay", detail: "The relay process owns the cache and saved-response files. These are persistent files, not a separate process, and survive process restarts.", note: "Owned files survive restarts", side: "backend", members: ["relay", "storage"], x: 1070, y: 310, width: 230, height: 410 },
+  { id: "relay", kind: "process", label: "PROCESS + OWNED FILES", title: "DeltaRelay relay", detail: "The relay reads and writes its request cache and response mailbox. Provider response bytes are persisted before resumable delivery. These persistent files survive process restarts and are not a separate forwarding hop.", note: "Owned files survive restarts", side: "backend", members: ["relay", "storage"], x: 1070, y: 310, width: 230, height: 410 },
   { id: "provider", kind: "external", label: "EXTERNAL SERVICE", title: "Model provider API", detail: "External API, outside the relay process and remote host. Its internal processes are not observed.", members: ["provider"], x: 1050, y: 820, width: 230, height: 190 },
   { id: "dashboard_ui", kind: "process", label: "BROWSER PROCESS", title: "Dashboard browser", detail: "Dashboard page running in the browser, separate from the dashboard service.", side: "frontend", members: ["dashboard_ui"], x: 35, y: 870, width: 230, height: 185 },
   { id: "dashboard", kind: "process", label: "PROCESS", title: "Dashboard service", detail: "Independent local dashboard HTTP service process.", side: "backend", members: ["dashboard"], x: 285, y: 870, width: 230, height: 185 },
@@ -130,6 +130,11 @@ export function edgePath(source: NodeID, target: NodeID): string {
     // enter the gateway from above, clear of the plugin data link.
     return `M${a.x + nodeWidth},${ay} H840 V${b.y}`
   }
+  if (source === "dashboard" && target === "gateway") {
+    // Read-only diagnostics use the gateway API, independently of supervisor
+    // controls. Reach it without implying a hop through networking or OpenCode.
+    return `M${ax + 32},${a.y} V805 H1026 V540 H${bx} V${b.y + nodeHeight}`
+  }
   if (source === "openchamber" && target === "gate") {
     // OpenChamber climbs into the gate from below-left, forming the second
     // diagonal of the attach fan.
@@ -179,15 +184,15 @@ export function responsePath(source: NodeID, target: NodeID): string {
   }
   if (source === "vscode" && target === "gate") {
     // Return beside the attach diagonal, entering Varro from its right edge.
-    return `M${b.x + nodeWidth},${b.y + nodeHeight / 2 + lane} L${a.x},${a.y + nodeHeight / 2 + lane}`
+    return `M${a.x},${a.y + nodeHeight / 2 + lane} L${b.x + nodeWidth},${b.y + nodeHeight / 2 + lane}`
   }
   if (source === "desktop" && target === "opencode") {
     // Return beside the direct-to-server diagonal, clear of OpenChamber above.
-    return `M${b.x + nodeWidth / 2 + lane},${b.y} L${a.x + 45 + lane},${a.y + nodeHeight}`
+    return `M${a.x + 45 + lane},${a.y + nodeHeight} L${b.x + nodeWidth / 2 + lane},${b.y}`
   }
   if (source === "openchamber" && target === "gate") {
-    // Return beside the attach diagonal, entering the gate's lower edge.
-    return `M${b.x + nodeWidth / 2 + lane},${b.y} L${a.x + lane},${a.y + nodeHeight}`
+    // Return from the gate's lower edge to the attached frontend.
+    return `M${a.x + lane},${a.y + nodeHeight} L${b.x + nodeWidth / 2 + lane},${b.y}`
   }
   if (a.y === b.y) return a.x < b.x
     ? `M${a.x + nodeWidth},${ay} H${b.x}`

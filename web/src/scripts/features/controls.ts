@@ -1,6 +1,6 @@
 import { connectionState, recoveryStatus, sendControl, shutdownInProgress, shutdownStatus, supportsRemote, type SystemStatus } from "../../lib/system.js"
 import { iconMarkup, remoteHostIcon } from "../../lib/icons.js"
-import { edgeChannel, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
+import { edgeChannel, edgeDescription, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
 import { edgePath, responsePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
 import { escapeHtml as escape } from "../../lib/html.js"
 import { dataValue } from "../../lib/presentation.js"
@@ -102,7 +102,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     const connections = requiredById(root, "node-connections")
     const related = system?.topology?.edges.filter((edge) => edge.source === inspected || edge.target === inspected) ?? []
     const componentLabel = (id: string) => system?.topology?.nodes.find((item) => item.id === id)?.label ?? readableLabel(id)
-    connections.innerHTML = related.length ? `<h4>Connections</h4><ul class="connection-list">${related.map((edge) => `<li class="connection-card"><div class="connection-heading"><strong>${escape(componentLabel(edge.source))} → ${escape(componentLabel(edge.target))}</strong><span class="status-pill ${stale ? "neutral" : statusTone(edge.state)}">${stale ? "Stale" : escape(readableLabel(edge.state))}</span></div><p>${edgeChannel(edge) === "request" ? "Model request flow" : "Checks / recovery / management"}</p><p class="connection-protocol">${escape(edge.protocol)}</p></li>`).join("")}</ul>` : ""
+    connections.innerHTML = related.length ? `<h4>Connections</h4><ul class="connection-list">${related.map((edge) => `<li class="connection-card"><div class="connection-heading"><strong>${escape(componentLabel(edge.source))} → ${escape(componentLabel(edge.target))}</strong><span class="status-pill ${stale ? "neutral" : statusTone(edge.state)}">${stale ? "Stale" : escape(readableLabel(edge.state))}</span></div><p>${edgeDescription(edge)}</p><p class="connection-protocol">${escape(edge.protocol)}</p></li>`).join("")}</ul>` : ""
   }
 
   function render() {
@@ -199,8 +199,9 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       for (const edge of topology?.edges ?? []) {
         const related = selected !== null && [edge.source, edge.target].includes(selected)
         const channel = edgeChannel(edge)
-        // Storage is a side effect of request handling, not a response hop back to Desktop.
-        const channels = channel === "request" && edge.id !== "relay_storage" ? [channel, "response"] : [channel]
+        // Only model forwarding links get return lanes. Storage ownership and
+        // read-only dashboard diagnostics are not additional response hops.
+        const channels = channel === "request" ? [channel, "response"] : [channel]
         for (const lane of channels) {
           if (hiddenChannels.has(lane)) continue
           const path = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path")
@@ -209,7 +210,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
           path.setAttribute("class", `map-edge ${lane} ${edge.relation}${related ? " selected" : ""}`)
           path.setAttribute("marker-end", "url(#map-arrow)")
           const title = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title")
-          title.textContent = lane === "response" ? `Response / stream · ${edge.target} → ${edge.source}: ${edge.protocol}` : `${channel === "request" ? "Model request flow" : "Checks / recovery / management"} · ${edge.source} → ${edge.target}: ${edge.protocol}`
+          title.textContent = lane === "response" ? `Response / stream · ${edge.target} → ${edge.source}: ${edge.protocol}` : `${edgeDescription(edge)} · ${edge.source} → ${edge.target}: ${edge.protocol}`
           path.append(title)
           edges.append(path)
         }
@@ -311,7 +312,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     const shown = !hiddenChannels.has(channel)
     toggle.setAttribute("aria-pressed", String(shown))
     toggle.querySelector(".legend-toggle-state")!.textContent = shown ? "Shown" : "Hidden"
-    toggle.title = `${shown ? "Hide" : "Show"} ${channel === "request" ? "model request" : channel === "response" ? "model response" : "checks, recovery and management"} arrows`
+    toggle.title = `${shown ? "Hide" : "Show"} ${channel === "request" ? "model request" : channel === "response" ? "model response" : "checks, recovery, management, storage ownership and read-only diagnostic"} arrows`
   }
   for (const toggle of channelToggles) {
     renderChannelToggle(toggle)

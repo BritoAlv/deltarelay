@@ -11,8 +11,8 @@ import { dateInputValue, presetRange, trafficData } from "../src/lib/traffic.js"
 import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import type { SetupStatus } from "../src/lib/setup.js"
-import { isTopology, type RecoveryRun } from "../src/lib/topology.js"
-import { mapLayerSegments, mapNodes, nodeHeight, nodeWidth } from "../src/lib/topology-layout.js"
+import { edgeChannel, isTopology, type RecoveryRun } from "../src/lib/topology.js"
+import { mapLayerSegments, mapNodes, nodeHeight, nodeWidth, responsePath } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
 import { readPreferences } from "../src/lib/preferences.js"
 
@@ -567,13 +567,17 @@ test("architecture retains its complete legend and highlights management arrows 
   for (const text of ["Frontend process", "Backend process", "Host / location / resource"]) assert.ok(view.querySelector(".map-boundary-key")!.textContent!.includes(text), text)
   assert.doesNotMatch(legend, /Verified|Working|Not ready|Unknown \/ stopped/)
   assert.equal(view.querySelector("#map-management"), null)
-   assert.equal(view.querySelectorAll('.legend-toggle[aria-pressed="true"]').length, 3)
-   assert.equal(view.querySelectorAll(".map-edge:not(.response)").length, status.topology!.edges.length, "all connections start visible")
-   assert.equal(view.querySelectorAll(".map-edge.response").length, 9)
-   assert.equal(view.querySelectorAll(".map-layer-separation line").length, mapLayerSegments.length)
-   assert.equal(view.querySelector('[data-edge-id="relay_storage_response"]'), null, "storage is not a return hop")
-   assert.match(view.querySelector('[data-edge-id="relay_provider_response"] title')?.textContent ?? "", /provider → relay/)
-   assert.notEqual(view.querySelector('[data-edge-id="relay_provider_response"]')?.getAttribute("d"), view.querySelector('[data-edge-id="relay_provider"]')?.getAttribute("d"))
+  assert.equal(view.querySelectorAll('.legend-toggle[aria-pressed="true"]').length, 3)
+  assert.equal(view.querySelectorAll(".map-edge:not(.response)").length, status.topology!.edges.length, "all connections start visible")
+  assert.equal(view.querySelectorAll(".map-edge.response").length, 9)
+  assert.equal(view.querySelectorAll(".map-layer-separation line").length, mapLayerSegments.length)
+  assert.equal(view.querySelector('[data-edge-id="relay_storage_response"]'), null, "storage is not a return hop")
+  for (const edge of status.topology!.edges.filter((edge) => edgeChannel(edge) === "request")) {
+    const response = view.querySelector(`[data-edge-id="${edge.id}_response"]`)!
+    assert.equal(response.getAttribute("d"), responsePath(edge.source, edge.target), `${edge.id}: render the return route`)
+    assert.equal(response.getAttribute("marker-end"), "url(#map-arrow)", `${edge.id}: arrowhead is at the return endpoint`)
+    assert.ok(response.querySelector("title")!.textContent!.includes(`${edge.target} → ${edge.source}`))
+  }
   assert.equal(view.querySelector("[data-node-status], [data-tone], .map-node-spinner"), null, "architecture is structural, not a second operational status view")
   const node = doc.querySelector<HTMLButtonElement>('[data-node-id="supervisor"]')!
   const camera = view.querySelector<HTMLElement>(".topology-canvas")!
@@ -2582,15 +2586,23 @@ test("architecture roles stay independent of live health, which remains availabl
   assert.ok(edge("gate_opencode")?.classList.contains("request"))
   assert.ok(edge("desktop_opencode")?.classList.contains("request"))
   assert.ok(edge("opencode_plugin")?.classList.contains("request"))
-  assert.ok(edge("relay_storage")?.classList.contains("request"))
+  assert.ok(edge("relay_storage")?.classList.contains("control"), "storage ownership is not model request flow")
   assert.ok(edge("relay_provider")?.classList.contains("request"))
   assert.ok(edge("gate_gateway")?.classList.contains("control"))
   assert.ok(edge("supervisor_gate")?.classList.contains("control"))
-  assert.ok(edge("network_tunnel")?.classList.contains("control"))
+  assert.ok(edge("tunnel_network")?.classList.contains("control"))
   assert.ok(edge("remote_relay")?.classList.contains("control"))
   assert.ok(edge("dashboard_ui_dashboard")?.classList.contains("control"), "dashboard traffic is not model traffic")
   assert.ok(edge("dashboard_supervisor"), "management connections are visible by default")
   assert.ok(edge("dashboard_supervisor")?.classList.contains("control"))
+  for (const id of ["dashboard_gateway", "dashboard_opencode"]) {
+    assert.ok(edge(id)?.classList.contains("control"), `${id}: diagnostics are not model requests`)
+    assert.match(edge(id)?.querySelector("title")?.textContent ?? "", /Read-only diagnostics/)
+    assert.equal(edge(`${id}_response`), null, "diagnostic results are not model response lanes")
+  }
+  assert.match(edge("dashboard_opencode")?.querySelector("title")?.textContent ?? "", /Optional read-only/)
+  assert.match(edge("relay_storage")?.querySelector("title")?.textContent ?? "", /Storage ownership \/ read-write access.*request cache.*response mailbox/)
+  assert.match(edge("tunnel_network")?.querySelector("title")?.textContent ?? "", /Dependency \/ readiness check · tunnel → network/)
   assert.ok(edge("supervisor_gateway")?.classList.contains("control"))
   assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /Model request flow/)
   assert.doesNotMatch(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /unknown|ready|blocked/)

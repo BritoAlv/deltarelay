@@ -28,6 +28,9 @@ NODES = (
 )
 NODE_IDS = frozenset(row[0] for row in NODES)
 EDGES = (
+    # Traffic points from caller to service, requires from dependent to
+    # prerequisite, contains from owner to resource, manages from controller
+    # to controlled resource. A contains edge is not an extra forwarding hop.
     ('vscode', 'gate', 'traffic', 'Attach-only local HTTP'),
     ('openchamber', 'gate', 'traffic', 'Attach-only local HTTP'),
     ('gate', 'opencode', 'traffic', 'Authenticated local HTTP'),
@@ -37,11 +40,13 @@ EDGES = (
     ('plugin', 'gateway', 'traffic', 'Authenticated local HTTP'),
     ('gateway', 'tunnel', 'traffic', 'Relay protocol'),
     ('tunnel', 'relay', 'traffic', 'Authenticated relay'),
-    ('network', 'tunnel', 'requires', 'Usable route'),
+    ('tunnel', 'network', 'requires', 'Usable route'),
     ('remote', 'relay', 'contains', 'Host must be running'),
-    ('relay', 'storage', 'contains', 'Durable relay data'),
+    ('relay', 'storage', 'contains', 'Owned request cache / response mailbox (read / write)'),
     ('relay', 'provider', 'traffic', 'Allowlisted HTTPS'),
     ('dashboard_ui', 'dashboard', 'traffic', 'Same-origin controls'),
+    ('dashboard', 'gateway', 'traffic', 'Read-only statistics / request inspection'),
+    ('dashboard', 'opencode', 'traffic', 'Optional read-only session / auth metadata'),
     ('dashboard', 'supervisor', 'manages', 'Private control socket'),
     ('supervisor', 'gate', 'manages', 'Configured lifecycle'),
     ('supervisor', 'openchamber', 'manages', 'Configured lifecycle'),
@@ -187,7 +192,8 @@ def snapshot(state):
             if name == 'plugin' and not observation:
                 detail = 'Requires an explicit OpenCode location for read-only runtime verification. Configuration alone is not proof.'
             elif name == 'storage' and not observation:
-                detail = 'Relay-owned cache and durable response mailbox; no independent storage probe or reset action.'
+                detail = ('Relay-owned request cache and response mailbox, read and written by the relay. '
+                          'Response bytes are persisted before resumable delivery. No independent storage probe or reset action.')
             elif name == 'provider':
                 detail = 'External service. Recovery never makes a test model request or changes sign-in.'
         elif name == 'remote_provider':
@@ -277,7 +283,7 @@ def snapshot(state):
         elif relation == 'contains':
             status = by_id[target]['readiness']
         elif relation == 'requires':
-            status = by_id[source]['readiness']
+            status = by_id[target]['readiness']
         elif relation == 'manages':
             status = 'ready' if by_id[target]['managed'] else 'unknown'
         edges.append({'id': source + '_' + target, 'source': source, 'target': target,

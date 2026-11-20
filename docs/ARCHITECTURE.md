@@ -125,6 +125,13 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   is a bounded read-only aggregate of the supervisor's local state timeline, not
   a file proxy. Controls remain disabled when the supervisor is absent, stale,
   unmanaged, or does not support the action.
+- The architecture map separates caller → service model requests and returning
+  responses from control/ownership connections. Dependency arrows point toward
+  the prerequisite, including transport → network. Relay-owned storage is
+  read/write access to the request cache and response mailbox, not an extra
+  forwarding service. Dashboard → gateway diagnostics and optional dashboard →
+  OpenCode session/auth metadata do not make supervisor controls depend on those
+  services.
 - OpenChamber and Varro/VS Code attach through the supervised loopback gate to
   the **same** shared OpenCode service Desktop/TUI use. The gate's `/livez`
   endpoint is a local token check only. Forwarded requests are gated on the

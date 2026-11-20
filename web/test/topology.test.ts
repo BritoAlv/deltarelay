@@ -1,8 +1,30 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { edgeChannel, isTopology, nodePresentation, observationStale, type TopologyEdge } from "../src/lib/topology.js"
+import { edgeChannel, edgeDescription, isTopology, nodePresentation, observationStale, type NodeID, type TopologyEdge } from "../src/lib/topology.js"
 import { edgePath, mapBoundaries, mapHeight, mapLayerSegments, mapNodes, mapRegions, mapWidth, nodeHeight, nodeWidth, responsePath, transportBoundary } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
+
+type Point = { x: number; y: number }
+
+function pathPoints(path: string): Point[] {
+  let point: Point = { x: 0, y: 0 }
+  const points: Point[] = []
+  for (const [, type, first, second] of path.matchAll(/([MHVL])(-?[\d.]+)(?:,(-?[\d.]+))?/g)) {
+    point = {
+      x: type === "V" ? point.x : Number(first),
+      y: type === "H" ? point.y : Number(type === "M" || type === "L" ? second : first),
+    }
+    points.push(point)
+  }
+  assert.ok(points.length >= 2, `an arrow has a start and an end: ${path}`)
+  return points
+}
+
+function onNodeBorder(point: Point, id: NodeID): boolean {
+  const node = mapNodes.find((node) => node.id === id)!
+  return point.x >= node.x && point.x <= node.x + nodeWidth && point.y >= node.y && point.y <= node.y + nodeHeight
+    && (point.x === node.x || point.x === node.x + nodeWidth || point.y === node.y || point.y === node.y + nodeHeight)
+}
 
 test("shared topology validates bounded nodes, edges, ownership and action contracts", () => {
   const value = readContract("topology-v1.json")
@@ -36,15 +58,51 @@ test("request-handling arrows are separate from checks and management, regardles
   assert.ok(isTopology(value))
   assert.deepEqual(value.edges.filter((edge) => edgeChannel(edge) === "request").map((edge) => edge.id), [
     "vscode_gate", "openchamber_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
-    "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_storage", "relay_provider",
+    "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_provider",
   ])
-  for (const id of ["gate_gateway", "supervisor_gate", "supervisor_openchamber", "dashboard_ui_dashboard", "network_tunnel", "remote_relay", "dashboard_supervisor", "remote_provider_relay"]) {
+  for (const id of ["gate_gateway", "supervisor_gate", "supervisor_openchamber", "dashboard_ui_dashboard", "tunnel_network", "remote_relay", "relay_storage", "dashboard_gateway", "dashboard_opencode", "dashboard_supervisor", "remote_provider_relay"]) {
     const edge: TopologyEdge = value.edges.find((item) => item.id === id)!
     assert.equal(edgeChannel(edge), "control", id)
     assert.equal(edgeChannel({ ...edge, state: "blocked" }), "control", `${id} when blocked`)
   }
   const relay = value.edges.find((edge) => edge.id === "tunnel_relay")!
   assert.equal(edgeChannel({ ...relay, state: "not_ready" }), "request")
+})
+
+test("storage ownership and read-only diagnostics do not imply additional model forwarding hops", () => {
+  const value = readContract("topology-v1.json")
+  assert.ok(isTopology(value))
+  const storage = value.edges.find((edge) => edge.id === "relay_storage")!
+  assert.equal(storage.relation, "contains")
+  assert.equal(value.nodes.find((node) => node.id === storage.target)!.owner, storage.source)
+  assert.equal(edgeDescription(storage), "Storage ownership / read-write access")
+  assert.match(storage.protocol, /request cache.*response mailbox.*read \/ write/)
+  for (const id of ["dashboard_gateway", "dashboard_opencode"]) {
+    const edge: TopologyEdge = value.edges.find((item) => item.id === id)!
+    assert.equal(edge.source, "dashboard")
+    assert.equal(edge.relation, "traffic")
+    assert.equal(edgeChannel(edge), "control")
+    assert.equal(edgeDescription(edge), "Read-only diagnostics")
+  }
+  assert.match(value.edges.find((edge) => edge.id === "dashboard_opencode")!.protocol, /Optional read-only/)
+  assert.deepEqual(value.edges.filter((edge) => edge.relation === "requires").map((edge) => [edge.source, edge.target]), [
+    ["gate", "gateway"], ["tunnel", "network"],
+  ], "dependency arrows point from dependent to prerequisite")
+})
+
+test("every outgoing arrow reaches its target and every model response returns to its caller", () => {
+  const value = readContract("topology-v1.json")
+  assert.ok(isTopology(value))
+  for (const edge of value.edges) {
+    const points = pathPoints(edgePath(edge.source, edge.target))
+    assert.ok(onNodeBorder(points[0]!, edge.source), `${edge.id}: starts at source`)
+    assert.ok(onNodeBorder(points.at(-1)!, edge.target), `${edge.id}: arrowhead reaches target`)
+    if (edgeChannel(edge) === "request") {
+      const response = pathPoints(responsePath(edge.source, edge.target))
+      assert.ok(onNodeBorder(response[0]!, edge.target), `${edge.id}: response starts at service`)
+      assert.ok(onNodeBorder(response.at(-1)!, edge.source), `${edge.id}: response arrowhead returns to caller`)
+    }
+  }
 })
 
 test("every process boundary encloses exactly its runtime and owned components, with room for its heading", () => {
@@ -174,15 +232,14 @@ test("reflowed map keeps every node, region and routed lane inside its bounds wi
   assert.equal(edgePath("supervisor", "desktop"), `M${555 + nodeWidth},${930 + nodeHeight / 2} H1048 V560 H150 V645`)
   assert.equal(edgePath("openchamber", "gate"), `M${55 + nodeWidth / 2},390 L305,${190 + nodeHeight}`)
   assert.equal(edgePath("desktop", "opencode"), `M${55 + nodeWidth / 2},645 L${305 + 45},${390 + nodeHeight}`)
-  assert.equal(responsePath("vscode", "gate"), `M${55 + nodeWidth},${130 + nodeHeight / 2 + 16} L305,${190 + nodeHeight / 2 + 16}`)
-  assert.equal(responsePath("openchamber", "gate"), `M${55 + nodeWidth / 2 + 16},390 L${305 + 16},${190 + nodeHeight}`)
-  assert.equal(responsePath("desktop", "opencode"), `M${55 + nodeWidth / 2 + 16},645 L${305 + 45 + 16},${390 + nodeHeight}`)
+  assert.equal(responsePath("vscode", "gate"), `M305,${190 + nodeHeight / 2 + 16} L${55 + nodeWidth},${130 + nodeHeight / 2 + 16}`)
+  assert.equal(responsePath("openchamber", "gate"), `M${305 + 16},${190 + nodeHeight} L${55 + nodeWidth / 2 + 16},390`)
+  assert.equal(responsePath("desktop", "opencode"), `M${305 + 45 + 16},${390 + nodeHeight} L${55 + nodeWidth / 2 + 16},645`)
 })
 
 test("map arrows never cross unrelated component cards or process boundaries", () => {
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
-  type Point = { x: number; y: number }
   // Liang–Barsky segment/AABB clip; touching an edge counts as crossing, while
   // source and target boundaries are filtered out below.
   const crosses = (a: Point, b: Point, rect: { x: number; y: number; width: number; height: number }) => {
@@ -207,11 +264,12 @@ test("map arrows never cross unrelated component cards or process boundaries", (
     return true
   }
   for (const edge of value.edges) {
-    let previous: Point = { x: 0, y: 0 }
-    for (const command of edgePath(edge.source, edge.target).matchAll(/([MHVL])([\d.]+)(?:,([\d.]+))?/g)) {
-      const type = command[1]
-      const point = { x: type === "V" ? previous.x : Number(command[2]), y: type === "H" ? previous.y : Number(type === "M" || type === "L" ? command[3] : command[2]) }
-      if (type !== "M") {
+    const paths = [edgePath(edge.source, edge.target)]
+    if (edgeChannel(edge) === "request") paths.push(responsePath(edge.source, edge.target))
+    for (const path of paths) {
+      const points = pathPoints(path)
+      for (let index = 1; index < points.length; index++) {
+        const previous = points[index - 1]!, point = points[index]!
         for (const node of mapNodes.filter((node) => node.id !== edge.source && node.id !== edge.target)) {
           assert.equal(crosses(previous, point, { ...node, width: nodeWidth, height: nodeHeight }), false, `${edge.id} crosses ${node.id}`)
         }
@@ -219,7 +277,6 @@ test("map arrows never cross unrelated component cards or process boundaries", (
           assert.equal(crosses(previous, point, boundary), false, `${edge.id} crosses ${boundary.id} boundary`)
         }
       }
-      previous = point
     }
   }
 })

@@ -1054,6 +1054,37 @@ class SupervisorTest(unittest.TestCase):
             self.wait_job(subject)
         stop.assert_called_once_with('gate')
 
+    def test_topology_dependency_points_to_the_network_prerequisite(self):
+        self.component('tunnel')
+        subject = self.supervisor()
+        subject.state.observe('tunnel', control.Observation('running', 'unknown', ''))
+        for internet, readiness in (('connected', 'ready'), ('unreachable', 'not_ready'), ('unknown', 'unknown')):
+            with self.subTest(internet=internet):
+                subject.state.internet_state = internet
+                edges = {edge['id']: edge for edge in subject.snapshot()['topology']['edges']}
+                self.assertNotIn('network_tunnel', edges)
+                self.assertEqual(edges['tunnel_network'], {
+                    'id': 'tunnel_network', 'source': 'tunnel', 'target': 'network',
+                    'relation': 'requires', 'protocol': 'Usable route', 'state': readiness,
+                })
+
+    def test_topology_diagnostics_do_not_infer_readiness_from_running_services(self):
+        subject = self.supervisor()
+        for name in ('dashboard', 'gateway', 'opencode'):
+            subject.state.observe(name, control.Observation('running', 'ready', ''))
+        edges = {edge['id']: edge for edge in subject.snapshot()['topology']['edges']}
+        for target in ('gateway', 'opencode'):
+            with self.subTest(target=target):
+                edge = edges['dashboard_' + target]
+                self.assertEqual((edge['source'], edge['target'], edge['relation'], edge['state']),
+                                 ('dashboard', target, 'traffic', 'unknown'))
+                self.assertIn('read-only', edge['protocol'].lower())
+        self.assertIn('Optional', edges['dashboard_opencode']['protocol'])
+        storage = edges['relay_storage']
+        self.assertEqual((storage['source'], storage['target'], storage['relation']),
+                         ('relay', 'storage', 'contains'))
+        self.assertIn('response mailbox (read / write)', storage['protocol'])
+
     def test_gate_topology_separates_listener_from_backend_readiness(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'
         self.config['opencode_directory'] = str(self.root / 'workspace')
