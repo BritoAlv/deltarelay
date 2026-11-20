@@ -126,15 +126,20 @@ with no automatic direct-provider fallback.
 ### Response storage and recovery on unstable connections
 
 ```text
-Local client <-- resumable transfers --> Remote relay <--> Model provider
-                                        stores response bytes
+Local client <-- fetch / resume by offset --> Remote relay <--> Model provider
+                                                  | ^
+                                          persist | | read
+                                                  v |
+                                            Response mailbox
+                                        (relay-owned remote files)
 ```
 
 The remote relay owns the provider connection, so a dropped PC-to-relay connection
-does not cancel generation. It writes received provider bytes to checksummed,
-durable storage before making them available to your client. The client fetches
-and verifies response segments as they arrive; after a connection loss, downloads
-resume from the last verified byte offset. Upload retries likewise send only
+does not cancel generation. It writes received provider bytes to a checksummed,
+durable **response mailbox**, separate from the request chunk cache, before making
+them available to your client. The client fetches and verifies response segments
+as they arrive; after a connection loss, downloads resume from the last verified
+byte offset. Upload retries likewise send only
 chunks still missing at the relay. Retrying the same logical request does not
 dispatch it to the provider again.
 
@@ -157,8 +162,9 @@ using GitHub Codespaces as the remote host. It is a read-only map of live
 supervisor topology: selecting a component highlights its connections, while
 lifecycle state and actions are on the **Controls** tab. The map distinguishes
 model-request/response flow from checks, recovery, and management. Request content
-and forwarding credentials still pass through the trusted relay. See
-[architecture](docs/ARCHITECTURE.md).
+and forwarding credentials still pass through the trusted relay. This capture
+predates the separate **Response mailbox** node and its saved-bytes return lane
+in the current map. See [architecture](docs/ARCHITECTURE.md).
 
 OpenChamber Desktop is an optional attach-only graphical frontend for the
 **same** shared OpenCode service: `OpenChamber → shared frontend gate → OpenCode

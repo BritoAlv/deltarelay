@@ -1,7 +1,8 @@
 import { connectionState, recoveryStatus, sendControl, shutdownInProgress, shutdownStatus, supportsRemote, type SystemStatus } from "../../lib/system.js"
 import { iconMarkup, remoteHostIcon } from "../../lib/icons.js"
-import { edgeChannel, edgeDescription, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
-import { edgePath, responsePath, mapBoundaries, transportBoundary } from "../../lib/topology-layout.js"
+import { edgeDescription, observationStale, type ComponentAction, type NodeID, type TopologyNode } from "../../lib/topology.js"
+import { architectureEdges, architectureLanes } from "../../lib/topology-flow.js"
+import { edgePath, responsePath, mapBoundaries, storageFlow, transportBoundary } from "../../lib/topology-layout.js"
 import { escapeHtml as escape } from "../../lib/html.js"
 import { dataValue } from "../../lib/presentation.js"
 import { controlComponents } from "../../lib/component-controls.js"
@@ -185,40 +186,51 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
       const node = topology?.nodes.find((item) => item.id === button.dataset.nodeId)
       button.setAttribute("aria-pressed", String(button.dataset.nodeId === selected))
       const label = button.querySelector<HTMLElement>("[data-node-label]")!
-      if (node && label.textContent !== node.label) label.textContent = node.label
+      // Keep the two file roles distinct even if an older supervisor still
+      // calls the cache "Cache / saved responses".
+      if (node && node.id !== "storage" && node.id !== "mailbox" && label.textContent !== node.label) label.textContent = node.label
       if (button.dataset.nodeId === "tunnel") {
         if (!node) label.textContent = transport.title
         button.querySelector(".map-node-role")!.textContent = transport.kind === "process" ? "Process" : transport.kind === "path" ? "Path" : "Transport"
       }
       button.setAttribute("aria-label", `${label.textContent} (${button.querySelector(".map-node-role")?.textContent}). Highlight connections.`)
     }
-    const nextEdges = JSON.stringify([topology?.edges.map(({ id, source, target, relation, protocol }) => ({ id, source, target, relation, protocol })), selected, [...hiddenChannels].sort()])
+    const mapEdges = architectureEdges(topology?.edges)
+    const nextEdges = JSON.stringify([mapEdges.map(({ id, source, target, relation, protocol }) => ({ id, source, target, relation, protocol })), selected, [...hiddenChannels].sort()])
     if (nextEdges !== edgeSignature) {
       edgeSignature = nextEdges
       edges.replaceChildren()
-      for (const edge of topology?.edges ?? []) {
+      for (const edge of mapEdges) {
         const related = selected !== null && [edge.source, edge.target].includes(selected)
-        const channel = edgeChannel(edge)
-        // Only model forwarding links get return lanes. Storage ownership and
-        // read-only dashboard diagnostics are not additional response hops.
-        const channels = channel === "request" ? [channel, "response"] : [channel]
-        for (const lane of channels) {
-          if (hiddenChannels.has(lane)) continue
+        for (const lane of architectureLanes(edge)) {
+          if (hiddenChannels.has(lane.channel)) continue
+          const storage = lane.label && (edge.target === "storage" || edge.target === "mailbox") ? storageFlow(edge.target, lane.reverse) : null
           const path = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "path")
-          path.setAttribute("d", lane === "response" ? responsePath(edge.source, edge.target) : edgePath(edge.source, edge.target))
-          path.setAttribute("data-edge-id", lane === "response" ? `${edge.id}_response` : edge.id)
-          path.setAttribute("class", `map-edge ${lane} ${edge.relation}${related ? " selected" : ""}`)
+          path.setAttribute("d", storage?.path ?? (lane.reverse ? responsePath(edge.source, edge.target) : edgePath(edge.source, edge.target)))
+          path.setAttribute("data-edge-id", lane.id)
+          path.setAttribute("class", `map-edge ${lane.channel} ${edge.relation}${storage ? " storage-flow" : ""}${related ? " selected" : ""}`)
           path.setAttribute("marker-end", "url(#map-arrow)")
+          if (storage) path.setAttribute("data-storage-direction", lane.reverse ? "read" : "write")
           const title = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title")
-          title.textContent = lane === "response" ? `Response / stream · ${edge.target} → ${edge.source}: ${edge.protocol}` : `${edgeDescription(edge)} · ${edge.source} → ${edge.target}: ${edge.protocol}`
+          title.textContent = lane.description
           path.append(title)
           edges.append(path)
+          if (storage) {
+            const label = root.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "text")
+            label.setAttribute("class", "map-storage-label")
+            label.setAttribute("x", String(storage.labelX))
+            label.setAttribute("y", String(storage.labelY))
+            label.setAttribute("text-anchor", "middle")
+            label.setAttribute("aria-hidden", "true")
+            label.textContent = lane.label!
+            edges.append(label)
+          }
         }
       }
     }
-    const selectedNode = topology?.nodes.find((node) => node.id === selected)
+    const selectedLabel = buttons.find((button) => button.dataset.nodeId === selected)?.querySelector("[data-node-label]")?.textContent
     requiredById(root, "map-selection").innerHTML = selected
-      ? `${escape(selectedNode?.label ?? readableLabel(selected))} · ${dataValue(`${edges.querySelectorAll(".selected").length} visible arrows highlighted`)}`
+      ? `${escape(selectedLabel ?? readableLabel(selected))} · ${dataValue(`${edges.querySelectorAll(".selected").length} visible arrows highlighted`)}`
       : "No component selected"
     if (inspected) renderInspector(topology?.nodes.find((node) => node.id === inspected))
     const text = message || (loading ? "" : stale ? "System status is stale. Lifecycle actions are disabled until fresh status is available." : !topology ? "The supervisor needs the topology update before map controls are available. No running services were changed." : "")
@@ -312,7 +324,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     const shown = !hiddenChannels.has(channel)
     toggle.setAttribute("aria-pressed", String(shown))
     toggle.querySelector(".legend-toggle-state")!.textContent = shown ? "Shown" : "Hidden"
-    toggle.title = `${shown ? "Hide" : "Show"} ${channel === "request" ? "model request" : channel === "response" ? "model response" : "checks, recovery, management, storage ownership and read-only diagnostic"} arrows`
+    toggle.title = `${shown ? "Hide" : "Show"} ${channel === "request" ? "model request and cache read/write" : channel === "response" ? "model response and mailbox read/write" : "checks, recovery, management and read-only diagnostic"} arrows`
   }
   for (const toggle of channelToggles) {
     renderChannelToggle(toggle)

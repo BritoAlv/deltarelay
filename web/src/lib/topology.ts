@@ -1,6 +1,6 @@
 import { nullableTimestamp, object, timestamp } from "./validation.js"
 
-export const nodeIDs = ["vscode", "desktop", "openchamber", "opencode", "plugin", "gate", "gateway", "tunnel", "network", "remote", "relay", "storage", "provider", "dashboard_ui", "dashboard", "supervisor", "remote_provider"] as const
+export const nodeIDs = ["vscode", "desktop", "openchamber", "opencode", "plugin", "gate", "gateway", "tunnel", "network", "remote", "relay", "storage", "mailbox", "provider", "dashboard_ui", "dashboard", "supervisor", "remote_provider"] as const
 export type NodeID = typeof nodeIDs[number]
 export type ComponentAction = "start" | "recover" | "restart" | "wake" | "stop" | "open"
 export type Readiness = "ready" | "not_ready" | "unknown" | "blocked"
@@ -46,6 +46,7 @@ export function edgeChannel(edge: TopologyEdge): "request" | "control" {
 export function edgeDescription(edge: TopologyEdge): string {
   if (edgeChannel(edge) === "request") return "Model request flow"
   if (edge.id === "relay_storage") return "Storage ownership / read-write access"
+  if (edge.id === "relay_mailbox") return "Response mailbox ownership / read-write access"
   if (edge.id === "dashboard_gateway" || edge.id === "dashboard_opencode") return "Read-only diagnostics"
   if (edge.relation === "requires") return "Dependency / readiness check"
   if (edge.relation === "contains") return "Ownership / containment"

@@ -81,7 +81,7 @@ type RecoveryStep struct {
 var topologyIDs = map[string]bool{
 	"vscode": true, "desktop": true, "openchamber": true, "opencode": true, "plugin": true,
 	"gate": true, "gateway": true, "tunnel": true, "network": true,
-	"remote": true, "relay": true, "storage": true, "provider": true,
+	"remote": true, "relay": true, "storage": true, "mailbox": true, "provider": true,
 	"dashboard_ui": true, "dashboard": true, "supervisor": true, "remote_provider": true,
 }
 var recoveryOperationID = regexp.MustCompile(`^[a-f0-9]{16}$`)

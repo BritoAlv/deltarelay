@@ -1083,7 +1083,34 @@ class SupervisorTest(unittest.TestCase):
         storage = edges['relay_storage']
         self.assertEqual((storage['source'], storage['target'], storage['relation']),
                          ('relay', 'storage', 'contains'))
-        self.assertIn('response mailbox (read / write)', storage['protocol'])
+        self.assertIn('request chunk cache (read / write)', storage['protocol'])
+
+    def test_topology_mailbox_is_relay_owned_durable_files_not_another_service(self):
+        subject = self.supervisor()
+        for relay_state in ('connected', 'unreachable'):
+            with self.subTest(relay_state=relay_state):
+                subject.state.record_relay(relay_state)
+                graph = subject.snapshot()['topology']
+                mailbox = next(node for node in graph['nodes'] if node['id'] == 'mailbox')
+                self.assertEqual((mailbox['label'], mailbox['kind'], mailbox['group'], mailbox['owner']),
+                                 ('Response mailbox', 'storage', 'remote', 'relay'))
+                self.assertFalse(mailbox['managed'])
+                self.assertEqual(mailbox['actions'], [])
+                self.assertEqual((mailbox['lifecycle'], mailbox['readiness'], mailbox['checked_at']),
+                                 ('unknown', 'unknown', None))
+                self.assertIn('persisted before delivery', mailbox['detail'])
+                self.assertIn('PC fetches through the relay by byte offset', mailbox['detail'])
+                self.assertIn('streaming alone does not delete payloads', mailbox['detail'])
+                self.assertIn('ACK or retention expiry', mailbox['detail'])
+                self.assertIn('tombstones remain', mailbox['detail'])
+                related = [edge for edge in graph['edges']
+                           if 'mailbox' in (edge['source'], edge['target'])]
+                self.assertEqual(related, [{
+                    'id': 'relay_mailbox', 'source': 'relay', 'target': 'mailbox',
+                    'relation': 'contains',
+                    'protocol': 'Persist checksummed frames; read by offset; release on ACK / expiry',
+                    'state': 'unknown',
+                }])
 
     def test_gate_topology_separates_listener_from_backend_readiness(self):
         self.config['gate_url'] = 'http://127.0.0.1:18889'

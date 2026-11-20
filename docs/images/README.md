@@ -14,7 +14,9 @@ the architecture capture was refreshed on November 18, 2026 (local time).
   health-gate fan. It shows live supervisor topology, but lifecycle status and
   actions live on the **Controls** tab. The map viewport was laid out to fit the
   complete map, then cropped to exclude the page header and unrelated controls.
-  No topology or connection state was edited.
+  No topology or connection state was edited. This archived capture predates the
+  separate **Response mailbox** node and its saved-bytes return lane; it shows
+  the former combined cache/saved-responses node.
 
 Only aggregate traffic and component labels are included—no prompts, session
 identifiers, host addresses, credentials, or account metadata. These are fixed

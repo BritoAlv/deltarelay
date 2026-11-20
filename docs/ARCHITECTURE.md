@@ -105,6 +105,20 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
 5. Cancellation is explicit. An offline client keeps a private outbox and
    retries only the cancellation command, never generation.
 
+The remote **Response mailbox** is separate from the request chunk cache, but
+both are files owned by the relay, not separate services. `server.jobService.run`
+writes provider bytes through `mailbox.Append`; `server.requestResponse` reads
+verified persisted frames through `mailbox.Read`. The local gateway's client
+fetches these bytes through the relay and transport, never directly from the
+mailbox. Provider work can continue while the PC is disconnected, within the
+configured runtime and storage limits.
+
+Streaming alone does not acknowledge or delete the saved response. Explicit ACK
+or retention expiry reclaims payloads; request tombstones and replay protection
+remain. The default retention is 24 hours after completion; the CLI's
+`--response-retention` can change it. Saved frames survive relay restarts, but
+unfinished provider work is marked interrupted, never automatically regenerated.
+
 ### Dashboard and supervision control
 
 - Browser diagnostics request same-origin `/api/dashboard`; the Go dashboard
@@ -127,11 +141,16 @@ contain secrets as documented in [DASHBOARD.md](DASHBOARD.md).
   unmanaged, or does not support the action.
 - The architecture map separates caller → service model requests and returning
   responses from control/ownership connections. Dependency arrows point toward
-  the prerequisite, including transport → network. Relay-owned storage is
-  read/write access to the request cache and response mailbox, not an extra
-  forwarding service. Dashboard → gateway diagnostics and optional dashboard →
-  OpenCode session/auth metadata do not make supervisor controls depend on those
-  services.
+  the prerequisite, including transport → network. The relay's owned files show
+  **Request chunk cache** and **Response mailbox** separately, with explicit
+  **Write** and **Read** arrows. Cache transfers use the request channel; mailbox
+  persistence and retrieval use the response channel, independently of management
+  visibility. These fixed file relationships remain drawn with older or missing
+  supervisor topology, without inventing readiness or lifecycle actions. They
+  represent persistence before resumable delivery, not extra forwarding services
+  or direct PC-to-files connections. Dashboard → gateway diagnostics and optional
+  dashboard → OpenCode session/auth metadata do not make supervisor controls
+  depend on those services.
 - OpenChamber and Varro/VS Code attach through the supervised loopback gate to
   the **same** shared OpenCode service Desktop/TUI use. The gate's `/livez`
   endpoint is a local token check only. Forwarded requests are gated on the

@@ -56,3 +56,37 @@ func TestTopologyContractAndPrivateFieldFiltering(t *testing.T) {
 		t.Fatal("private adapter fields reached browser")
 	}
 }
+
+func TestTopologyMailboxIsOwnedFilesAndRemainsOptionalInV1(t *testing.T) {
+	raw := contracts.Read(t, "topology-v1.json")
+	var topology TopologyStatus
+	if err := json.Unmarshal(raw, &topology); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	nodes := make([]TopologyNode, 0, len(topology.Nodes))
+	for _, node := range topology.Nodes {
+		if node.ID == "mailbox" {
+			found = true
+			if node.Kind != "storage" || node.Group != "remote" || node.Owner != "relay" || node.Managed || len(node.Actions) != 0 {
+				t.Fatalf("mailbox is not relay-owned files: %+v", node)
+			}
+		} else {
+			nodes = append(nodes, node)
+		}
+	}
+	if !found {
+		t.Fatal("response mailbox is missing from the shared topology")
+	}
+	edges := make([]TopologyEdge, 0, len(topology.Edges))
+	for _, edge := range topology.Edges {
+		if edge.Source != "mailbox" && edge.Target != "mailbox" {
+			edges = append(edges, edge)
+		}
+	}
+	topology.Nodes, topology.Edges = nodes, edges
+	legacy, err := json.Marshal(topology)
+	if err != nil || !validTopology(&topology, legacy) {
+		t.Fatalf("older topology v1 without mailbox rejected: %v", err)
+	}
+}

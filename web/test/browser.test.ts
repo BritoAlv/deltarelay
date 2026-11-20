@@ -12,6 +12,7 @@ import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import type { SetupStatus } from "../src/lib/setup.js"
 import { edgeChannel, isTopology, type RecoveryRun } from "../src/lib/topology.js"
+import { architectureLanes } from "../src/lib/topology-flow.js"
 import { mapLayerSegments, mapNodes, nodeHeight, nodeWidth, responsePath } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
 import { readPreferences } from "../src/lib/preferences.js"
@@ -568,8 +569,9 @@ test("architecture retains its complete legend and highlights management arrows 
   assert.doesNotMatch(legend, /Verified|Working|Not ready|Unknown \/ stopped/)
   assert.equal(view.querySelector("#map-management"), null)
   assert.equal(view.querySelectorAll('.legend-toggle[aria-pressed="true"]').length, 3)
-  assert.equal(view.querySelectorAll(".map-edge:not(.response)").length, status.topology!.edges.length, "all connections start visible")
-  assert.equal(view.querySelectorAll(".map-edge.response").length, 9)
+  assert.equal(view.querySelectorAll(".map-edge").length, status.topology!.edges.flatMap(architectureLanes).length, "all connection lanes start visible")
+  assert.equal(view.querySelectorAll(".map-edge.response").length, 11)
+  assert.equal(view.querySelectorAll(".map-edge.request").length, 11)
   assert.equal(view.querySelectorAll(".map-layer-separation line").length, mapLayerSegments.length)
   assert.equal(view.querySelector('[data-edge-id="relay_storage_response"]'), null, "storage is not a return hop")
   for (const edge of status.topology!.edges.filter((edge) => edgeChannel(edge) === "request")) {
@@ -626,6 +628,99 @@ test("map background clicks clear selection without fading other components", as
   assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
   app.destroy()
   await page.close()
+})
+
+test("architecture shows the response mailbox as relay-owned files with independently filterable fetch bytes", async () => {
+  const page = openPage("controls")
+  page.setFetch(() => json(systemStatus()))
+  const doc = page.document
+  const app = startSystemStatus(doc, { autoStart: false })
+  try {
+    await app.refresh()
+    doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
+    const mailbox = doc.querySelector<HTMLButtonElement>('[data-node-id="mailbox"]')!
+    assert.match(mailbox.getAttribute("aria-label")!, /Response mailbox \(Durable files\).*Highlight connections/)
+    assert.equal(mailbox.querySelector(".map-node-note")?.textContent, "Saved until ACK / expiry")
+    assert.equal(doc.querySelector('[data-component-id="mailbox"]'), null, "durable files have no lifecycle controls")
+    const description = doc.getElementById(mailbox.getAttribute("aria-describedby")!)!.textContent!
+    assert.match(description, /persisted before delivery.*through the relay by byte offset.*Streaming alone does not delete payloads/)
+    const edge = (id: string) => doc.querySelector(`[data-edge-id="${id}"]`)
+    assert.ok(edge("relay_mailbox")?.classList.contains("response"))
+    const read = edge("relay_mailbox_response")!
+    assert.ok(read.classList.contains("response"))
+    assert.equal(read.getAttribute("d"), responsePath("relay", "mailbox"))
+    assert.equal(read.getAttribute("marker-end"), "url(#map-arrow)")
+    assert.match(read.querySelector("title")!.textContent!, /Saved response bytes · mailbox → relay.*fetch \/ resume by byte offset/)
+    mailbox.click()
+    assert.equal(doc.querySelectorAll(".map-edge.selected").length, 2)
+    assert.match(doc.querySelector("#map-selection")!.textContent!, /Response mailbox.*2 visible arrows/)
+    doc.querySelector<HTMLButtonElement>('[data-map-channel="control"]')!.click()
+    assert.ok(edge("relay_mailbox")?.classList.contains("selected"), "writes remain visible when management is hidden")
+    assert.ok(edge("relay_mailbox_response")?.classList.contains("selected"), "reads remain visible when management is hidden")
+    doc.querySelector<HTMLButtonElement>('[data-map-channel="response"]')!.click()
+    assert.equal(edge("relay_mailbox"), null)
+    assert.equal(edge("relay_mailbox_response"), null)
+    assert.match(doc.querySelector("#map-selection")!.textContent!, /0 visible arrows/)
+    doc.querySelector<HTMLButtonElement>('[data-map-channel="control"]')!.click()
+    await app.refresh()
+    assert.equal(edge("relay_mailbox"), null, "ownership toggles do not override the hidden response channel")
+    assert.equal(edge("relay_mailbox_response"), null, "polling preserves the hidden response channel")
+    assert.equal(doc.querySelector<HTMLDialogElement>("#node-inspector")!.open, false)
+    assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+  } finally {
+    app.destroy()
+    await page.close()
+  }
+})
+
+test("both storage directions remain visible with older or missing supervisor topology and management hidden", async () => {
+  for (const scenario of ["legacy", "missing"] as const) {
+    const page = openPage("controls")
+    const status = systemStatus()
+    if (scenario === "legacy") {
+      status.topology!.nodes = status.topology!.nodes.filter((node) => node.id !== "mailbox")
+      status.topology!.nodes.find((node) => node.id === "storage")!.label = "Cache / saved responses"
+      status.topology!.edges = status.topology!.edges.filter((edge) => edge.id !== "relay_mailbox")
+      status.topology!.edges.find((edge) => edge.id === "relay_storage")!.protocol = "Durable relay data"
+    } else delete status.topology
+    page.setFetch(() => json(status))
+    const app = startSystemStatus(page.document, { autoStart: false })
+    const doc = page.document
+    try {
+      await app.refresh()
+      doc.querySelector<HTMLButtonElement>("#system-architecture-tab")!.click()
+      doc.querySelector<HTMLButtonElement>('[data-map-channel="control"]')!.click()
+      const flows = () => [...doc.querySelectorAll<SVGPathElement>(".map-edge.storage-flow")]
+      assert.deepEqual(flows().map((path) => [path.dataset.edgeId, path.dataset.storageDirection]), [
+        ["relay_storage", "write"], ["relay_storage_read", "read"],
+        ["relay_mailbox", "write"], ["relay_mailbox_response", "read"],
+      ], scenario)
+      assert.deepEqual([...doc.querySelectorAll(".map-storage-label")].map((label) => label.textContent), ["Write", "Read", "Write", "Read"])
+      for (const path of flows()) {
+        assert.equal(path.getAttribute("marker-end"), "url(#map-arrow)")
+        assert.ok(path.querySelector("title")!.textContent!.includes("→"))
+      }
+      for (const id of ["storage", "mailbox"] as const) {
+        doc.querySelector<HTMLButtonElement>(`[data-node-id="${id}"]`)!.click()
+        assert.equal(doc.querySelectorAll(".map-edge.selected").length, 2)
+        assert.match(doc.querySelector("#map-selection")!.textContent!, /2 visible arrows/)
+      }
+      assert.equal(doc.querySelector('[data-node-id="storage"] strong')!.textContent, "Request chunk cache", "legacy combined label cannot overwrite the separate roles")
+      assert.match(doc.querySelector("#map-selection")!.textContent!, /Response mailbox/)
+      await app.refresh()
+      assert.equal(flows().length, 4)
+      doc.querySelector<HTMLButtonElement>('[data-map-channel="request"]')!.click()
+      assert.equal(flows().length, 2, "cache writes and reads follow the request channel")
+      assert.ok(flows().every((path) => path.classList.contains("response")))
+      doc.querySelector<HTMLButtonElement>('[data-map-channel="response"]')!.click()
+      assert.equal(flows().length, 0, "intentional data-channel filters still work")
+      assert.equal(doc.querySelector("#system-architecture-view [data-node-status], #system-architecture-view [data-component-action]"), null)
+      assert.equal(page.fetchCalls.some((call) => call.init.method === "POST"), false)
+    } finally {
+      app.destroy()
+      await page.close()
+    }
+  }
 })
 
 test("legend arrow buttons independently hide connection groups and retain filters during polling and selection", async () => {
@@ -2413,6 +2508,7 @@ test("map prominently encloses every process, its modules and owned files, witho
   assert.equal(role("gate"), "Process")
   assert.equal(role("relay"), "Process")
   assert.equal(role("storage"), "Files")
+  assert.equal(role("mailbox"), "Durable files")
   assert.equal(role("provider"), "External API")
   assert.match(doc.querySelector(".map-boundary-key")?.textContent ?? "", /Frontend process.*Encloses an interface.*Backend process.*Encloses a local service.*Host \/ location \/ resource.*not a process/)
   const contains = (groupID: string, nodeID: string) => {
@@ -2421,7 +2517,7 @@ test("map prominently encloses every process, its modules and owned files, witho
     const x = Number(group.getAttribute("x")), y = Number(group.getAttribute("y"))
     return node.x >= x && node.y >= y && node.x + nodeWidth <= x + Number(group.getAttribute("width")) && node.y + nodeHeight <= y + Number(group.getAttribute("height"))
   }
-  for (const [id, members] of Object.entries({ vscode: ["vscode"], desktop: ["desktop"], openchamber: ["openchamber"], opencode: ["opencode", "plugin"], gateway: ["gateway"], gate: ["gate"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
+  for (const [id, members] of Object.entries({ vscode: ["vscode"], desktop: ["desktop"], openchamber: ["openchamber"], opencode: ["opencode", "plugin"], gateway: ["gateway"], gate: ["gate"], relay: ["relay", "storage", "mailbox"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"], supervisor: ["supervisor"], remote_provider: ["remote_provider"] })) {
     const outline = doc.querySelector(`[data-map-group="${id}"]`)!
     assert.equal(outline.getAttribute("data-boundary-kind"), "process", id)
     assert.ok(outline.classList.contains("map-process"), `${id}: prominent process outline`)
@@ -2439,12 +2535,14 @@ test("map prominently encloses every process, its modules and owned files, witho
   assert.equal(contains("opencode", "gateway"), false)
   assert.equal(contains("relay", "relay"), true)
   assert.equal(contains("relay", "storage"), true)
+  assert.equal(contains("relay", "mailbox"), true)
   assert.equal(contains("remote", "relay"), true)
   assert.equal(contains("remote", "storage"), true)
+  assert.equal(contains("remote", "mailbox"), true)
   assert.equal(contains("remote", "provider"), false)
   assert.equal(contains("provider", "provider"), true)
   assert.match(doc.querySelector("#map-boundary-opencode-description")?.textContent ?? "", /plugin is loaded inside.*not a separate process/)
-  assert.match(doc.querySelector("#map-boundary-relay-description")?.textContent ?? "", /persistent files.*survive process restarts/)
+  assert.match(doc.querySelector("#map-boundary-relay-description")?.textContent ?? "", /Files survive restarts.*neither store is a separate forwarding service/)
   assert.match(doc.querySelector("#map-boundary-remote_provider-description")?.textContent ?? "", /invoked on demand.*not a permanently running server/)
   assert.match(doc.querySelector(".map-boundary-note")?.textContent ?? "", /files survive restarts/)
   for (const node of mapNodes) {
@@ -2544,8 +2642,8 @@ test("controls show the component table separately from the read-only map and po
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.equal(doc.querySelectorAll("[data-node-id]").length, 17)
-  assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Cache \/ saved responses \(Files\).*Highlight connections/)
+  assert.equal(doc.querySelectorAll("[data-node-id]").length, 18)
+  assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Request chunk cache \(Files\).*Highlight connections/)
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
   assert.equal(doc.querySelector("#auth-countdown"), null)
@@ -2586,7 +2684,8 @@ test("architecture roles stay independent of live health, which remains availabl
   assert.ok(edge("gate_opencode")?.classList.contains("request"))
   assert.ok(edge("desktop_opencode")?.classList.contains("request"))
   assert.ok(edge("opencode_plugin")?.classList.contains("request"))
-  assert.ok(edge("relay_storage")?.classList.contains("control"), "storage ownership is not model request flow")
+  assert.ok(edge("relay_storage")?.classList.contains("request"), "cache writes carry request bytes, not management traffic")
+  assert.ok(edge("relay_storage_read")?.classList.contains("request"), "cache reads also carry request bytes, not provider responses")
   assert.ok(edge("relay_provider")?.classList.contains("request"))
   assert.ok(edge("gate_gateway")?.classList.contains("control"))
   assert.ok(edge("supervisor_gate")?.classList.contains("control"))
@@ -2601,7 +2700,10 @@ test("architecture roles stay independent of live health, which remains availabl
     assert.equal(edge(`${id}_response`), null, "diagnostic results are not model response lanes")
   }
   assert.match(edge("dashboard_opencode")?.querySelector("title")?.textContent ?? "", /Optional read-only/)
-  assert.match(edge("relay_storage")?.querySelector("title")?.textContent ?? "", /Storage ownership \/ read-write access.*request cache.*response mailbox/)
+  assert.match(edge("relay_storage")?.querySelector("title")?.textContent ?? "", /Request chunk cache write.*Store verified uploaded chunks/)
+  assert.match(edge("relay_storage_read")?.querySelector("title")?.textContent ?? "", /Request chunk cache read.*reconstruct the provider request body/)
+  assert.ok(edge("relay_mailbox")?.classList.contains("response"), "persisting provider bytes is response flow, not management")
+  assert.match(edge("relay_mailbox")?.querySelector("title")?.textContent ?? "", /Persisted response frames.*Write checksummed provider bytes before delivery.*ACK or expiry/)
   assert.match(edge("tunnel_network")?.querySelector("title")?.textContent ?? "", /Dependency \/ readiness check · tunnel → network/)
   assert.ok(edge("supervisor_gateway")?.classList.contains("control"))
   assert.match(edge("gateway_tunnel")?.querySelector("title")?.textContent ?? "", /Model request flow/)

@@ -58,9 +58,17 @@ infer a working connection merely because two processes are running.
   twelve rows cover the eight configured-component inventory entries plus the
   editor, remote host, supervisor and adapter context. On narrow screens it
   scrolls horizontally with component names pinned, rather than stacking each
-  item. The read-only map has 17 nodes and 24 edges and highlights connections
-  when you select a node. The current automatic recovery step is highlighted in
-  the Controls view.
+  item. The read-only map has 18 nodes and 27 connections and highlights arrows
+  when you select a node. On the remote host, the relay owns separate request
+  chunk-cache and durable response-mailbox files. Both have labeled **Write** and
+  **Read** arrows: cache transfers follow the request toggle, mailbox transfers
+  follow the response toggle, and hiding management does not hide either pair.
+  These fixed architecture paths remain visible with older or unavailable
+  supervisor topology, without claiming live storage health. The mailbox's read
+  lane returns data to the relay for the PC to fetch/resume by byte offset; the PC
+  never accesses the mailbox directly. Streaming alone does not delete saved
+  responses; explicit ACK or retention expiry does. The current automatic
+  recovery step is highlighted in the Controls view.
 - Global and per-session original bytes, encoded uploads, bandwidth saved, and
   upload reduction, including failed, cancelled, and legacy attempts, plus
   negative savings. Failures and cancellations are counted separately; a client

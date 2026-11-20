@@ -251,7 +251,7 @@
       },
       {
         "id": "storage",
-        "label": "Cache / saved responses",
+        "label": "Request chunk cache",
         "kind": "storage",
         "group": "remote",
         "owner": "relay",
@@ -261,7 +261,22 @@
         "readiness": "unknown",
         "activity": "idle",
         "checked_at": null,
-        "detail": "Relay-owned request cache and response mailbox, read and written by the relay. Response bytes are persisted before resumable delivery. No independent storage probe or reset action.",
+        "detail": "Relay-owned request chunk cache, used to reconstruct verified provider request bodies. Separate from saved response payloads. No independent storage probe or reset action.",
+        "actions": []
+      },
+      {
+        "id": "mailbox",
+        "label": "Response mailbox",
+        "kind": "storage",
+        "group": "remote",
+        "owner": "relay",
+        "managed": false,
+        "desired": "running",
+        "lifecycle": "unknown",
+        "readiness": "unknown",
+        "activity": "idle",
+        "checked_at": null,
+        "detail": "Relay-owned durable response files, not a separate service. Checksummed bytes are persisted before delivery and kept while the PC is disconnected. The PC fetches through the relay by byte offset; streaming alone does not delete payloads. Explicit ACK or retention expiry releases payloads; request tombstones remain. No independent storage probe or reset action.",
         "actions": []
       },
       {
@@ -434,7 +449,15 @@
         "source": "relay",
         "target": "storage",
         "relation": "contains",
-        "protocol": "Owned request cache / response mailbox (read / write)",
+        "protocol": "Owned request chunk cache (read / write)",
+        "state": "unknown"
+      },
+      {
+        "id": "relay_mailbox",
+        "source": "relay",
+        "target": "mailbox",
+        "relation": "contains",
+        "protocol": "Persist checksummed frames; read by offset; release on ACK / expiry",
         "state": "unknown"
       },
       {

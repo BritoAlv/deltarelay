@@ -19,7 +19,8 @@ NODES = (
     ('network', 'Internet / interfaces', 'network', 'network', 'external'),
     ('remote', 'Remote host', 'host', 'remote', 'remote_provider'),
     ('relay', 'DeltaRelay relay', 'relay', 'remote', 'remote_provider'),
-    ('storage', 'Cache / saved responses', 'storage', 'remote', 'relay'),
+    ('storage', 'Request chunk cache', 'storage', 'remote', 'relay'),
+    ('mailbox', 'Response mailbox', 'storage', 'remote', 'relay'),
     ('provider', 'Model provider', 'provider', 'external', 'external'),
     ('dashboard_ui', 'Dashboard browser', 'browser', 'control', 'user'),
     ('dashboard', 'Dashboard service', 'dashboard', 'control', 'supervisor'),
@@ -42,7 +43,8 @@ EDGES = (
     ('tunnel', 'relay', 'traffic', 'Authenticated relay'),
     ('tunnel', 'network', 'requires', 'Usable route'),
     ('remote', 'relay', 'contains', 'Host must be running'),
-    ('relay', 'storage', 'contains', 'Owned request cache / response mailbox (read / write)'),
+    ('relay', 'storage', 'contains', 'Owned request chunk cache (read / write)'),
+    ('relay', 'mailbox', 'contains', 'Persist checksummed frames; read by offset; release on ACK / expiry'),
     ('relay', 'provider', 'traffic', 'Allowlisted HTTPS'),
     ('dashboard_ui', 'dashboard', 'traffic', 'Same-origin controls'),
     ('dashboard', 'gateway', 'traffic', 'Read-only statistics / request inspection'),
@@ -187,13 +189,18 @@ def snapshot(state):
             detail = ('Opened on request from this dashboard. The supervisor never starts it automatically, restarts it, or observes it.'
                       if state.editor_open else
                       'Not opened by DeltaRelay. Set vscode.open_command to open it from this dashboard; the supervisor never starts it automatically, restarts it, or observes it.')
-        elif name in ('plugin', 'storage', 'provider'):
+        elif name in ('plugin', 'storage', 'mailbox', 'provider'):
             desired = 'external' if name == 'provider' else 'running'
             if name == 'plugin' and not observation:
                 detail = 'Requires an explicit OpenCode location for read-only runtime verification. Configuration alone is not proof.'
             elif name == 'storage' and not observation:
-                detail = ('Relay-owned request cache and response mailbox, read and written by the relay. '
-                          'Response bytes are persisted before resumable delivery. No independent storage probe or reset action.')
+                detail = ('Relay-owned request chunk cache, used to reconstruct verified provider request bodies. '
+                          'Separate from saved response payloads. No independent storage probe or reset action.')
+            elif name == 'mailbox' and not observation:
+                detail = ('Relay-owned durable response files, not a separate service. Checksummed bytes are persisted before delivery '
+                          'and kept while the PC is disconnected. The PC fetches through the relay by byte offset; streaming alone '
+                          'does not delete payloads. Explicit ACK or retention expiry releases payloads; request tombstones remain. '
+                          'No independent storage probe or reset action.')
             elif name == 'provider':
                 detail = 'External service. Recovery never makes a test model request or changes sign-in.'
         elif name == 'remote_provider':

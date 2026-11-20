@@ -184,9 +184,9 @@ two running processes are never presented as proof that their traffic path works
 
 Solid **PROCESS** boxes enclose each process and its components, in both the
 request and control paths. The loaded plugin belongs to the OpenCode server;
-cache and saved responses are relay-owned persistent files that survive process
-restarts. The remote-host adapter is an on-demand executable, not a permanent
-server. Dashed boundaries identify hosts, networking, direct HTTPS paths, and
+the request chunk cache and response mailbox are relay-owned files that survive
+process restarts. The remote-host adapter is an on-demand executable, not a
+permanent server. Dashed boundaries identify hosts, networking, direct HTTPS paths, and
 external services rather than processes. A configured tunnel gets a process
 boundary; direct HTTPS does not. The model provider stays outside the relay and
 remote-host boundaries. Model-request arrows point from caller to service;
@@ -194,12 +194,17 @@ response arrows return from service to caller. The other channel covers checks,
 recovery, management, ownership, and read-only diagnostics, independently of
 readiness or live request activity. Dependency arrows point from the dependent
 to its prerequisite: gate → gateway for complete model-path readiness, and
-transport → network for a usable route. The relay → storage link describes
-ownership and read/write access to the request cache and response mailbox, not
-another model forwarding hop. Response bytes are persisted before resumable
-delivery. Dashboard → gateway shows read-only statistics/request inspection;
-dashboard → OpenCode shows optional read-only session/auth metadata. These
-diagnostics can be unavailable while dashboard → supervisor controls remain usable.
+transport → network for a usable route. The relay boundary shows ownership of
+the cache and mailbox, not additional model forwarding services. Each store has
+separate **Write** and **Read** arrows: cache bytes use the request channel and
+mailbox bytes use the response channel, so hiding management leaves storage data
+paths visible. The fixed file relationships are drawn even with older or absent
+supervisor topology; they do not claim live readiness. The mailbox → relay read
+lane returns persisted bytes for the PC to fetch/resume through the relay by byte
+offset, never directly from the files. Streaming alone does not delete saved responses; explicit ACK or
+retention expiry does. Dashboard → gateway shows read-only statistics/request
+inspection; dashboard → OpenCode shows optional read-only session/auth metadata.
+These diagnostics can be unavailable while dashboard → supervisor controls remain usable.
 The dashboard's **Architecture** tab shows this map read-only; lifecycle state and
 actions are on the **Controls** tab.
 

@@ -2,11 +2,11 @@ import type { NodeID, TopologyNode } from "./topology.js"
 
 // Stable layout, no client-side graph engine or external assets. The SVG and
 // accessible HTML node buttons share the same coordinate system.
-export const mapWidth = 1330
+export const mapWidth = 1560
 export const mapHeight = 1320
 export const nodeWidth = 190
 export const nodeHeight = 110
-export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").IconName; role: string; x: number; y: number }[] = [
+export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").IconName; role: string; note?: string; x: number; y: number }[] = [
   { id: "vscode", label: "Varro in VS Code", icon: "vscode", role: "Editor", x: 55, y: 130 },
   { id: "openchamber", label: "OpenChamber", icon: "openchamber", role: "App", x: 55, y: 390 },
   { id: "desktop", label: "OpenCode Desktop", icon: "opencode", role: "App", x: 55, y: 645 },
@@ -16,10 +16,11 @@ export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").I
   { id: "gateway", label: "Local gateway", icon: "shield", role: "Process", x: 795, y: 390 },
   { id: "network", label: "Internet / interfaces", icon: "globe", role: "Network", x: 535, y: 645 },
   { id: "tunnel", label: "Connection transport", icon: "link", role: "Transport", x: 795, y: 645 },
-  { id: "remote", label: "Remote host", icon: "system", role: "Host", x: 1090, y: 95 },
-  { id: "relay", label: "DeltaRelay relay", icon: "relay", role: "Process", x: 1090, y: 390 },
-  { id: "storage", label: "Cache / saved responses", icon: "storage", role: "Files", x: 1090, y: 585 },
-  { id: "provider", label: "Model provider", icon: "bolt", role: "External API", x: 1075, y: 880 },
+  { id: "remote", label: "Remote host", icon: "system", role: "Host", x: 1205, y: 95 },
+  { id: "relay", label: "DeltaRelay relay", icon: "relay", role: "Process", x: 1205, y: 390 },
+  { id: "storage", label: "Request chunk cache", icon: "storage", role: "Files", x: 1090, y: 585 },
+  { id: "mailbox", label: "Response mailbox", icon: "mailbox", role: "Durable files", note: "Saved until ACK / expiry", x: 1320, y: 585 },
+  { id: "provider", label: "Model provider", icon: "bolt", role: "External API", x: 1205, y: 880 },
   { id: "dashboard_ui", label: "Dashboard browser", icon: "browser", role: "Browser tab", x: 55, y: 930 },
   { id: "dashboard", label: "Dashboard service", icon: "overview", role: "Process", x: 305, y: 930 },
   { id: "supervisor", label: "Recovery supervisor", icon: "activity", role: "Process", x: 555, y: 930 },
@@ -28,7 +29,7 @@ export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").I
 
 export const mapRegions = [
   { id: "local", label: "YOUR COMPUTER · MODEL REQUEST COMPONENTS", x: 15, y: 20, width: 1020, height: 770 },
-  { id: "remote", label: "HOST · REMOTE MACHINE", x: 1055, y: 20, width: 260, height: 770 },
+  { id: "remote", label: "HOST · REMOTE MACHINE", x: 1055, y: 20, width: 490, height: 770 },
   { id: "control", label: "YOUR COMPUTER · INDEPENDENT CONTROL PLANE", x: 15, y: 820, width: 770, height: 485 },
 ]
 
@@ -71,8 +72,8 @@ export const mapBoundaries: MapBoundary[] = [
   { id: "gate", kind: "process", label: "PROCESS", title: "Frontend health gate", detail: "Supervised loopback health gate. It never owns or restarts the shared OpenCode service.", side: "backend", members: ["gate"], x: 285, y: 130, width: 225, height: 185 },
   { id: "network", kind: "network", label: "NETWORK · NOT A PROCESS", title: "Internet / interfaces", detail: "Interfaces, routes and connectivity are prerequisites, not a relay process.", members: ["network"], x: 520, y: 585, width: 230, height: 185 },
   { id: "tunnel", ...transportBoundary(), side: "backend", members: ["tunnel"], x: 775, y: 585, width: 230, height: 185 },
-  { id: "relay", kind: "process", label: "PROCESS + OWNED FILES", title: "DeltaRelay relay", detail: "The relay reads and writes its request cache and response mailbox. Provider response bytes are persisted before resumable delivery. These persistent files survive process restarts and are not a separate forwarding hop.", note: "Owned files survive restarts", side: "backend", members: ["relay", "storage"], x: 1070, y: 310, width: 230, height: 410 },
-  { id: "provider", kind: "external", label: "EXTERNAL SERVICE", title: "Model provider API", detail: "External API, outside the relay process and remote host. Its internal processes are not observed.", members: ["provider"], x: 1050, y: 820, width: 230, height: 190 },
+  { id: "relay", kind: "process", label: "PROCESS + OWNED FILES", title: "DeltaRelay relay", detail: "The relay owns a request chunk cache and a separate durable response mailbox. Provider bytes are checksummed and persisted before delivery. The PC fetches saved responses through the relay by byte offset, including after reconnecting. Streaming alone does not delete payloads; explicit ACK or retention expiry does. Files survive restarts; neither store is a separate forwarding service.", note: "Owned files survive restarts", side: "backend", members: ["relay", "storage", "mailbox"], x: 1070, y: 310, width: 460, height: 410 },
+  { id: "provider", kind: "external", label: "EXTERNAL SERVICE", title: "Model provider API", detail: "External API, outside the relay process and remote host. Its internal processes are not observed.", members: ["provider"], x: 1185, y: 820, width: 230, height: 190 },
   { id: "dashboard_ui", kind: "process", label: "BROWSER PROCESS", title: "Dashboard browser", detail: "Dashboard page running in the browser, separate from the dashboard service.", side: "frontend", members: ["dashboard_ui"], x: 35, y: 870, width: 230, height: 185 },
   { id: "dashboard", kind: "process", label: "PROCESS", title: "Dashboard service", detail: "Independent local dashboard HTTP service process.", side: "backend", members: ["dashboard"], x: 285, y: 870, width: 230, height: 185 },
   { id: "supervisor", kind: "process", label: "PROCESS", title: "Recovery supervisor", detail: "Independent background supervisor process. Managed applications run in their own processes, not inside this controller.", side: "backend", members: ["supervisor"], x: 535, y: 870, width: 230, height: 185 },
@@ -93,6 +94,26 @@ export function transportBoundary(node?: TopologyNode): BoundaryPresentation {
   return {
     kind: "transport", label: "TRANSPORT · MODE UNKNOWN", title: "Connection transport",
     detail: "Waiting for the supervisor to identify a tunnel process or direct HTTPS path.",
+  }
+}
+
+/** Distinct write/read lanes, with a label in each clear horizontal segment. */
+export function storageFlow(target: "storage" | "mailbox", reverse = false): { path: string; labelX: number; labelY: number } {
+  const relay = mapNodes.find((node) => node.id === "relay")!
+  const store = mapNodes.find((node) => node.id === target)!
+  const offset = reverse ? 16 : 0
+  const relayX = relay.x + nodeWidth / 2 + (target === "storage" ? -48 : 48) + offset
+  const storeX = store.x + nodeWidth / 2 - 16 + offset
+  const relayY = relay.y + nodeHeight
+  // Offset each return around the inside of its elbow, avoiding both a shared
+  // stem and intersections between the two directions.
+  const middle = (relayY + store.y) / 2 + (target === "storage" ? offset : -offset)
+  return {
+    path: reverse
+      ? `M${storeX},${store.y} V${middle} H${relayX} V${relayY}`
+      : `M${relayX},${relayY} V${middle} H${storeX} V${store.y}`,
+    labelX: (relayX + storeX) / 2,
+    labelY: middle - 5,
   }
 }
 
@@ -148,11 +169,12 @@ export function edgePath(source: NodeID, target: NodeID): string {
   if (source === "relay" && target === "provider") {
     // The provider sits below the remote column: leave by the right edge and
     // drop down the margin outside the relay's owned-files boundary.
-    return `M${a.x + nodeWidth},${ay} H1292 V${b.y + nodeHeight / 2} H${b.x + nodeWidth}`
+    return `M${a.x + nodeWidth},${ay} H${mapWidth - 38} V${b.y + nodeHeight / 2} H${b.x + nodeWidth}`
   }
   if (source === "remote_provider" && (target === "remote" || target === "relay")) {
     return `M${a.x + nodeWidth},${ay} H1048 V${by} H${b.x}`
   }
+  if (source === "relay" && (target === "storage" || target === "mailbox")) return storageFlow(target).path
   if (a.y === b.y) return a.x < b.x
     ? `M${a.x + nodeWidth},${a.y + nodeHeight / 2} H${b.x}`
     : `M${a.x},${a.y + nodeHeight / 2} H${b.x + nodeWidth}`
@@ -168,6 +190,7 @@ export function edgePath(source: NodeID, target: NodeID): string {
 
 /** Return lane, offset from the outgoing route without moving node endpoints off their borders. */
 export function responsePath(source: NodeID, target: NodeID): string {
+  if (source === "relay" && (target === "storage" || target === "mailbox")) return storageFlow(target, true).path
   const a = mapNodes.find((node) => node.id === target)!
   const b = mapNodes.find((node) => node.id === source)!
   const lane = 16
@@ -180,7 +203,7 @@ export function responsePath(source: NodeID, target: NodeID): string {
   if (source === "relay" && target === "provider") {
     // Return outside the request lane and above its exit, so the two never cross
     // and the relay-owned cache files stay clear.
-    return `M${a.x + nodeWidth},${a.y + nodeHeight / 2 + lane} H1308 V${b.y + nodeHeight / 2 - lane} H${b.x + nodeWidth}`
+    return `M${a.x + nodeWidth},${a.y + nodeHeight / 2 + lane} H${mapWidth - 22} V${b.y + nodeHeight / 2 - lane} H${b.x + nodeWidth}`
   }
   if (source === "vscode" && target === "gate") {
     // Return beside the attach diagonal, entering Varro from its right edge.

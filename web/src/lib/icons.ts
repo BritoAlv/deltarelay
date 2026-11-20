@@ -26,6 +26,7 @@ const paths = {
   power: "M12 2v10 M6 5a9 9 0 1 0 12 0",
   plugin: "M8 3v5 M16 3v5 M5 8h14v5a7 7 0 0 1-14 0V8z M12 20v3",
   storage: "M20 5c0 4-16 4-16 0s16-4 16 0v14c0 4-16 4-16 0V5 M4 12c0 4 16 4 16 0",
+  mailbox: "M4 4h16v16H4z M4 13h5l2 3h2l2-3h5 M8 8h8",
   settings: "M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6",
   palette: "M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6H18a3 3 0 0 0 3-3 9 9 0 0 0-9-9 M7 11h.01 M9 7h.01 M14 7h.01 M17 10h.01",
   plus: "M12 5v14 M5 12h14",

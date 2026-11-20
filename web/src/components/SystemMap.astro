@@ -3,11 +3,11 @@ import Icon from "./Icon.astro"
 import { mapBoundaries, mapLayerSegments, mapRegions, mapNodes, mapWidth, mapHeight, nodeWidth, nodeHeight } from "../lib/topology-layout"
 ---
 <article class="panel topology-panel" aria-labelledby="topology-title">
-  <div class="control-heading"><div><h3 id="topology-title">System architecture</h3><p class="control-detail">How components connect across processes and hosts.</p></div></div>
+  <div class="control-heading"><div><h3 id="topology-title">System architecture</h3><p class="control-detail">How components connect across processes and hosts. Remote responses wait in the mailbox; your computer fetches them through the relay.</p></div></div>
   <div class="topology-legend" role="group" aria-label="Architecture legend">
-    <button type="button" class="legend-toggle" data-map-channel="request" aria-pressed="true" aria-controls="map-edges" title="Hide model request arrows"><svg class="legend-arrow request" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Model request flow<span class="legend-toggle-state">Shown</span></button>
-    <button type="button" class="legend-toggle" data-map-channel="response" aria-pressed="true" aria-controls="map-edges" title="Hide model response arrows"><svg class="legend-arrow response" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M23 6 H3 M8 1 L3 6 L8 11" /></svg>Response / stream<span class="legend-toggle-state">Shown</span></button>
-    <button type="button" class="legend-toggle" data-map-channel="control" aria-pressed="true" aria-controls="map-edges" title="Hide checks, recovery, management, storage ownership and read-only diagnostic arrows"><svg class="legend-arrow control" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Checks / recovery / management<span class="legend-toggle-state">Shown</span></button>
+    <button type="button" class="legend-toggle" data-map-channel="request" aria-pressed="true" aria-controls="map-edges" title="Hide model request and cache read/write arrows"><svg class="legend-arrow request" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Model request flow<span class="legend-toggle-state">Shown</span></button>
+    <button type="button" class="legend-toggle" data-map-channel="response" aria-pressed="true" aria-controls="map-edges" title="Hide model response and mailbox read/write arrows"><svg class="legend-arrow response" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M23 6 H3 M8 1 L3 6 L8 11" /></svg>Response / stream<span class="legend-toggle-state">Shown</span></button>
+    <button type="button" class="legend-toggle" data-map-channel="control" aria-pressed="true" aria-controls="map-edges" title="Hide checks, recovery, management and read-only diagnostic arrows"><svg class="legend-arrow control" viewBox="0 0 24 12" width="24" height="12" aria-hidden="true"><path d="M1 6 H21 M16 1 L21 6 L16 11" /></svg>Checks / recovery / management<span class="legend-toggle-state">Shown</span></button>
   </div>
   <dl class="map-boundary-key" aria-label="Map boundaries">
     <div><dt><span class="legend-boundary process frontend" aria-hidden="true"></span>Frontend process</dt><dd>Encloses an interface process</dd></div>
@@ -24,7 +24,7 @@ import { mapBoundaries, mapLayerSegments, mapRegions, mapNodes, mapWidth, mapHei
     </div>
     <div class="topology-viewport" tabindex="0" aria-label="System connection map" aria-describedby="map-help">
       <div class="topology-canvas" style={`width:${mapWidth}px;height:${mapHeight}px`}>
-        <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Process boundaries, owned components, and observed connections. Dashed boundaries are not processes.">
+        <svg id="topology-links" class="topology-links" viewBox={`0 0 ${mapWidth} ${mapHeight}`} role="img" aria-label="Process boundaries, storage read/write paths, and reported connections. Storage paths describe architecture, not live traffic or readiness. Dashed boundaries are not processes.">
           <defs><marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
           {mapRegions.map((region) => <g>
             <desc id={`map-boundary-${region.id}-description`}>{region.label}. This is a host/location boundary, not a process.</desc>
@@ -47,6 +47,7 @@ import { mapBoundaries, mapLayerSegments, mapRegions, mapNodes, mapWidth, mapHei
         {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" aria-describedby={`map-boundary-${mapBoundaries.find((boundary) => boundary.members.includes(node.id))?.id ?? "remote"}-description`} style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
           <span class="map-node-top"><span data-node-icon><Icon name={node.icon} size={22} /></span><span class="map-node-role">{node.role}</span></span>
           <strong data-node-label>{node.label}</strong>
+          {node.note && <span class="map-node-note">{node.note}</span>}
         </button>)}
       </div>
     </div>

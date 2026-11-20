@@ -45,8 +45,14 @@ Active contract distinctions:
 - Only current supervisor status is accepted, with `remote`, independent internet
   probe fields, and version 2. Unsupported versions fail validation.
 - Topology stays v1: traffic points from caller to service, `requires` from
-  dependent to prerequisite, and `contains` from owner to resource. Relay storage
-  includes request-cache and response-mailbox reads/writes, not a forwarding hop.
+  dependent to prerequisite, and `contains` from owner to resource. The relay owns
+  separate `storage` (request chunk cache) and `mailbox` (durable responses) nodes.
+  The mailbox returns persisted bytes to the relay for PC fetch/resume by offset,
+  not a separate forwarding hop or direct PC-to-files connection. Older v1
+  snapshots without the mailbox node are still accepted. The map normalizes the
+  two known ownership relationships into structural, labeled write/read lanes:
+  cache bytes use the request channel, mailbox bytes use the response channel.
+  Missing observations remain unknown and do not acquire lifecycle actions.
   Dashboard diagnostics are read-only control-channel traffic; their readiness
   is not inferred merely from running endpoint processes.
 - State history is version 1 with a fixed eight-state order, nonnegative integer

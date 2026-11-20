@@ -1,7 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { edgeChannel, edgeDescription, isTopology, nodePresentation, observationStale, type NodeID, type TopologyEdge } from "../src/lib/topology.js"
-import { edgePath, mapBoundaries, mapHeight, mapLayerSegments, mapNodes, mapRegions, mapWidth, nodeHeight, nodeWidth, responsePath, transportBoundary } from "../src/lib/topology-layout.js"
+import { architectureEdges, architectureLanes } from "../src/lib/topology-flow.js"
+import { edgePath, mapBoundaries, mapHeight, mapLayerSegments, mapNodes, mapRegions, mapWidth, nodeHeight, nodeWidth, responsePath, storageFlow, transportBoundary } from "../src/lib/topology-layout.js"
 import { readContract } from "./contracts.js"
 
 type Point = { x: number; y: number }
@@ -29,7 +30,7 @@ function onNodeBorder(point: Point, id: NodeID): boolean {
 test("shared topology validates bounded nodes, edges, ownership and action contracts", () => {
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
-  assert.equal(value.nodes.length, 17)
+  assert.equal(value.nodes.length, 18)
   const node = value.nodes[0]!
   for (const changed of [{ ...value, version: 2 }, { ...value, nodes: [...value.nodes, node] }, { ...value, nodes: [{ ...node, actions: ["shell"] }] }, { ...value, nodes: [{ ...node, owner: "arbitrary-process" }] }, { ...value, network: { generation: -1, changed_at: null } }, { ...value, edges: [{ ...value.edges[0], target: "arbitrary-process" }] }, { ...value, run: {} }]) {
     assert.equal(isTopology(changed), false)
@@ -60,7 +61,7 @@ test("request-handling arrows are separate from checks and management, regardles
     "vscode_gate", "openchamber_gate", "gate_opencode", "desktop_opencode", "opencode_plugin",
     "plugin_gateway", "gateway_tunnel", "tunnel_relay", "relay_provider",
   ])
-  for (const id of ["gate_gateway", "supervisor_gate", "supervisor_openchamber", "dashboard_ui_dashboard", "tunnel_network", "remote_relay", "relay_storage", "dashboard_gateway", "dashboard_opencode", "dashboard_supervisor", "remote_provider_relay"]) {
+  for (const id of ["gate_gateway", "supervisor_gate", "supervisor_openchamber", "dashboard_ui_dashboard", "tunnel_network", "remote_relay", "relay_storage", "relay_mailbox", "dashboard_gateway", "dashboard_opencode", "dashboard_supervisor", "remote_provider_relay"]) {
     const edge: TopologyEdge = value.edges.find((item) => item.id === id)!
     assert.equal(edgeChannel(edge), "control", id)
     assert.equal(edgeChannel({ ...edge, state: "blocked" }), "control", `${id} when blocked`)
@@ -76,7 +77,7 @@ test("storage ownership and read-only diagnostics do not imply additional model 
   assert.equal(storage.relation, "contains")
   assert.equal(value.nodes.find((node) => node.id === storage.target)!.owner, storage.source)
   assert.equal(edgeDescription(storage), "Storage ownership / read-write access")
-  assert.match(storage.protocol, /request cache.*response mailbox.*read \/ write/)
+  assert.match(storage.protocol, /request chunk cache.*read \/ write/)
   for (const id of ["dashboard_gateway", "dashboard_opencode"]) {
     const edge: TopologyEdge = value.edges.find((item) => item.id === id)!
     assert.equal(edge.source, "dashboard")
@@ -90,17 +91,77 @@ test("storage ownership and read-only diagnostics do not imply additional model 
   ], "dependency arrows point from dependent to prerequisite")
 })
 
-test("every outgoing arrow reaches its target and every model response returns to its caller", () => {
+test("the remote mailbox supplies saved bytes through its owning relay without becoming a request hop", () => {
   const value = readContract("topology-v1.json")
   assert.ok(isTopology(value))
-  for (const edge of value.edges) {
-    const points = pathPoints(edgePath(edge.source, edge.target))
-    assert.ok(onNodeBorder(points[0]!, edge.source), `${edge.id}: starts at source`)
-    assert.ok(onNodeBorder(points.at(-1)!, edge.target), `${edge.id}: arrowhead reaches target`)
-    if (edgeChannel(edge) === "request") {
-      const response = pathPoints(responsePath(edge.source, edge.target))
-      assert.ok(onNodeBorder(response[0]!, edge.target), `${edge.id}: response starts at service`)
-      assert.ok(onNodeBorder(response.at(-1)!, edge.source), `${edge.id}: response arrowhead returns to caller`)
+  const mailbox = value.nodes.find((node) => node.id === "mailbox")!
+  assert.deepEqual([mailbox.label, mailbox.kind, mailbox.group, mailbox.owner, mailbox.managed, mailbox.actions], ["Response mailbox", "storage", "remote", "relay", false, []])
+  const related = value.edges.filter((edge) => edge.source === "mailbox" || edge.target === "mailbox")
+  assert.equal(related.length, 1, "neither the PC nor the provider accesses the mailbox directly")
+  const edge = related[0]!
+  assert.deepEqual([edge.id, edge.source, edge.target, edge.relation], ["relay_mailbox", "relay", "mailbox", "contains"])
+  assert.equal(edgeChannel(edge), "control", "ownership is not an additional provider request hop")
+  assert.equal(edgeDescription(edge), "Response mailbox ownership / read-write access")
+  assert.deepEqual(architectureLanes(edge).map((lane) => [lane.channel, lane.reverse, lane.label]), [
+    ["response", false, "Write"], ["response", true, "Read"],
+  ], "both mailbox directions belong to response flow, not management")
+  assert.deepEqual(architectureLanes(value.edges.find((edge) => edge.id === "relay_storage")!).map((lane) => [lane.channel, lane.reverse, lane.label]), [
+    ["request", false, "Write"], ["request", true, "Read"],
+  ], "cached request bytes are read back without becoming provider responses")
+  assert.match(edge.protocol, /Persist checksummed frames.*read by offset.*ACK \/ expiry/)
+  assert.match(mailbox.detail, /PC is disconnected.*through the relay by byte offset.*Streaming alone does not delete.*tombstones remain/)
+  const legacy = { ...value, nodes: value.nodes.filter((node) => node.id !== "mailbox"), edges: value.edges.filter((edge) => edge.id !== "relay_mailbox") }
+  assert.equal(isTopology(legacy), true, "older topology v1 snapshots still validate")
+})
+
+test("storage architecture survives older or absent observations without inventing readiness or duplicate edges", () => {
+  const value = readContract("topology-v1.json")
+  assert.ok(isTopology(value))
+  const legacy = value.edges.filter((edge) => edge.id !== "relay_mailbox").map((edge) => edge.id === "relay_storage" ? { ...edge, protocol: "Durable relay data", state: "ready" as const } : edge)
+  const original = JSON.stringify(legacy)
+  const edges = architectureEdges(legacy)
+  assert.equal(JSON.stringify(legacy), original, "reported observations are not mutated")
+  assert.equal(new Set(edges.map((edge) => edge.id)).size, edges.length)
+  assert.equal(edges.find((edge) => edge.id === "relay_storage")!.state, "ready", "independent evidence is preserved")
+  assert.equal(edges.find((edge) => edge.id === "relay_mailbox")!.state, "unknown", "structural ownership is not readiness proof")
+  assert.match(edges.find((edge) => edge.id === "relay_storage")!.protocol, /request chunk cache/)
+  assert.deepEqual(architectureEdges(edges), edges, "normalization is idempotent")
+  assert.deepEqual(architectureEdges().map((edge) => [edge.id, edge.state]), [
+    ["relay_storage", "unknown"], ["relay_mailbox", "unknown"],
+  ])
+})
+
+test("every displayed arrow reaches the appropriate component border, including both storage directions", () => {
+  const value = readContract("topology-v1.json")
+  assert.ok(isTopology(value))
+  for (const edge of architectureEdges(value.edges)) {
+    for (const lane of architectureLanes(edge)) {
+      const points = pathPoints(lane.reverse ? responsePath(edge.source, edge.target) : edgePath(edge.source, edge.target))
+      assert.ok(onNodeBorder(points[0]!, lane.reverse ? edge.target : edge.source), `${lane.id}: starts at source`)
+      assert.ok(onNodeBorder(points.at(-1)!, lane.reverse ? edge.source : edge.target), `${lane.id}: arrowhead reaches target`)
+    }
+  }
+})
+
+test("cache and mailbox write/read lanes never overlap or intersect and have separate visible labels", () => {
+  const all = (["storage", "mailbox"] as const).flatMap((target) => [false, true].map((reverse) => {
+    const flow = storageFlow(target, reverse)
+    const points = pathPoints(flow.path)
+    assert.ok(flow.labelX > Math.min(points[1]!.x, points[2]!.x) && flow.labelX < Math.max(points[1]!.x, points[2]!.x))
+    assert.equal(flow.labelY, points[1]!.y - 5)
+    return { id: `${target}-${reverse ? "read" : "write"}`, points }
+  }))
+  for (let left = 0; left < all.length; left++) {
+    for (let right = left + 1; right < all.length; right++) {
+      const a = all[left]!, b = all[right]!
+      for (let i = 1; i < a.points.length; i++) {
+        for (let j = 1; j < b.points.length; j++) {
+          const a0 = a.points[i - 1]!, a1 = a.points[i]!, b0 = b.points[j - 1]!, b1 = b.points[j]!
+          const intersects = Math.max(Math.min(a0.x, a1.x), Math.min(b0.x, b1.x)) <= Math.min(Math.max(a0.x, a1.x), Math.max(b0.x, b1.x))
+            && Math.max(Math.min(a0.y, a1.y), Math.min(b0.y, b1.y)) <= Math.min(Math.max(a0.y, a1.y), Math.max(b0.y, b1.y))
+          assert.equal(intersects, false, `${a.id} intersects ${b.id}`)
+        }
+      }
     }
   }
 })
@@ -108,7 +169,7 @@ test("every outgoing arrow reaches its target and every model response returns t
 test("every process boundary encloses exactly its runtime and owned components, with room for its heading", () => {
   assert.deepEqual(Object.fromEntries(mapBoundaries.filter((boundary) => boundary.kind === "process").map((boundary) => [boundary.id, boundary.members])), {
     vscode: ["vscode"], desktop: ["desktop"], openchamber: ["openchamber"], opencode: ["opencode", "plugin"], gateway: ["gateway"],
-    gate: ["gate"], relay: ["relay", "storage"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"],
+    gate: ["gate"], relay: ["relay", "storage", "mailbox"], dashboard_ui: ["dashboard_ui"], dashboard: ["dashboard"],
     supervisor: ["supervisor"], remote_provider: ["remote_provider"],
   })
   for (const boundary of mapBoundaries) {
@@ -125,7 +186,7 @@ test("every process boundary encloses exactly its runtime and owned components, 
   }
   const host = mapRegions.find((region) => region.id === "remote")!
   const inHost = mapNodes.filter((node) => node.x >= host.x && node.y >= host.y && node.x + nodeWidth <= host.x + host.width && node.y + nodeHeight <= host.y + host.height)
-  assert.deepEqual(inHost.map((node) => node.id), ["remote", "relay", "storage"])
+  assert.deepEqual(inHost.map((node) => node.id), ["remote", "relay", "storage", "mailbox"])
 })
 
 test("transport boundaries describe configured processes versus paths, not readiness or manageability", () => {
@@ -143,7 +204,7 @@ test("transport boundaries describe configured processes versus paths, not readi
 })
 
 test("aligned connection arrows attach to the facing sides in both directions", () => {
-  for (const [source, target] of [["gate", "opencode"], ["opencode", "gate"], ["relay", "storage"], ["storage", "relay"]] as const) {
+  for (const [source, target] of [["gate", "opencode"], ["opencode", "gate"], ["remote", "relay"], ["relay", "remote"], ["storage", "mailbox"], ["mailbox", "storage"]] as const) {
     const a = mapNodes.find((node) => node.id === source)!, b = mapNodes.find((node) => node.id === target)!
     const expected = a.y === b.y
       ? `M${a.x + (a.x < b.x ? nodeWidth : 0)},${a.y + nodeHeight / 2} H${b.x + (a.x > b.x ? nodeWidth : 0)}`
@@ -263,9 +324,8 @@ test("map arrows never cross unrelated component cards or process boundaries", (
     }
     return true
   }
-  for (const edge of value.edges) {
-    const paths = [edgePath(edge.source, edge.target)]
-    if (edgeChannel(edge) === "request") paths.push(responsePath(edge.source, edge.target))
+  for (const edge of architectureEdges(value.edges)) {
+    const paths = architectureLanes(edge).map((lane) => lane.reverse ? responsePath(edge.source, edge.target) : edgePath(edge.source, edge.target))
     for (const path of paths) {
       const points = pathPoints(path)
       for (let index = 1; index < points.length; index++) {
