@@ -1,7 +1,7 @@
 import type { NodeID } from "./topology.js"
 
 export const controlComponents: { id: NodeID; category: string; description: string }[] = [
-  { id: "desktop", category: "Applications", description: "The desktop application used to interact with OpenCode." },
+  { id: "desktop", category: "Applications", description: "The desktop application used to interact with OpenCode. Start it from these controls; it never opens automatically." },
   { id: "openchamber", category: "Applications", description: "Supervised frontend that attaches to the shared OpenCode service through the frontend health gate. Start it from these controls; it never opens automatically." },
   { id: "opencode", category: "Applications", description: "Runs OpenCode and loads the DeltaRelay plugin." },
   { id: "vscode", category: "Applications", description: "Editor where Varro attaches to the shared OpenCode service. Open it from here or yourself; the supervisor never starts it automatically, restarts it, or observes it." },

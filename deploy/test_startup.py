@@ -113,7 +113,7 @@ class LauncherTest(unittest.TestCase):
     @patch.object(launcher, 'prepare_build')
     @patch.object(launcher, 'control_request')
     @patch.object(launcher, 'controller_status', return_value={'version': 2})
-    def test_existing_supervisor_starts_only_the_default_frontend(self, status, request, build, output):
+    def test_existing_supervisor_starts_dashboard_and_backend_without_frontends(self, status, request, build, output):
         self.config['components'] = {
             'desktop': {'command': [sys.executable, '-c', 'pass'], 'pid_file': str(self.root / 'desktop.pid')},
             'openchamber': {'command': [sys.executable, '-c', 'pass'], 'pid_file': str(self.root / 'openchamber.pid')},
@@ -121,7 +121,7 @@ class LauncherTest(unittest.TestCase):
         self.save()
         launcher.start(self.root, self.path)
         self.assertEqual([call.args[3]['component'] for call in request.call_args_list],
-                         ['dashboard', 'opencode', 'desktop'])
+                         ['dashboard', 'opencode'])
 
     @patch('builtins.print')
     @patch.object(launcher.subprocess, 'Popen')

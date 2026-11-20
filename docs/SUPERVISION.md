@@ -141,35 +141,29 @@ and a private `pid_file`. An optional OpenChamber entry uses
 [OpenChamber + DeltaRelay](OPENCHAMBER.md#supervised-launch), and a private
 `pid_file`. Both frontends need the supervisor to inherit a graphical session.
 
-The frontends are `openchamber` and `desktop`. Desktop is the only auto-start
-frontend: when configured, the supervisor starts it by default on initial
-startup and **Start system**. OpenChamber is manual-only; configuring
-`components.openchamber` lists it as a managed component that starts only from
-its dashboard control. A configured OpenCode Desktop remains listed and
-manually startable while OpenChamber runs, and both can be open at once. If
-Desktop is not configured, startup launches no frontend; start OpenChamber from
-the dashboard when needed. Installing the OpenChamber package does not configure
-or start it. Stopping a frontend keeps it stopped until you start it.
+The frontends are `openchamber` and `desktop`. Both are manual-only: configuring
+either lists it as a managed component that starts only from its dashboard
+control. Normal supervisor startup, **Start system**, and automatic recovery
+never open a frontend. A stopped frontend stays stopped until you start it, and
+both can be open at once. Installing the OpenChamber package does not configure
+or start it.
 
 OpenChamber is attach-only through the shared gate. It never starts, stops,
 restarts, or updates OpenCode, and the gate never owns the OpenCode service.
-Startup order is `dashboard`, `gate`, `gateway`, `opencode`, then the default
-frontend (Desktop when configured). **Shut down system** stops `gate` first, then
-`openchamber`, `desktop`, `opencode`, `gateway`, and `tunnel`, so attached
-frontends lose access before the backend is stopped. A frontend the user closes
-is not automatically restarted; its component Start action brings it back.
-OpenChamber is never auto-started, so its Start action is the normal way to open
-it. **Start system** starts the default frontend when its desired state is
-running.
+Startup order is `dashboard`, `gate`, `gateway`, `opencode`; no frontend is
+launched. **Shut down system** stops `gate` first, then `openchamber`, `desktop`,
+`opencode`, `gateway`, and `tunnel`, so attached frontends lose access before
+the backend is stopped. A frontend the user closes is not automatically
+restarted; its component Start action brings it back.
 
 Component IDs are `dashboard`, `gate`, `gateway`, `opencode`, `desktop`, and
 `openchamber`, plus the remote-provider `tunnel`/`relay` where configured. The
 new UI label is **OpenChamber**.
 
-`--no-frontend` skips the initial OpenCode and managed-frontend launch and leaves
-them out of automatic startup for that persisted intent. Its older alias
-`--no-desktop` has the same effect. Neither flag stops an already running
-frontend, disables the dashboard/gate, or makes the supervisor own the backend.
+`--no-frontend` skips the initial OpenCode launch and leaves it out of automatic
+startup for that persisted intent. Its older alias `--no-desktop` has the same
+effect. Neither flag starts or stops a frontend, disables the dashboard/gate, or
+makes the supervisor own the backend.
 
 Do not simultaneously let systemd and the supervisor launch separate foreground
 copies on the same port. To retain an existing service manager, configure its
@@ -305,9 +299,10 @@ The existing debounce and 2–30 second backoff still apply. A route change is a
 strong hint, so the first failed probe after the change may initiate recovery
 without waiting for three generic failures. During a total outage the supervisor
 waits and retries; when a usable Ethernet, Wi-Fi, or VPN route returns, it
-reconnects automatically. The managed frontend, OpenCode server, and gateway are
-preserved unless their own local readiness has independently failed. The
-dashboard may be closed; recovery continues.
+reconnects automatically. A running frontend, the OpenCode server, and the
+gateway are left running unless their own local readiness has independently
+failed; frontends are never opened automatically. The dashboard may be closed;
+recovery continues.
 
 This does not promise zero interruption: changing a route can drop active TCP
 connections. DeltaRelay's request ID and durable response resume remain the
@@ -335,11 +330,11 @@ are invalid, the map reports the actual blocker instead of bypassing it.
   auto-wake asks for billing confirmation; it can resume compute with the browser
   closed.
 - **Start system** resumes an intentionally stopped stack or performs a complete
-  manual repair. It starts configured local applications, including the gate and
-  the default frontend (Desktop), respects per-component desired state and
+  manual repair. It starts the configured background services, including the
+  gate, respects per-component desired state and
   `--no-frontend`/`--no-desktop`, resumes automatic recovery, and then repairs the
-  connection. OpenChamber is manual-only and is not opened by **Start system**.
-  It asks for confirmation because
+  connection. Neither frontend is opened by **Start system**; use its component
+  Start action. It asks for confirmation because
   starting/waking remote compute may incur charges. Enabling automatic wake is
   not implied. A gate start failure is shown on the gate card but does not turn
   the rest of `Start system` into a failure; scheduled repair and the card retry

@@ -19,7 +19,7 @@ from activity import operation_id
 
 from remote_provider import ProviderError as ControlError, private_json
 
-from .config import FRONTENDS, preferred_frontend
+from .config import FRONTENDS
 from .contracts import Observation
 from .state_history import parse_query
 from .supervisor import Supervisor
@@ -52,8 +52,7 @@ def controller_status(path):
 def startup_components(supervisor, no_dashboard=False, no_desktop=False):
     """Select the independent startup lane; gate never depends on the provider."""
     selected = []
-    frontend = preferred_frontend(supervisor.config)
-    order = ('dashboard', 'gate', 'gateway', 'opencode') + ((frontend,) if frontend else ())
+    order = ('dashboard', 'gate', 'gateway', 'opencode')
     for name in order:
         if name not in supervisor.config['components']:
             continue

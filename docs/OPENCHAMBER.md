@@ -9,8 +9,9 @@ checked package is **OpenChamber Desktop 2.7.2**, installed from its Debian
 When `components.openchamber` is configured with a launchable command, the
 supervisor manages it as an attach-only component but never opens it
 automatically. Start it from the dashboard's **OpenChamber** controls whenever
-you need it. A configured OpenCode Desktop remains the default auto-start
-frontend. Installing the package alone does not configure or start it.
+you need it. OpenCode Desktop is manual-only too and is never opened by normal
+startup or **Start system**. Installing the package alone does not configure or
+start it.
 
 ```text
 OpenChamber Desktop --\
@@ -153,24 +154,23 @@ Restart the supervisor after adding the component, then start it normally:
 uv run ./deltarelay start --config /private/supervisor.json
 ```
 
-Normal startup and **Start system** start `dashboard`, `gate`, `gateway`,
-`opencode`, then the default frontend (Desktop when configured) when its desired
-state is running. OpenChamber is manual-only: it is never started by normal
-startup or **Start system**. Use the OpenChamber component's **Start** action in
-the dashboard. A manually started Desktop is an explicit per-component choice
-and is not undone by adding OpenChamber.
+Normal startup and **Start system** start `dashboard`, `gate`, `gateway`, and
+`opencode` only. Both frontends are manual-only: OpenChamber and Desktop are
+never started by normal startup or **Start system**. Use the frontend's
+**Start** action in the dashboard. Desktop remains an explicit per-component
+choice and is not affected by adding OpenChamber.
 
-To start local controls and recovery without launching OpenCode or Desktop, use
+To start local controls and recovery without launching OpenCode, use
 `--no-frontend` (or its older alias `--no-desktop`):
 
 ```sh
 uv run ./deltarelay start --config /private/supervisor.json --no-frontend
 ```
 
-This skips the **initial** OpenCode and Desktop launch and leaves both managed
-frontends out of automatic startup for that persisted intent. It does not stop
-an already running OpenChamber or Desktop, and it does not disable the gate or
-dashboard. OpenChamber is manual-only even without this flag.
+This skips the **initial** OpenCode launch and leaves it out of automatic
+startup for that persisted intent. Both frontends are manual-only regardless.
+It does not stop an already running OpenChamber or Desktop, and it does not
+disable the gate or dashboard.
 
 ## Isolated state
 
@@ -246,8 +246,8 @@ launcher; do not construct a partial environment by hand.
 
 Stopping the OpenChamber component does not change the startup policy.
 OpenChamber is never auto-started; a stopped component stays stopped until you
-use its **Start** action in the dashboard. Desktop, when configured, remains the
-default auto-start frontend and is not affected.
+use its **Start** action in the dashboard. Desktop is manual-only on the same
+basis and is not affected.
 
 ## Verify the attach path
 
@@ -331,15 +331,14 @@ still provides the same sessions for the same workspace.
 
 | Configured components | Auto-start choice |
 | --- | --- |
-| `desktop` launchable, with or without `openchamber` | OpenCode Desktop |
+| `desktop` launchable, with or without `openchamber` | None; start either frontend from the dashboard |
 | `openchamber` only | None; start OpenChamber from the dashboard |
 | Neither | None; the gate remains available for Varro/manual attach |
 
-OpenChamber is manual-only. Adding `components.openchamber` makes it available
-in Controls, but normal startup and **Start system** never launch it; use its
-**Start** action. Desktop remains the default auto-start frontend when
-configured. Both frontends can be open at once because they attach to the same
-shared service.
+Both frontends are manual-only. Adding `components.openchamber` makes it
+available in Controls, but normal startup, **Start system**, and automatic
+recovery never launch it; use its **Start** action. Desktop works the same way.
+Both can be open at once because they attach to the same shared service.
 
 To use both:
 

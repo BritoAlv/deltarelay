@@ -70,14 +70,14 @@ Suggested handoff to the independent OpenCode instance:
   change. Recovery continues with the dashboard closed.
 - The supervisor checks the actual authenticated relay path before changing a
   service. A route change alone never restarts a healthy component.
-- The managed frontend (Desktop when configured), the OpenCode server, and the
+- A running frontend (Desktop or OpenChamber), the OpenCode server, and the
   gateway keep the same PIDs across an unrelated transport repair. The tunnel may
   be rebuilt; the remote host and relay should not be restarted unless the
-  verified path requires it.
-- OpenChamber is manual-only: normal startup and **Start system** do not launch
-  it; start it from the dashboard component controls. Desktop remains the
-  default auto-start frontend; verify it remains startable and that stopping one
-  frontend does not stop the shared gate, OpenCode service, gateway, or tunnel.
+  verified path requires it. No frontend is opened automatically.
+- Both frontends are manual-only: normal startup, **Start system**, and automatic
+  recovery do not launch them; start them from the dashboard component controls.
+  Verify each remains startable and that stopping one frontend does not stop the
+  shared gate, OpenCode service, gateway, or tunnel.
 - A running host, a started command, and a provider "running" response are not
   reported as connection success. Only authenticated relay health with the pinned
   identity completes recovery.
@@ -217,8 +217,9 @@ confirm it reports the provider-confirmed state; a timeout must report
 3. Change networks and wait; nothing may restart automatically.
 4. Restart the supervisor (`startup.sh`) with the dashboard still available.
    Confirm the persisted intent keeps the system stopped.
-5. Press **Start system**, confirm, and verify local applications plus the
-   authenticated relay return.
+5. Press **Start system**, confirm, and verify the local services plus the
+   authenticated relay return. Neither frontend should reopen; start it from
+   its component controls if needed.
 
 If the button is disabled, the map names components lacking `stop_command`.
 Configure explicit stop commands and retry; do not add broad process matching.

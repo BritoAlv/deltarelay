@@ -165,9 +165,9 @@ OpenChamber Desktop is an optional attach-only graphical frontend for the
 service`. When `components.openchamber` is configured with a launchable command,
 the supervisor lists it as a managed component but never opens it automatically;
 start it from the dashboard's component controls. A configured OpenCode Desktop
-remains the default auto-start frontend. OpenChamber never starts, stops,
-restarts, or updates OpenCode. Installing its `.deb` does not configure or start
-it. See [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
+is manual-only on the same basis. OpenChamber never starts, stops, restarts, or
+updates OpenCode. Installing its `.deb` does not configure or start it. See
+[OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
 
 On PCs that use VS Code, Varro attaches through the same supervisor-managed
 loopback health gate to the shared OpenCode service:
@@ -201,8 +201,8 @@ OpenChamber and Varro can attach at the same time.
 Installation has three core parts: build the local tool and dashboard, set up an
 existing trusted remote host, and enable the OpenCode plugin. Varro in VS Code
 and OpenChamber Desktop are optional frontends for the same shared OpenCode
-service; Desktop is the default auto-start frontend, and OpenChamber is started
-from the dashboard's component controls.
+service; both frontend applications are started only from the dashboard's
+component controls.
 
 ### Requirements
 
@@ -259,9 +259,8 @@ To use OpenChamber Desktop, install the official `.deb`, verify its SHA-256, add
 `components.openchamber` to the private supervisor configuration, and restart
 the supervisor. When configured, it is listed as a managed component but is
 started only from the dashboard's component controls; normal startup and
-**Start system** never open it. A configured OpenCode Desktop remains the
-default auto-start frontend. See
-[OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
+**Start system** never open it. OpenCode Desktop is manual-only on the same
+basis. See [OpenChamber + DeltaRelay](docs/OPENCHAMBER.md).
 
 ## 6 - Instructions to run
 
@@ -284,13 +283,13 @@ uv run ./deltarelay start --config /private/supervisor.json
 ```
 
 Replace `/private/supervisor.json` with your actual configuration file. To start
-the local controls and network recovery without launching OpenCode or the managed
-frontend, add `--no-frontend` to either command. `--no-desktop` remains a
-supported alias. Either flag skips the initial launch and leaves OpenCode plus
-both managed frontends out of automatic startup; it does not stop an already
-running frontend and does not disable the shared frontend health gate, which
-still starts with the supervisor and never starts or restarts the OpenCode
-backend.
+the local controls and network recovery without launching OpenCode, add
+`--no-frontend` to either command. `--no-desktop` remains a supported alias.
+Either flag skips the initial OpenCode launch and leaves it out of automatic
+startup; frontend applications are always manual-only and are never opened by
+normal startup or **Start system**. It does not stop an already running
+frontend and does not disable the shared frontend health gate, which still
+starts with the supervisor and never starts or restarts the OpenCode backend.
 
 Open **http://127.0.0.1:8790/controls** (or your configured dashboard address) to
 check connection status. Local startup readiness does not guarantee that the

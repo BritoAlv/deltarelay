@@ -11,7 +11,6 @@ from activity import operation_id
 from remote_provider import RETRYABLE, ProviderError as ControlError, private_json
 
 from .components import registry
-from .config import preferred_frontend
 from .contracts import ConnectionFacts, Step, next_connection_step
 from .state import save_json, stamp
 from .topology import shutdown_blockers
@@ -267,8 +266,9 @@ class Coordinator:
     def start_locals(self):
         s = self.supervisor
         error = None
-        frontend = preferred_frontend(s.config)
-        order = ('dashboard', 'gate', 'gateway', 'opencode') + ((frontend,) if frontend else ())
+        # Frontends are manual-only: they never open as a side effect of Start
+        # system or recovery. Use their component Start action instead.
+        order = ('dashboard', 'gate', 'gateway', 'opencode')
         for name in order:
             spec = s.config['components'].get(name, {})
             if s.state.wanted(name) and (spec.get('command') or spec.get('start_command')):

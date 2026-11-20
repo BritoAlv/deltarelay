@@ -11,30 +11,12 @@ from remote_provider import ProviderError as ControlError, origin, validate_spec
 COMPONENTS = ('dashboard', 'gate', 'gateway', 'tunnel', 'relay', 'opencode', 'desktop', 'openchamber')
 LABELS = dict(zip(COMPONENTS, ('Dashboard', 'Frontend health gate', 'Local gateway', 'Remote host connection',
                                'Remote relay', 'OpenCode service', 'Isolated Desktop', 'OpenChamber')))
-FRONTENDS = ('openchamber', 'desktop')
-# OpenChamber is manual-only: it is started from the dashboard's component
+# Frontends are manual-only: they are started from the dashboard's component
 # controls and never by normal startup or Start system.
-AUTO_FRONTENDS = ('desktop',)
+FRONTENDS = ('openchamber', 'desktop')
 DEFAULT_INTERNET_CHECK_URL = 'https://example.com/'
 DEFAULT_GATE_URL = 'http://127.0.0.1:18789'
 INTERNET_CHECK_INTERVAL = 15
-
-
-def launchable(spec):
-    return isinstance(spec, dict) and bool(spec.get('command') or spec.get('start_command'))
-
-
-def preferred_frontend(config):
-    """Return the launchable frontend the supervisor starts by default.
-
-    Only Desktop is auto-started. OpenChamber is intentionally manual: the
-    dashboard's Start action launches it without changing this default.
-    """
-    components = config.get('components', {})
-    for name in AUTO_FRONTENDS:
-        if launchable(components.get(name)):
-            return name
-    return None
 
 
 def loopback_origin(value, https=False):
