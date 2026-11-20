@@ -16,7 +16,7 @@
   "opencode_service_file": "/home/YOU/.local/state/opencode/service.json",
   "opencode_directory": "/absolute/path/to/deltarelay",
   "vscode": {
-    "open_command": ["/usr/bin/code", "--profile", "DeltaRelay", "/absolute/path/to/deltarelay"]
+    "open_command": ["/usr/bin/code", "--new-window"]
   },
   "components": {
     "dashboard": {

@@ -252,8 +252,8 @@ plugin.** That guide also covers manual setup and direct HTTPS.
 To use Varro in VS Code, install it in a dedicated profile and point it at the
 gate as described in [Varro + VS Code](docs/VARRO_VSCODE.md). The supervisor
 starts the gate by default; you do not run a separate gate command. The
-dashboard's **Open** action can launch the configured profile once after
-`vscode.open_command` is set.
+dashboard's **Open** action can launch VS Code — an empty window by default, or
+the configured Varro profile — once `vscode.open_command` is set.
 
 To use OpenChamber Desktop, install the official `.deb`, verify its SHA-256, add
 `components.openchamber` to the private supervisor configuration, and restart

@@ -48,8 +48,9 @@ is shared, so neither frontend owns or changes the other's lifecycle.
    v2 service, and optional workspace plugin.
 6. Optional: set `vscode.open_command` in the supervisor configuration and
    restart the supervisor so the dashboard's **Varro in VS Code** card can launch
-   that profile. The supervisor runs the command once and does not manage the
-   editor afterwards.
+   VS Code. `["/usr/bin/code", "--new-window"]` opens a plain empty window; use
+   the profile command below to land in the Varro profile instead. The supervisor
+   runs the command once and does not manage the editor afterwards.
 
 The detailed prerequisites, failure behavior, acceptance checks, and rollback
 follow.
@@ -271,6 +272,16 @@ the private supervisor configuration, then restart the supervisor:
 
 ```json
 "vscode": {
+  "open_command": ["/usr/bin/code", "--new-window"]
+}
+```
+
+This opens a plain, empty VS Code window with your normal profile and does not
+select a folder. To open the Varro-enabled DeltaRelay profile and workspace
+instead, use:
+
+```json
+"vscode": {
   "open_command": ["/usr/bin/code", "--profile", "DeltaRelay", "/home/alvaro/proyectos/deltarelay"],
   "env": {"XDG_CONFIG_HOME": "/home/alvaro/proyectos/deltarelay/.runtime/codespace-test/profile/config"}
 }
@@ -281,7 +292,7 @@ profile, and omit `env` if the profile lives in the default location. The comman
 is an absolute argv with no shell and no `PATH` lookup. Each **Open** click runs it
 once with the supervisor's environment minus OpenCode, token, password, and secret
 variables, and minus VS Code IPC variables inherited from an integrated terminal,
-so the request reaches the DeltaRelay profile rather than another editor instance.
+so the request reaches the configured profile rather than another editor instance.
 Open does not start the gate, OpenCode, Desktop, the relay, or the tunnel, and it
 works while the system is intentionally stopped. The supervisor does not track,
 restart, stop, or observe the editor afterwards: the card keeps showing **Not
