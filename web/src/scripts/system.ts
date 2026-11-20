@@ -75,6 +75,7 @@ export function startSystemStatus(doc: Document = document, options: SystemOptio
       managed: system.managed,
       auth: system.auth,
       go: system.go ?? null,
+      goAccounts: system.go_accounts ?? [],
     }
   }
 

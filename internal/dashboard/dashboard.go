@@ -53,6 +53,7 @@ type Handler struct {
 
 	usageMu         sync.Mutex
 	usageCache      *GoAllowance
+	usageAccounts   []GoAccountUsage
 	usageErr        error
 	usageNext       time.Time
 	usageRefreshing bool

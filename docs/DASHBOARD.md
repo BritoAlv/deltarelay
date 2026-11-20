@@ -145,6 +145,18 @@ infer a working connection merely because two processes are running.
 - Latest retained provider results. These are observations, **not** live provider
   account/authentication checks. An enabled allowlist is not proof of a healthy
   provider. No provider generation is sent by the dashboard.
+  **Provider details → opencode-go** also discovers every saved OpenCode Go or
+  Console API key from the local OpenCode service, including inactive keys, and
+  checks each key's 5-hour, weekly, and monthly allowance using OpenCode's
+  read-only usage endpoint. Results are cached for 30 seconds and refreshed in
+  the background. **Choose account** shows one key's usage at a time, defaulting
+  to the active key. A filled **Active key** badge identifies the actual OpenCode
+  selection, including while viewing a saved key. Choosing a view does not change
+  the active key. Each key has its own label and failure state; a failed refresh
+  retains only that key's last observation as stale.
+  Keys sharing an allowance may show the same percentages; they are not summed.
+  Keys, credential IDs, and workspace metadata stay server-side. Without saved
+  keys, the Console sign-in's usage remains available as a fallback.
 - Session search, per-column filters, pagination with adjustable rows per page
   (8, 25, 50, or 100), CSV export, manual refresh, and pause/resume. Each
   sortable sessions column has its own filter button:

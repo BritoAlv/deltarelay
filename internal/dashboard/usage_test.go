@@ -50,9 +50,14 @@ func expireUsage(h *Handler) {
 func TestGoAllowanceIsParsedCachedAndSanitized(t *testing.T) {
 	var calls atomic.Int32
 	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
 		if user, password, ok := r.BasicAuth(); !ok || user != "opencode" || password != "private-usage-test" {
 			t.Error("bad private service authentication")
+		}
+		calls.Add(1)
+		if r.URL.Path == "/api/credential" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":[]}`)
+			return
 		}
 		if r.URL.Path != "/api/experimental/usage/limits" {
 			t.Errorf("unexpected usage request: %s", r.URL.Path)
@@ -69,9 +74,9 @@ func TestGoAllowanceIsParsedCachedAndSanitized(t *testing.T) {
 	}
 	defer h.Close()
 
-	_ = h.goAllowance(context.Background())
+	_, _ = h.goAllowances(context.Background())
 	waitForUsageRefresh(t, h)
-	usage := h.goAllowance(context.Background())
+	usage, _ := h.goAllowances(context.Background())
 	if usage == nil || usage.Rolling.Percent != 8 || usage.Weekly.Percent != 22 || usage.Monthly.Percent != 11 || !usage.Monthly.Limited || usage.Stale || usage.CheckedAt.IsZero() {
 		t.Fatalf("unexpected Go allowance: %+v", usage)
 	}
@@ -90,7 +95,7 @@ func TestGoAllowanceIsParsedCachedAndSanitized(t *testing.T) {
 
 	// The second read inside the cache window must not call OpenCode again.
 	before := calls.Load()
-	_ = h.goAllowance(context.Background())
+	_, _ = h.goAllowances(context.Background())
 	if calls.Load() != before {
 		t.Fatal("Go allowance was not cached")
 	}
@@ -100,6 +105,11 @@ func TestGoAllowanceKeepsLastObservationOnFailureAndHandlesMissingGo(t *testing.
 	var fail atomic.Bool
 	var missing atomic.Bool
 	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/credential" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":[]}`)
+			return
+		}
 		if r.URL.Path != "/api/experimental/usage/limits" {
 			http.NotFound(w, r)
 			return
@@ -122,29 +132,29 @@ func TestGoAllowanceKeepsLastObservationOnFailureAndHandlesMissingGo(t *testing.
 	}
 	defer h.Close()
 
-	_ = h.goAllowance(context.Background())
+	_, _ = h.goAllowances(context.Background())
 	waitForUsageRefresh(t, h)
-	first := h.goAllowance(context.Background())
+	first, _ := h.goAllowances(context.Background())
 	if first == nil {
 		t.Fatal("missing initial allowance")
 	}
 	fail.Store(true)
 	expireUsage(h)
-	stale := h.goAllowance(context.Background())
+	stale, _ := h.goAllowances(context.Background())
 	if stale == nil || !stale.Stale || stale.Rolling.Percent != first.Rolling.Percent {
 		t.Fatalf("failed refresh lost the last observation: %+v", stale)
 	}
 	waitForUsageRefresh(t, h)
-	if stale = h.goAllowance(context.Background()); stale == nil || !stale.Stale {
+	if stale, _ = h.goAllowances(context.Background()); stale == nil || !stale.Stale {
 		t.Fatal("failed refresh did not mark cached usage stale")
 	}
 
 	fail.Store(false)
 	missing.Store(true)
 	expireUsage(h)
-	_ = h.goAllowance(context.Background())
+	_, _ = h.goAllowances(context.Background())
 	waitForUsageRefresh(t, h)
-	if usage := h.goAllowance(context.Background()); usage != nil {
+	if usage, _ := h.goAllowances(context.Background()); usage != nil {
 		t.Fatalf("missing Go subscription should stay neutral: %+v", usage)
 	}
 }
@@ -168,7 +178,7 @@ func TestSystemEndpointIncludesGoAllowanceWithoutServiceSecrets(t *testing.T) {
 	}
 	defer h.Close()
 
-	_ = h.goAllowance(context.Background())
+	_, _ = h.goAllowances(context.Background())
 	waitForUsageRefresh(t, h)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "http://localhost/api/system", nil))

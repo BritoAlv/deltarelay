@@ -1,5 +1,5 @@
 import { Channel } from "./events.js"
-import type { AuthStatus, ConnectionState, GoAllowance } from "./system.js"
+import type { AuthStatus, ConnectionState, GoAccountUsage, GoAllowance } from "./system.js"
 import type { OpenCodeSessions, Snapshot } from "./types.js"
 
 export interface SystemObservation {
@@ -19,6 +19,8 @@ export interface SystemObservation {
   auth: AuthStatus | null
   /** OpenCode Go allowance, when the local service reports it. */
   go: GoAllowance | null
+  /** Usage for every saved OpenCode API key, including inactive accounts. */
+  goAccounts?: GoAccountUsage[]
 }
 
 // Five-second system polling can legitimately miss one or two ticks during a

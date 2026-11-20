@@ -378,11 +378,29 @@
   .provider-panel .provider-auth { margin-top: 9px; }
   .provider-usage { margin-top: 9px; padding: 9px 10px 10px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--surface-raised) 28%, transparent); }
   .provider-usage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--subtle); font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
-  .provider-usage-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 34px; gap: 3px 8px; align-items: center; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent); }
+  .provider-usage-account-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; margin-bottom: 8px; }
+  .provider-usage-account-label { min-width: 0; color: var(--text); font-size: 12px; font-weight: 550; overflow-wrap: anywhere; }
+  .provider-usage-key-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .provider-usage-key-status.active { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 3px; background: var(--success); color: var(--bg); font-size: 11px; font-weight: 650; line-height: 1.4; white-space: nowrap; }
+  .provider-account-chooser { margin-bottom: 12px; }
+  .provider-account-trigger { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); font-size: 12px; line-height: 1.4; list-style: none; cursor: pointer; }
+  .provider-account-trigger::-webkit-details-marker { display: none; }
+  .provider-account-trigger:hover { background: var(--surface-raised); }
+  .provider-account-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .provider-account-trigger svg { flex: none; }
+  .provider-account-chooser[open] .provider-account-trigger svg { transform: rotate(180deg); }
+  .provider-account-options { min-width: 0; max-height: 240px; margin: 6px 0 0; padding: 0; border: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .provider-account-option { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 44px; padding: 7px 8px; border-radius: 4px; color: var(--text); font-size: 12px; cursor: pointer; overflow-wrap: anywhere; }
+  .provider-account-option:hover, .provider-account-option:focus-within { background: var(--surface-raised); }
+  .provider-account-option input { margin: 0; accent-color: var(--accent); }
+  .provider-account-active-context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+  .provider-usage-message { margin-top: 6px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+  .provider-usage-fetched { margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+  .provider-usage-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) minmax(34px, max-content); gap: 3px 8px; align-items: center; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--border) 62%, transparent); }
   .provider-usage-head + .provider-usage-row { margin-top: 6px; }
   .provider-usage-label { color: var(--muted); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
   .provider-usage-track { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
-  .provider-usage-track > i { display: block; min-width: 3px; height: 100%; border-radius: 2px; background: var(--accent); }
+  .provider-usage-track > i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
   .provider-usage-row.warning .provider-usage-track > i { background: var(--warning); }
   .provider-usage-percent { color: var(--text); font: 600 14px var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
   .provider-usage-reset { grid-column: 2 / 4; color: var(--subtle); font-size: 11px; line-height: 1.35; }

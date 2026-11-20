@@ -54,6 +54,7 @@ type SystemStatus struct {
 	Components        []ComponentStatus `json:"components"`
 	Auth              AuthStatus        `json:"auth"`
 	Go                *GoAllowance      `json:"go,omitempty"`
+	GoAccounts        []GoAccountUsage  `json:"go_accounts,omitempty"`
 	Topology          *TopologyStatus   `json:"topology,omitempty"`
 }
 
@@ -113,7 +114,7 @@ func (h *Handler) system(w http.ResponseWriter, r *http.Request) {
 	}
 	result.CSRFToken = h.nonce
 	result.Auth = h.authStatus(r.Context())
-	result.Go = h.goAllowance(r.Context())
+	result.Go, result.GoAccounts = h.goAllowances(r.Context())
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodHead {
 		_ = json.NewEncoder(w).Encode(result)

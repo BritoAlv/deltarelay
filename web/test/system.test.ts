@@ -64,6 +64,39 @@ test("control snapshots validate Go allowance meters", () => {
   }
 })
 
+test("control snapshots validate per-key Go usage and isolated failures", () => {
+  const allowance = {
+    rolling: { percent: 8, limited: false, resets_at: "2026-10-28T13:00:00Z" },
+    weekly: { percent: 22, limited: false, resets_at: "2026-10-30T13:00:00Z" },
+    monthly: { percent: 11, limited: false, resets_at: "2026-11-28T13:00:00Z" },
+    checked_at: "2026-10-28T12:00:00Z",
+    stale: false,
+  }
+  const account = { label: "Personal", active: true, state: "ready", allowance }
+  const validate = (go_accounts: unknown) => isSystemStatus({ ...status, go_accounts })
+  assert.equal(validate([]), true)
+  assert.equal(validate([account, { ...account, label: "Saved account", active: false }]), true)
+  assert.equal(validate([{ ...account, id: "a".repeat(32) }]), true)
+  for (const state of ["unavailable", "invalid_key", "forbidden"]) {
+    assert.equal(validate([{ label: "Saved", active: false, state }]), true)
+  }
+  assert.equal(validate([{ ...account, state: "unavailable", allowance: { ...allowance, stale: true } }]), true)
+  for (const invalid of [
+    null, {}, [null],
+    [{ ...account, id: "cred_private" }],
+    [{ ...account, id: null }],
+    [{ ...account, label: "" }],
+    [{ ...account, label: "x".repeat(81) }],
+    [{ ...account, label: "private\nlabel" }],
+    [{ ...account, active: 1 }],
+    [{ ...account, state: "unknown" }],
+    [{ ...account, allowance: undefined }],
+    [{ ...account, allowance: { ...allowance, rolling: { ...allowance.rolling, percent: 101 } } }],
+    [{ ...account, state: "unavailable" }],
+    [{ ...account, state: "forbidden" }],
+  ]) assert.equal(validate(invalid), false)
+})
+
 test("gate is a bounded managed component and the inventory limit is eight", () => {
   const gate = { id: "gate", label: "Frontend health gate", state: "running", can_start: true, can_restart: true }
   assert.equal(isSystemStatus({ ...status, components: [...status.components, gate] }), true)

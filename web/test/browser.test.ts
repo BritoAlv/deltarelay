@@ -2170,6 +2170,197 @@ test("provider details marks a limited Go allowance as attention", async () => {
   await page.close()
 })
 
+test("provider usage preserves decimal percentages and shows the last successful fetch time", async () => {
+  const page = openPage("system")
+  const snapshot = makeSnapshot(now)
+  const allowance = {
+    rolling: { percent: 0.345, limited: false, resets_at: new Date(now + 3_600_000).toISOString() },
+    weekly: { percent: 22.6789, limited: false, resets_at: new Date(now + 86_400_000).toISOString() },
+    monthly: { percent: 99.9999, limited: false, resets_at: new Date(now + 86_400_000).toISOString() },
+    checked_at: new Date(now - 60_000).toISOString(),
+    stale: false,
+  }
+  const status = systemStatus({ go: allowance })
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(status))
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  const panel = () => page.document.querySelector('[data-provider-panel="opencode-go"]')!
+  const fetchedAt = () => panel().querySelector(".provider-usage-fetched time")
+  try {
+    await Promise.all([dashboard.refresh(), system.refresh()])
+    assert.deepEqual([...panel().querySelectorAll(".provider-usage-percent")].map((row) => row.textContent), ["0.345%", "22.6789%", "99.9999%"])
+    assert.deepEqual([...panel().querySelectorAll('[role="progressbar"]')].map((bar) => bar.getAttribute("aria-valuenow")), ["0.345", "22.6789", "99.9999"])
+    assert.deepEqual([...panel().querySelectorAll<HTMLElement>(".provider-usage-track > i")].map((bar) => bar.style.width), ["0.345%", "22.6789%", "99.9999%"])
+    assert.equal(panel().querySelector(".provider-usage-row.warning"), null)
+    assert.match(panel().querySelector(".provider-usage-fetched")?.textContent ?? "", /Last fetched/)
+    assert.equal(fetchedAt()?.getAttribute("datetime"), allowance.checked_at)
+    assert.equal(fetchedAt()?.textContent, new Date(allowance.checked_at).toLocaleString())
+
+    await Promise.all([dashboard.refresh(), system.refresh()])
+    assert.equal(fetchedAt()?.getAttribute("datetime"), allowance.checked_at, "polling cached usage must not change its fetch time")
+    allowance.stale = true
+    status.collected_at = new Date(now + 5_000).toISOString()
+    await system.refresh()
+    assert.match(panel().textContent ?? "", /Stale/)
+    assert.equal(fetchedAt()?.getAttribute("datetime"), allowance.checked_at, "stale usage keeps its last successful fetch time")
+
+    allowance.checked_at = new Date(now + 30_000).toISOString()
+    allowance.stale = false
+    await system.refresh()
+    assert.equal(fetchedAt()?.getAttribute("datetime"), allowance.checked_at)
+    assert.equal(fetchedAt()?.textContent, new Date(allowance.checked_at).toLocaleString())
+  } finally {
+    dashboard.destroy()
+    system.destroy()
+    await page.close()
+  }
+})
+
+test("provider details shows one Go account with a chooser and an explicit active-key marker", async () => {
+  const page = openPage("system")
+  const snapshot = makeSnapshot(now)
+  snapshot.providers = [{ name: "openai", active: 0, last_status: 200, last_seen: new Date(now).toISOString() }]
+  const allowance = {
+    rolling: { percent: 8, limited: false, resets_at: new Date(Date.now() + 3_600_000).toISOString() },
+    weekly: { percent: 64, limited: false, resets_at: new Date(Date.now() + 86_400_000).toISOString() },
+    monthly: { percent: 63, limited: false, resets_at: new Date(Date.now() + 86_400_000).toISOString() },
+    checked_at: new Date(now).toISOString(),
+    stale: false,
+  }
+  const status = systemStatus({
+    go_accounts: [
+      { id: "a".repeat(32), label: 'Saved <img src=x onerror="alert(1)">', active: false, state: "ready", allowance },
+      { id: "b".repeat(32), label: "Current account", active: true, state: "ready", allowance: { ...allowance, checked_at: new Date(now - 30_000).toISOString(), rolling: { ...allowance.rolling, percent: 0 }, weekly: { ...allowance.weekly, percent: 0 }, monthly: { ...allowance.monthly, percent: 0 } } },
+    ],
+  })
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(status))
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  const doc = page.document
+  const accounts = () => [...doc.querySelectorAll('[data-provider-panel="opencode-go"] .provider-usage-account')]
+  const fetchedAt = () => accounts()[0]?.querySelector(".provider-usage-fetched time")?.getAttribute("datetime")
+  const choose = (id: string) => {
+    doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")!.open = true
+    doc.querySelector<HTMLInputElement>(`input[data-go-account="${id}"]`)!.click()
+  }
+  assert.equal(accounts().length, 1)
+  assert.equal(accounts()[0]?.querySelector(".provider-usage-account-label")?.textContent, "Current account")
+  assert.equal(accounts()[0]?.querySelector(".provider-usage-account-head .provider-usage-key-status.active")?.textContent, "Active key")
+  assert.equal(doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")?.open, false)
+  assert.equal(doc.querySelector(".provider-account-trigger")?.textContent, "Choose account")
+  assert.equal(doc.querySelector<HTMLInputElement>('input[data-go-account="' + "b".repeat(32) + '"]')?.checked, true)
+  assert.equal(doc.querySelectorAll('[data-provider-panel="opencode-go"] [role="progressbar"]').length, 3)
+  assert.deepEqual([...accounts()[0]!.querySelectorAll(".provider-usage-percent")].map((row) => row.textContent), ["0%", "0%", "0%"])
+  assert.equal(fetchedAt(), status.go_accounts![1]!.allowance!.checked_at)
+
+  choose("a".repeat(32))
+  assert.equal(accounts().length, 1)
+  assert.equal(accounts()[0]?.querySelector(".provider-usage-account-label")?.textContent, status.go_accounts![0]!.label)
+  assert.equal(accounts()[0]?.querySelector("img"), null)
+  assert.equal(accounts()[0]?.querySelector(".provider-usage-account-head .provider-usage-key-status")?.textContent, "Saved key")
+  assert.match(doc.querySelector(".provider-account-active-context")?.textContent ?? "", /Active keyCurrent account/)
+  assert.equal(doc.querySelector(".provider-account-active-context .provider-usage-key-status.active")?.textContent, "Active key")
+  assert.deepEqual([...accounts()[0]!.querySelectorAll(".provider-usage-percent")].map((row) => row.textContent), ["8%", "64%", "63%"])
+  assert.equal(fetchedAt(), allowance.checked_at)
+  assert.equal(doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")?.open, false)
+  assert.equal(doc.activeElement, doc.querySelector(".provider-account-trigger"))
+  assert.deepEqual(status.go_accounts!.map((account) => account.active), [false, true], "choosing a view must never activate a key")
+
+  // Failures are still isolated when only the selected key's usage is rendered.
+  status.go_accounts![0] = { ...status.go_accounts![0]!, state: "unavailable", allowance: { ...allowance, stale: true } }
+  await system.refresh()
+  assert.match(accounts()[0]?.textContent ?? "", /Stale.*8%.*64%.*63%.*Showing last known usage/s)
+  assert.equal(fetchedAt(), allowance.checked_at)
+  assert.ok(doc.querySelector('[data-provider-tab="opencode-go"] .provider-tab-dot.warning'))
+  assert.match(doc.querySelector("#system-cards")?.textContent ?? "", /Check results/)
+  choose("b".repeat(32))
+  assert.match(accounts()[0]?.textContent ?? "", /Within limits/)
+  assert.equal(accounts()[0]?.querySelectorAll('[role="progressbar"]').length, 3)
+  choose("a".repeat(32))
+
+  for (const [state, message] of [["invalid_key", /API key was rejected/], ["forbidden", /Usage access was denied/], ["unavailable", /Usage could not be checked/]] as const) {
+    status.go_accounts![0] = { id: "a".repeat(32), label: "Saved account", active: false, state }
+    await system.refresh()
+    assert.match(accounts()[0]?.textContent ?? "", message)
+    assert.equal(accounts()[0]?.querySelectorAll('[role="progressbar"]').length, 0)
+    assert.equal(fetchedAt(), undefined, "no successful usage fetch must not show a timestamp")
+  }
+  status.go_accounts = [status.go_accounts![1]!]
+  await system.refresh()
+  assert.equal(accounts().length, 1)
+  assert.equal(doc.querySelector("[data-go-account-chooser]"), null)
+  assert.match(accounts()[0]?.textContent ?? "", /Current account.*Active key/s)
+  assert.ok(doc.querySelector('[data-provider-tab="opencode-go"] .provider-tab-dot.neutral'))
+
+  // A failed system poll preserves both the key label and its stale usage.
+  page.setFetch((url) => {
+    if (url === "/api/system") throw new Error("offline")
+    return json(snapshot)
+  })
+  await system.refresh()
+  assert.match(accounts()[0]?.textContent ?? "", /Current account.*Stale/s)
+  assert.equal(fetchedAt(), status.go_accounts![0]!.allowance!.checked_at)
+  dashboard.destroy()
+  system.destroy()
+  await page.close()
+})
+
+test("Go account viewing survives refresh, reordering and renaming without confusing selection with activity", async () => {
+  const page = openPage("system")
+  const snapshot = makeSnapshot(now)
+  const meter = { percent: 8, limited: false, resets_at: new Date(now + 3_600_000).toISOString() }
+  const allowance = { rolling: meter, weekly: meter, monthly: meter, checked_at: new Date(now).toISOString(), stale: false }
+  const first = { id: "a".repeat(32), label: "Shared label", active: false, state: "ready" as const, allowance }
+  const second = { id: "b".repeat(32), label: "Shared label", active: true, state: "ready" as const, allowance: { ...allowance, rolling: { ...meter, percent: 22 } } }
+  const status = systemStatus({ go_accounts: [first, second] })
+  page.setFetch((url) => url.startsWith("/api/dashboard?") ? json(snapshot) : json(status))
+  const system = startSystemStatus(page.document, { autoStart: false, manageHeader: false })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  const doc = page.document
+  const percent = () => doc.querySelector(".provider-usage-account .provider-usage-percent")?.textContent
+  assert.equal(percent(), "22%")
+  // Until explicitly choosing a view, follow whichever key OpenCode activates.
+  first.active = true
+  second.active = false
+  await system.refresh()
+  assert.equal(percent(), "8%")
+  doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")!.open = true
+  doc.querySelector<HTMLInputElement>(`input[data-go-account="${second.id}"]`)!.click()
+  assert.equal(percent(), "22%")
+  assert.equal(doc.querySelector(".provider-usage-account-head .provider-usage-key-status.active"), null)
+  assert.match(doc.querySelector(".provider-account-active-context")?.textContent ?? "", /Active keyShared label/)
+
+  second.label = "Renamed account"
+  status.go_accounts = [second, first]
+  doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")!.open = true
+  doc.querySelector<HTMLInputElement>(`input[data-go-account="${second.id}"]`)!.focus()
+  await Promise.all([dashboard.refresh(), system.refresh()])
+  assert.equal(percent(), "22%")
+  assert.equal(doc.querySelector(".provider-usage-account-label")?.textContent, "Renamed account")
+  assert.equal(doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")?.open, true)
+  assert.equal((doc.activeElement as HTMLElement).dataset.goAccount, second.id)
+  doc.activeElement!.dispatchEvent(new page.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }) as unknown as KeyboardEvent)
+  assert.equal(doc.querySelector<HTMLDetailsElement>("[data-go-account-chooser]")?.open, false)
+  assert.equal(doc.activeElement, doc.querySelector(".provider-account-trigger"))
+
+  first.active = false
+  second.active = true
+  await system.refresh()
+  assert.equal(doc.querySelector(".provider-usage-account-head .provider-usage-key-status.active")?.textContent, "Active key")
+  assert.equal(doc.querySelector(".provider-account-active-context"), null)
+  status.go_accounts = [first]
+  await system.refresh()
+  assert.equal(percent(), "8%")
+  assert.equal(doc.querySelector("[data-go-account-chooser]"), null)
+  assert.equal(doc.querySelector(".provider-usage-key-status.active"), null, "do not invent an active key when none is reported")
+  assert.deepEqual([...new Set(page.fetchCalls.map((call) => call.url))].sort(), ["/api/dashboard?compact=1", "/api/system"])
+  dashboard.destroy()
+  system.destroy()
+  await page.close()
+})
+
 test("system health distinguishes no internet from an unreachable VPS", async () => {
   const page = openPage("system")
   const snapshot = makeSnapshot(now)

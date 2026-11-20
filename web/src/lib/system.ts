@@ -22,6 +22,15 @@ export interface GoAllowance {
   stale: boolean
 }
 
+export interface GoAccountUsage {
+  /** Opaque view identity; optional for compatibility with older dashboards. */
+  id?: string
+  label: string
+  active: boolean
+  state: "ready" | "unavailable" | "invalid_key" | "forbidden"
+  allowance?: GoAllowance
+}
+
 export interface SystemStatus {
   version: 2
   managed: boolean
@@ -42,6 +51,7 @@ export interface SystemStatus {
   components: { id: string; label: string; state: string; can_start: boolean; can_restart: boolean }[]
   auth: AuthStatus
   go?: GoAllowance
+  go_accounts?: GoAccountUsage[]
   topology?: TopologyStatus
 }
 
@@ -57,6 +67,15 @@ export function isGoAllowance(value: unknown): value is GoAllowance {
   return object(value) && isAllowanceMeter(value.rolling) && isAllowanceMeter(value.weekly) && isAllowanceMeter(value.monthly) && timestamp(value.checked_at) && typeof value.stale === "boolean"
 }
 
+function isGoAccountUsage(value: unknown): value is GoAccountUsage {
+  if (!object(value) || typeof value.label !== "string" || !value.label.trim() || [...value.label].length > 80 || /[\x00-\x1f\x7f-\x9f]/.test(value.label) || typeof value.active !== "boolean") return false
+  if (value.id !== undefined && (typeof value.id !== "string" || !/^[a-f0-9]{32}$/.test(value.id))) return false
+  if (typeof value.state !== "string" || !["ready", "unavailable", "invalid_key", "forbidden"].includes(value.state)) return false
+  if (value.allowance !== undefined && !isGoAllowance(value.allowance)) return false
+  if (value.state === "ready") return value.allowance !== undefined
+  return value.allowance === undefined || value.state === "unavailable" && value.allowance.stale === true
+}
+
 export function supportsRemote(system: SystemStatus | null, capability: RemoteCapability): boolean {
   return Boolean(system?.remote.capabilities.includes(capability))
 }
@@ -66,6 +85,7 @@ export function isSystemStatus(v: unknown): v is SystemStatus {
   if (typeof v.internet_state !== "string" || !nullableTimestamp(v.internet_checked_at)) return false
   if (!object(v.auth) || typeof v.auth.state !== "string" || typeof v.auth.stale !== "boolean" || !optionalTimestamp(v.auth.expires_at) || !optionalTimestamp(v.auth.checked_at)) return false
   if (v.go !== undefined && !isGoAllowance(v.go)) return false
+  if (v.go_accounts !== undefined && (!Array.isArray(v.go_accounts) || !v.go_accounts.every(isGoAccountUsage))) return false
   if (!object(v.settings) || typeof v.settings.auto_reconnect !== "boolean" || typeof v.settings.auto_wake !== "boolean") return false
   if (v.topology !== undefined && !isTopology(v.topology)) return false
   if (!object(v.recovery) || typeof v.recovery.busy !== "boolean" || typeof v.recovery.phase !== "string" || typeof v.recovery.last_error !== "string" || !counters(v.recovery, ["attempts"]) || !nullableTimestamp(v.recovery.next_retry_at) || !nullableTimestamp(v.recovery.last_connected_at)) return false
