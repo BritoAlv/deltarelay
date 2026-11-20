@@ -163,8 +163,9 @@ supervisor topology: selecting a component highlights its connections, while
 lifecycle state and actions are on the **Controls** tab. The map distinguishes
 model-request/response flow from checks, recovery, and management. Request content
 and forwarding credentials still pass through the trusted relay. This capture
-predates the separate **Response mailbox** node and its saved-bytes return lane
-in the current map. See [architecture](docs/ARCHITECTURE.md).
+predates the separate **Response mailbox** node, its saved-bytes return lane, and
+the remote host's heading treatment in the current map. See
+[architecture](docs/ARCHITECTURE.md).
 
 OpenChamber Desktop is an optional attach-only graphical frontend for the
 **same** shared OpenCode service: `OpenChamber → shared frontend gate → OpenCode

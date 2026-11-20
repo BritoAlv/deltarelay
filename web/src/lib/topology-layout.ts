@@ -16,7 +16,7 @@ export const mapNodes: { id: NodeID; label: string; icon: import("./icons.js").I
   { id: "gateway", label: "Local gateway", icon: "shield", role: "Process", x: 795, y: 390 },
   { id: "network", label: "Internet / interfaces", icon: "globe", role: "Network", x: 535, y: 645 },
   { id: "tunnel", label: "Connection transport", icon: "link", role: "Transport", x: 795, y: 645 },
-  { id: "remote", label: "Remote host", icon: "system", role: "Host", x: 1205, y: 95 },
+  { id: "remote", label: "Remote host", icon: "system", role: "Host", x: 1205, y: 88 },
   { id: "relay", label: "DeltaRelay relay", icon: "relay", role: "Process", x: 1205, y: 390 },
   { id: "storage", label: "Request chunk cache", icon: "storage", role: "Files", x: 1090, y: 585 },
   { id: "mailbox", label: "Response mailbox", icon: "mailbox", role: "Durable files", note: "Saved until ACK / expiry", x: 1320, y: 585 },
@@ -171,8 +171,18 @@ export function edgePath(source: NodeID, target: NodeID): string {
     // drop down the margin outside the relay's owned-files boundary.
     return `M${a.x + nodeWidth},${ay} H${mapWidth - 38} V${b.y + nodeHeight / 2} H${b.x + nodeWidth}`
   }
+  if (source === "remote" && target === "relay") {
+    // The host heading sits above the relay: descend from beneath the host
+    // identity into the process that runs on it.
+    return `M${a.x + nodeWidth / 2},${a.y + nodeHeight} V${b.y}`
+  }
+  if (source === "relay" && target === "remote") {
+    // Keep the ownership return vertical through the open lane above the relay.
+    return `M${a.x + nodeWidth / 2},${a.y} V${b.y + nodeHeight}`
+  }
   if (source === "remote_provider" && (target === "remote" || target === "relay")) {
-    return `M${a.x + nodeWidth},${ay} H1048 V${by} H${b.x}`
+    // Enter the visual host heading, not the hidden host-card geometry.
+    return `M${a.x + nodeWidth},${ay} H1048 V${target === "remote" ? 140 : by} H${b.x}`
   }
   if (source === "relay" && (target === "storage" || target === "mailbox")) return storageFlow(target).path
   if (a.y === b.y) return a.x < b.x

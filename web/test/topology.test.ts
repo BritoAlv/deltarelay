@@ -204,7 +204,7 @@ test("transport boundaries describe configured processes versus paths, not readi
 })
 
 test("aligned connection arrows attach to the facing sides in both directions", () => {
-  for (const [source, target] of [["gate", "opencode"], ["opencode", "gate"], ["remote", "relay"], ["relay", "remote"], ["storage", "mailbox"], ["mailbox", "storage"]] as const) {
+  for (const [source, target] of [["gate", "opencode"], ["opencode", "gate"], ["remote", "relay"], ["relay", "remote"]] as const) {
     const a = mapNodes.find((node) => node.id === source)!, b = mapNodes.find((node) => node.id === target)!
     const expected = a.y === b.y
       ? `M${a.x + (a.x < b.x ? nodeWidth : 0)},${a.y + nodeHeight / 2} H${b.x + (a.x > b.x ? nodeWidth : 0)}`

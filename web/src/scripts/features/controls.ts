@@ -56,6 +56,9 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
   const transportHeading = requiredById(root, "map-boundary-tunnel")
   const transportOutline = root.querySelector<SVGRectElement>('[data-map-group="tunnel"]')!
   const buttons = [...root.querySelectorAll<HTMLButtonElement>("[data-node-id]")]
+  const remoteHost = requiredById<HTMLButtonElement>(root, "map-remote-host")
+  const remoteHostLabel = root.querySelector<HTMLElement>("[data-remote-host-label]")!
+  const remoteHostMark = root.querySelector<HTMLElement>("[data-remote-host-icon]")!
   const setText = (id: string, value: string) => {
     const element = requiredById(root, id)
     if (element.textContent !== value) element.textContent = value
@@ -177,12 +180,13 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     }
 
     components.update(system, stale, disabled, canShutdown)
+    const remoteNode = topology?.nodes.find((node) => node.id === "remote")
+    const remoteName = remoteHostIcon(system?.remote)
+    remoteHostLabel.textContent = remoteNode?.label ?? "Remote host"
+    if (remoteHostMark.dataset.icon !== remoteName) { remoteHostMark.innerHTML = iconMarkup(remoteName, 20); remoteHostMark.dataset.icon = remoteName }
+    remoteHost.setAttribute("aria-pressed", String(selected === "remote"))
+    remoteHost.setAttribute("aria-label", `${remoteHostLabel.textContent} (Host). Highlight connections.`)
     for (const button of buttons) {
-      if (button.dataset.nodeId === "remote") {
-        const icon = button.querySelector<HTMLElement>("[data-node-icon]")!
-        const name = remoteHostIcon(system?.remote)
-        if (icon.dataset.icon !== name) { icon.innerHTML = iconMarkup(name, 22); icon.dataset.icon = name }
-      }
       const node = topology?.nodes.find((item) => item.id === button.dataset.nodeId)
       button.setAttribute("aria-pressed", String(button.dataset.nodeId === selected))
       const label = button.querySelector<HTMLElement>("[data-node-label]")!
@@ -228,7 +232,7 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
         }
       }
     }
-    const selectedLabel = buttons.find((button) => button.dataset.nodeId === selected)?.querySelector("[data-node-label]")?.textContent
+    const selectedLabel = selected === "remote" ? remoteHostLabel.textContent : buttons.find((button) => button.dataset.nodeId === selected)?.querySelector("[data-node-label]")?.textContent
     requiredById(root, "map-selection").innerHTML = selected
       ? `${escape(selectedLabel ?? readableLabel(selected))} · ${dataValue(`${edges.querySelectorAll(".selected").length} visible arrows highlighted`)}`
       : "No component selected"
@@ -306,10 +310,12 @@ export function mountControls({ root, onRefresh, onAction }: ControlsOptions): C
     selectView(next)
     sections[next]!.tab.focus()
   }
-  for (const button of buttons) button.addEventListener("click", () => { selected = selected === button.dataset.nodeId ? null : button.dataset.nodeId as NodeID; render() })
+  const selectNode = (nodeID: NodeID) => { selected = selected === nodeID ? null : nodeID; render() }
+  for (const button of buttons) button.addEventListener("click", () => selectNode(button.dataset.nodeId as NodeID))
+  remoteHost.addEventListener("click", () => selectNode("remote"))
   const viewport = root.querySelector<HTMLElement>(".topology-viewport")!
   viewport.addEventListener("click", (event) => {
-    if ((event.target as Element).closest("[data-node-id]")) return
+    if ((event.target as Element).closest("[data-node-id], #map-remote-host")) return
     if (selected) { selected = null; render() }
   })
   architectureView.addEventListener("keydown", (event) => { if (event.key === "Escape") { selected = null; render() } })

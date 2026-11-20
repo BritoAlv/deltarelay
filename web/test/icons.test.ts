@@ -79,7 +79,7 @@ test("controls initialize and poll status while updating remote host icons", asy
     page.setFetch(() => json(system))
     app = startSystemStatus(page.document, { autoStart: false })
     const cardIcon = page.document.querySelector<HTMLElement>('[data-component-id="remote"] .component-icon')!
-    const mapIcon = page.document.querySelector<HTMLElement>('[data-node-id="remote"] [data-node-icon]')!
+    const mapIcon = page.document.querySelector<HTMLElement>("#map-remote-host [data-remote-host-icon]")!
     assert.equal(cardIcon.dataset.icon, "system", "initial render works without supervisor data")
     assert.equal(mapIcon.dataset.icon, "system")
     for (const [remote, name] of [

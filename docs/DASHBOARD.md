@@ -58,8 +58,11 @@ infer a working connection merely because two processes are running.
   twelve rows cover the eight configured-component inventory entries plus the
   editor, remote host, supervisor and adapter context. On narrow screens it
   scrolls horizontally with component names pinned, rather than stacking each
-  item. The read-only map has 18 nodes and 27 connections and highlights arrows
-  when you select a node. On the remote host, the relay owns separate request
+  item. The read-only map has 18 topology nodes and 27 connections and highlights
+  arrows when you select a node. The remote host appears as the host boundary's
+  heading, with the configured environment name (for example **GitHub
+  Codespaces**) beneath it, instead of a separate card: a host is context, not
+  a process. On the remote host, the relay owns separate request
   chunk-cache and durable response-mailbox files. Both have labeled **Write** and
   **Read** arrows: cache transfers follow the request toggle, mailbox transfers
   follow the response toggle, and hiding management does not hide either pair.

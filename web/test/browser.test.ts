@@ -2545,7 +2545,7 @@ test("map prominently encloses every process, its modules and owned files, witho
   assert.match(doc.querySelector("#map-boundary-relay-description")?.textContent ?? "", /Files survive restarts.*neither store is a separate forwarding service/)
   assert.match(doc.querySelector("#map-boundary-remote_provider-description")?.textContent ?? "", /invoked on demand.*not a permanently running server/)
   assert.match(doc.querySelector(".map-boundary-note")?.textContent ?? "", /files survive restarts/)
-  for (const node of mapNodes) {
+  for (const node of mapNodes.filter((item) => item.id !== "remote")) {
     const description = doc.querySelector(`[data-node-id="${node.id}"]`)?.getAttribute("aria-describedby")
     assert.ok(description && doc.getElementById(description), `${node.id}: accessible boundary description`)
   }
@@ -2642,7 +2642,8 @@ test("controls show the component table separately from the read-only map and po
   assert.equal(doc.querySelector("#control-connection")?.textContent, "Relay connected")
   assert.equal(doc.querySelector("#connection-label")?.textContent, "Live")
   assert.equal(doc.querySelector("#stat-sessions"), null)
-  assert.equal(doc.querySelectorAll("[data-node-id]").length, 18)
+  assert.equal(doc.querySelectorAll("[data-node-id]").length, 17)
+  assert.match(doc.querySelector('#map-remote-host')?.getAttribute("aria-label") ?? "", /Example host \(Host\).*Highlight connections/)
   assert.match(doc.querySelector('[data-node-id="storage"]')?.getAttribute("aria-label") ?? "", /Request chunk cache \(Files\).*Highlight connections/)
   assert.equal(doc.querySelector("#service-controls"), null)
   assert.equal(doc.querySelector("#activity-console"), null)
@@ -2666,6 +2667,10 @@ test("controls show the component table separately from the read-only map and po
   assert.ok(doc.querySelector('[data-edge-id="opencode_plugin"]')?.classList.contains("selected"))
   doc.querySelector<HTMLButtonElement>('[data-node-id="storage"]')!.click()
   assert.ok(doc.querySelector('[data-edge-id="relay_storage"]')?.classList.contains("selected"))
+  doc.querySelector<HTMLButtonElement>("#map-remote-host")!.click()
+  assert.equal(doc.querySelector<HTMLButtonElement>("#map-remote-host")!.getAttribute("aria-pressed"), "true")
+  assert.match(doc.querySelector("#map-selection")?.textContent ?? "", /Example host · 2 visible arrows highlighted/)
+  assert.ok(doc.querySelector('[data-edge-id="remote_relay"]')?.classList.contains("selected"))
   assert.equal(doc.querySelector("#system-architecture-view [data-component-action]"), null)
   system.destroy()
   await page.close()

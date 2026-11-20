@@ -141,7 +141,9 @@ unfinished provider work is marked interrupted, never automatically regenerated.
   unmanaged, or does not support the action.
 - The architecture map separates caller → service model requests and returning
   responses from control/ownership connections. Dependency arrows point toward
-  the prerequisite, including transport → network. The relay's owned files show
+  the prerequisite, including transport → network. The remote host is the dashed
+  host boundary itself: its heading names the configured environment (for example
+  **GitHub Codespaces**), so it never appears as a process card. The relay's owned files show
   **Request chunk cache** and **Response mailbox** separately, with explicit
   **Write** and **Read** arrows. Cache transfers use the request channel; mailbox
   persistence and retrieval use the response channel, independently of management

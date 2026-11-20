@@ -178,7 +178,9 @@ transport → relay → external model provider, and, for attached frontends,
 OpenChamber or VS Code/Varro → shared frontend health gate → the same OpenCode
 server. The map also shows network/host prerequisites
 and relay-owned storage. A separate control path shows the dashboard browser,
-dashboard service, supervisor, and remote-host adapter. Nodes and their connections
+dashboard service, supervisor, and remote-host adapter. The remote host is the
+dashed host boundary's heading, labelled with the configured environment, not a
+process card. Nodes and their connections
 are reported independently:
 two running processes are never presented as proof that their traffic path works.
 

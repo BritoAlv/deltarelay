@@ -308,6 +308,11 @@
   .map-node-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; color: var(--muted); }
   .map-node-role { margin-left: auto; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; white-space: nowrap; }
   .map-node-note { color: var(--muted); font-size: 11px; line-height: 1.4; }
+  .map-remote-host { position: absolute; width: 315px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0; color: var(--text); text-align: left; background: none; border: 0; box-shadow: none; cursor: pointer; }
+  .map-remote-host-name { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+  .map-remote-host-name strong { overflow-wrap: anywhere; font-size: 16px; line-height: 1.4; font-weight: 550; }
+  .map-remote-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
+  .map-remote-host[aria-pressed="true"] strong { color: var(--accent); }
   .topology-node[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
   .node-connections h4 { font-size: 12px; font-weight: 550; color: var(--muted); margin: 0 0 10px; }
   .connection-list { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }

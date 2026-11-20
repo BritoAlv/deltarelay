@@ -44,10 +44,13 @@ import { mapBoundaries, mapLayerSegments, mapRegions, mapNodes, mapWidth, mapHei
             {boundary.note && <text class="map-boundary-note" x={boundary.x + 16} y={boundary.y + 71}>{boundary.note}</text>}
           </g>)}
         </svg>
-        {mapNodes.map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" aria-describedby={`map-boundary-${mapBoundaries.find((boundary) => boundary.members.includes(node.id))?.id ?? "remote"}-description`} style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
+        {mapNodes.filter((node) => node.id !== "remote").map((node) => <button type="button" class="topology-node" data-node-id={node.id} aria-pressed="false" aria-describedby={`map-boundary-${mapBoundaries.find((boundary) => boundary.members.includes(node.id))?.id ?? "remote"}-description`} style={`left:${node.x / mapWidth * 100}%;top:${node.y / mapHeight * 100}%;width:${nodeWidth / mapWidth * 100}%;height:${nodeHeight / mapHeight * 100}%`}>
           <span class="map-node-top"><span data-node-icon><Icon name={node.icon} size={22} /></span><span class="map-node-role">{node.role}</span></span>
           <strong data-node-label>{node.label}</strong>
           {node.note && <span class="map-node-note">{node.note}</span>}
+        </button>)}
+        {mapRegions.filter((region) => region.id === "remote").map((region) => <button type="button" id="map-remote-host" class="map-remote-host" aria-pressed="false" aria-describedby="map-boundary-remote-description" style={`left:${region.x + 20}px;top:${region.y + 68}px`}>
+          <span class="map-remote-host-name"><span data-remote-host-icon><Icon name="system" size={20} /></span><strong data-remote-host-label>Remote host</strong></span>
         </button>)}
       </div>
     </div>
