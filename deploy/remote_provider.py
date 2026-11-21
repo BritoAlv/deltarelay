@@ -288,7 +288,7 @@ def validate_spec(spec):
     names = spec.get('pass_env', [])
     if not isinstance(names, list) or any(not isinstance(k, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', k) for k in names):
         raise ProviderError('invalid_configuration')
-    timeout = spec.get('timeout_seconds', 120)
+    timeout = spec.get('timeout_seconds', 180)
     if type(timeout) is not int or not 1 <= timeout <= 300:
         raise ProviderError('invalid_configuration')
 
@@ -361,7 +361,7 @@ class ExecutableProvider:
         if self.trace:
             self.trace('event', f'Provider call: {method} request={request["id"]}')
         try:
-            output = run_command(self.spec['command'], timeout=min(5, self.spec.get('timeout_seconds', 120)) if method in REQUIRED else self.spec.get('timeout_seconds', 120),
+            output = run_command(self.spec['command'], timeout=min(5, self.spec.get('timeout_seconds', 180)) if method in REQUIRED else self.spec.get('timeout_seconds', 180),
                                  env=env, input=json.dumps(request).encode(), cancel=self.cancel, limit=MAX_BYTES,
                                  allow_gh=False, cleanup_group=True, exact_env=True,
                                  trace=self.trace, trace_children=True)

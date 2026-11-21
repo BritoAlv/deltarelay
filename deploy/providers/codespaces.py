@@ -123,7 +123,7 @@ class CodespacesProvider:
             try:
                 result = self.run([self.cli, 'codespace', 'ssh', '-c', self.config['name'], '--', '-o', 'BatchMode=yes',
                                    '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=2',
-                                   shlex.join(arguments)], timeout=60, input=helper.read_bytes())
+                                   shlex.join(arguments)], timeout=150, input=helper.read_bytes())
             except ProviderError as error:
                 raise ProviderError({'command_timeout': 'relay_ssh_timeout', 'command_failed': 'relay_recovery_failed'}.get(str(error), str(error))) from None
             try:

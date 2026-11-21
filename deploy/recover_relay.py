@@ -17,6 +17,12 @@ import urllib.error
 import urllib.request
 
 
+# The relay verifies persisted chunks, request records, and response frames
+# before binding its listener. Large stores can take minutes on slow disks.
+STARTUP_READY_SECONDS = 120
+STARTUP_PROBE_SECONDS = 1
+
+
 class RecoveryError(Exception):
     pass
 
@@ -143,12 +149,22 @@ def ensure_relay(root, expected, port=18787):
         with os.fdopen(fd, 'ab') as log:
             child = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=log, cwd=root, start_new_session=True)
         write_pid(root / 'server.pid', child.pid)
-    for _ in range(15):
+    # Startup includes a full integrity pass over persisted state before the
+    # listener exists. Probe quickly, but allow a cold store enough time to
+    # finish instead of reporting a false recovery failure.
+    deadline = time.monotonic() + STARTUP_READY_SECONDS
+    while time.monotonic() < deadline:
         if child is not None and child.poll() is not None:
             raise RecoveryError('Remote relay exited; inspect the private recovery-server.log')
-        if relay_info(port, token, expected) is not None:
+        try:
+            info = relay_info(port, token, expected, timeout=STARTUP_PROBE_SECONDS)
+        except LinkError:
+            # A dropped or timed-out probe while the listener is starting is
+            # not a terminal failure; the next probe decides.
+            info = None
+        if info is not None:
             return {'started': child is not None, 'state_id': expected, 'data_directory': str(data)}
-        time.sleep(1)
+        time.sleep(max(0, min(1, deadline - time.monotonic())))
     raise LinkError('Existing relay did not become ready; no process was killed')
 
 

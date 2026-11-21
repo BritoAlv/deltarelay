@@ -116,6 +116,38 @@ class ProfileTest(FixtureTest):
         self.assertEqual((self.root / 'server.pid').read_text(), '123456\n')
         self.assertTrue(popen.call_args.kwargs['start_new_session'])
 
+    @patch.object(remote.time, 'sleep')
+    @patch.object(remote.subprocess, 'Popen')
+    @patch.object(remote, 'owned_pid', return_value=None)
+    @patch.object(remote, 'relay_info')
+    def test_cold_start_waits_beyond_short_startup_window(self, info, pid, popen, sleep):
+        self.store()
+        binary = self.private('deltarelay-linux-amd64', '')
+        binary.chmod(0o700)
+        self.private('upstreams.json', '{}')
+        popen.return_value.pid = 123456
+        popen.return_value.poll.return_value = None
+        # The pre-start check plus 20 startup probes return "not listening";
+        # the relay only becomes ready on the 21st probe. The old fixed
+        # 15-probe window reported a false failure here.
+        info.side_effect = [None] * 21 + [{'state_id': IDENTITY}]
+        self.assertTrue(remote.ensure_relay(self.root, IDENTITY)['started'])
+        self.assertEqual(info.call_count, 22)
+
+    @patch.object(remote.time, 'sleep')
+    @patch.object(remote.subprocess, 'Popen')
+    @patch.object(remote, 'owned_pid', return_value=None)
+    @patch.object(remote, 'relay_info')
+    def test_transient_probe_timeout_during_startup_is_retried(self, info, pid, popen, sleep):
+        self.store()
+        binary = self.private('deltarelay-linux-amd64', '')
+        binary.chmod(0o700)
+        self.private('upstreams.json', '{}')
+        popen.return_value.pid = 123456
+        popen.return_value.poll.return_value = None
+        info.side_effect = [None, remote.LinkError('starting'), {'state_id': IDENTITY}]
+        self.assertTrue(remote.ensure_relay(self.root, IDENTITY)['started'])
+
     def test_remote_payload_is_self_contained(self):
         result = subprocess.run([sys.executable, '-B', str(Path(remote.__file__)), '--help'], capture_output=True, text=True, check=True)
         self.assertIn('--expected-state-id', result.stdout)
