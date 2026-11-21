@@ -25,6 +25,12 @@ Generation can continue while the PC is offline, and the provider may bill for
 that work. Cancellation while offline is queued locally and delivered on reconnect;
 it is not immediate.
 
+Credential-label attribution and token/context usage are **local gateway and
+dashboard metadata, not relay protocol fields**. This contract carries manifests,
+provider metadata, and response bytes only. Usage parsing, saved-credential
+matching, and metric retention happen on the PC and must not add a relay request,
+alter response bytes, or require a new relay capability.
+
 ## 2. Identity and pinning
 
 `GET /info` returns a `state_id`: a random SHA-256-shaped value generated once

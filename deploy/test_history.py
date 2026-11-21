@@ -102,6 +102,7 @@ class HistoryTest(unittest.TestCase):
                 'gateway_url': 'http://127.0.0.1:18788', 'relay_token_file': str(self.local / 'relay.token'),
                 'local_token_file': str(self.local / 'local.token'),
                 'relay_state_file': str(self.local / 'state/relay-state.json'),
+                'opencode_service_file': str(self.local / 'state/opencode/service.json'),
                 'remote': {'command': ['/bin/true'], 'config_file': str(self.local / 'provider.json')},
                 'components': {'gateway': {'command': command, 'pid_file': str(self.local / 'gateway.pid')}}}
 
@@ -114,6 +115,8 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(command[command.index('--stats-file') + 1], str(stats))
         self.assertEqual(command[command.index('--capture-dir') + 1], str(captures))
         self.assertEqual(command[command.index('--history-host') + 1], 'alpha')
+        self.assertEqual(command[command.index('--opencode-service-file') + 1],
+                         str(self.local / 'state/opencode/service.json'))
         self.assertEqual(config['components']['gateway']['command'][3], '/old/stats.json')
 
     def test_merge_snapshot_combines_hosts_and_offsets_sequences(self):

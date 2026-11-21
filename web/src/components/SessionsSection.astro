@@ -1,20 +1,26 @@
 ---
 import Icon from "./Icon.astro"
+import UsagePanel from "./UsagePanel.astro"
 
 const pageSizes = [8, 25, 50, 100]
 const columns = [
-  { key: "session", label: "Session", sortLabel: "session", filterLabel: "session", number: false },
-  { key: "host", label: "Remote codespace host", sortLabel: "remote codespace host", filterLabel: "remote host", number: false },
-  { key: "state", label: "State", sortLabel: "state", filterLabel: "state", number: false },
-  { key: "requests", label: "Requests", sortLabel: "requests", filterLabel: "requests", number: true },
-  { key: "original", label: "Original", sortLabel: "original size", filterLabel: "original size", number: true },
-  { key: "uploaded", label: "Uploaded", sortLabel: "uploaded size", filterLabel: "uploaded size", number: true },
-  { key: "reduction", label: "Reduction", sortLabel: "reduction", filterLabel: "reduction", number: true },
-  { key: "activity", label: "Last activity", sortLabel: "last activity", filterLabel: "last activity", number: false },
+  { key: "session", label: "Session", sortLabel: "session", filterLabel: "session", number: false, filterable: true },
+  { key: "host", label: "Remote codespace host", sortLabel: "remote codespace host", filterLabel: "remote host", number: false, filterable: true },
+  { key: "state", label: "State", sortLabel: "state", filterLabel: "state", number: false, filterable: true },
+  { key: "key", label: "Credential label", sortLabel: "credential label", filterLabel: "credential label", number: false, filterable: true },
+  { key: "requests", label: "Requests", sortLabel: "requests", filterLabel: "requests", number: true, filterable: true },
+  { key: "original", label: "Original", sortLabel: "original size", filterLabel: "original size", number: true, filterable: true },
+  { key: "uploaded", label: "Uploaded", sortLabel: "uploaded size", filterLabel: "uploaded size", number: true, filterable: true },
+  { key: "reduction", label: "Reduction", sortLabel: "reduction", filterLabel: "reduction", number: true, filterable: true },
+  { key: "input", label: "Input tokens", sortLabel: "input tokens", filterLabel: "input tokens", number: true, filterable: true },
+  { key: "output", label: "Output tokens", sortLabel: "output tokens", filterLabel: "output tokens", number: true, filterable: true },
+  { key: "context", label: "Context", sortLabel: "context", filterLabel: "context", number: true, filterable: true },
+  { key: "activity", label: "Last activity", sortLabel: "last activity", filterLabel: "last activity", number: false, filterable: true },
 ] as const
 ---
 <section id="sessions" class="sessions-section" aria-labelledby="sessions-title">
   <h2 id="sessions-title" class="sr-only">Retained sessions</h2>
+  <UsagePanel />
   <article class="panel data-panel sessions-panel">
     <div class="table-toolbar">
       <div class="search-field">
@@ -29,10 +35,14 @@ const columns = [
           <option value="session">Session</option>
           <option value="host">Remote host</option>
           <option value="state">State</option>
+          <option value="key">Credential label</option>
           <option value="requests">Requests</option>
           <option value="original">Original</option>
           <option value="uploaded">Uploaded</option>
           <option value="reduction">Reduction</option>
+          <option value="input">Input tokens</option>
+          <option value="output">Output tokens</option>
+          <option value="context">Context</option>
           <option value="activity">Activity</option>
         </select></label>
         <button class="compact-sort-direction" id="session-sort-direction" type="button" aria-label="Sort direction: descending" title="Reverse sort direction"><Icon name="chevron" size={12} /></button>
@@ -41,7 +51,7 @@ const columns = [
     </div>
     <div class="table-scroll" id="session-table-scroll">
       <table>
-        <caption class="sr-only">Retained sessions with the remote codespace host, request counts, transfer sizes, upload reduction, and last activity. Sortable column headers are available on wide screens; each sortable header also has a column filter. A sort control is available on narrow screens.</caption>
+        <caption class="sr-only">Retained sessions with the remote codespace host, state, saved credential label, request counts, transfer sizes, upload reduction, locally observed input and output tokens, context size, and last activity. Sortable column headers are available on wide screens; each sortable header also has a column filter. A sort control is available on narrow screens.</caption>
         <thead>
           <tr>
             {columns.map((column) => (
@@ -51,7 +61,9 @@ const columns = [
                     <span>{column.label}</span>
                     <span class="sort-indicator" aria-hidden="true"><Icon name="chevron" size={8} class="sort-up" /><Icon name="chevron" size={8} class="sort-down" /></span>
                   </button>
-                  <button class="column-filter" type="button" data-filter-key={column.key} aria-label={`Filter by ${column.filterLabel}`} aria-haspopup="dialog" aria-expanded="false" aria-controls="session-filter-popover" title={`Filter by ${column.filterLabel}`}><Icon name="filter" size={11} /></button>
+                  {column.filterable && (
+                    <button class="column-filter" type="button" data-filter-key={column.key} aria-label={`Filter by ${column.filterLabel}`} aria-haspopup="dialog" aria-expanded="false" aria-controls="session-filter-popover" title={`Filter by ${column.filterLabel}`}><Icon name="filter" size={11} /></button>
+                  )}
                 </div>
               </th>
             ))}

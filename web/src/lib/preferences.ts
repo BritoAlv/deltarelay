@@ -8,7 +8,7 @@ const scopes = {
   host: ["host"],
   range: ["range", "last", "unit", "start", "end"],
   traffic: ["view"],
-  sessions: ["q", "state", "rows", "sort", "dir", "sid", "req_min", "req_max", "orig_min", "orig_max", "up_min", "up_max", "red_min", "red_max", "act_from", "act_to"],
+  sessions: ["q", "state", "rows", "sort", "dir", "sid", "key_id", "req_min", "req_max", "orig_min", "orig_max", "up_min", "up_max", "red_min", "red_max", "in_min", "in_max", "out_min", "out_max", "ctx_min", "ctx_max", "act_from", "act_to"],
   measurement: ["q", "day", "show", "sort", "dir"],
   components: ["q", "sort", "dir", "component_contains", "type", "description_contains", "status", "lifecycle", "location"],
   controls: ["tab", "hidden"],

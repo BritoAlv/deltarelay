@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { activeColumnFilterCount, compileSessionFilters, emptySessionFilters, filterSessionViews, isColumnFilterActive, parseByteSize, parseDateBound, readSessionFilters, sessionFilterParams } from "../src/lib/session-filters.js"
-import { displaySessions, savings } from "../src/lib/metrics.js"
+import { displaySessions, savings, type SessionView } from "../src/lib/metrics.js"
 import { makeSnapshot } from "./fixture.js"
 
 const now = Date.parse("2026-10-28T12:15:00Z")
@@ -69,6 +69,38 @@ test("column filters combine and match the retained session values", () => {
   assert.equal(impossible.length, 0)
 })
 
+test("usage column filters match credential labels and token bounds", () => {
+  const sessions = displaySessions(makeSnapshot(now))
+  const personalID = "a".repeat(32)
+  const workID = "b".repeat(32)
+  const usage = new Map(sessions.map((session, index) => [session.id, {
+    keyIDs: index < 3 ? [personalID] : [workID],
+    unknownKeyRequests: index < 3 ? 0 : 1,
+    inputTokens: index < 3 ? 1_000 + index : null,
+    outputTokens: index < 3 ? 100 + index : null,
+    contextTokens: index < 3 ? 900 + index : null,
+  }]))
+  const usageOf = (session: SessionView) => usage.get(session.id)
+
+  const personal = filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), key: personalID }), usageOf)
+  assert.deepEqual(personal.map((session) => session.id), sessions.slice(0, 3).map((session) => session.id))
+  const work = filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), key: workID }), usageOf)
+  assert.deepEqual(work.map((session) => session.id), sessions.slice(3).map((session) => session.id))
+  const unknown = filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), key: "unknown" }), usageOf)
+  assert.deepEqual(unknown.map((session) => session.id), sessions.slice(3).map((session) => session.id))
+
+  const input = filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), inputMin: "1001", inputMax: "1002" }), usageOf)
+  assert.deepEqual(input.map((session) => session.id), sessions.slice(1, 3).map((session) => session.id))
+  const output = filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), outputMax: "100" }), usageOf)
+  assert.deepEqual(output.map((session) => session.id), [sessions[0]!.id])
+  const context = filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), contextMin: "901" }), usageOf)
+  assert.deepEqual(context.map((session) => session.id), sessions.slice(1, 3).map((session) => session.id))
+
+  // Without measured usage, credential and token filters never invent a match.
+  assert.equal(filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), key: personalID })).length, 0)
+  assert.equal(filterSessionViews(sessions, compileSessionFilters({ ...emptySessionFilters(), inputMax: "999999" })).length, 0)
+})
+
 test("active column count ignores empty and invalid values", () => {
   const input = emptySessionFilters()
   assert.equal(activeColumnFilterCount(input), 0)
@@ -83,15 +115,25 @@ test("active column count ignores empty and invalid values", () => {
   input.originalMin = "not a size"
   assert.equal(activeColumnFilterCount(input), 5)
   assert.equal(isColumnFilterActive(input, "requests"), true, "one valid bound keeps the column active")
+  input.key = "a".repeat(32)
+  input.inputMin = "1000"
+  input.outputMax = "2000"
+  input.contextMin = "-1"
+  assert.equal(activeColumnFilterCount(input), 8)
+  assert.equal(isColumnFilterActive(input, "context"), false, "an invalid token bound does not activate the column")
 })
 
 test("session filter URL state round-trips and drops invalid values", () => {
-  const input = { ...emptySessionFilters(), session: "relay", requestsMin: "10", originalMin: "1 MiB", uploadedMax: "500 KB", reductionMin: "-10", activityFrom: "2026-10-01", activityTo: "2026-10-28" }
+  const keyID = "a".repeat(32)
+  const input = { ...emptySessionFilters(), session: "relay", key: keyID, requestsMin: "10", originalMin: "1 MiB", uploadedMax: "500 KB", reductionMin: "-10", inputMin: "1000", outputMax: "2500", contextMin: "512", activityFrom: "2026-10-01", activityTo: "2026-10-28" }
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(sessionFilterParams(input))) if (value !== null) params.set(key, value)
   assert.deepEqual(readSessionFilters(params), input)
+  assert.equal(readSessionFilters(new URLSearchParams("key_id=unknown")).key, "unknown")
 
-  const invalid = new URLSearchParams("sid=%20%20&req_min=-1&orig_min=nope&up_max=1%20lightyear&act_from=2026-02-31")
+  const invalid = new URLSearchParams("sid=%20%20&key_id=not-a-credential&req_min=-1&orig_min=nope&up_max=1%20lightyear&in_min=-1&out_max=abc&act_from=2026-02-31")
   assert.deepEqual(readSessionFilters(invalid), emptySessionFilters())
   assert.equal(sessionFilterParams({ ...emptySessionFilters(), requestsMin: "-1" }).req_min, null)
+  assert.equal(sessionFilterParams({ ...emptySessionFilters(), inputMin: "-1" }).in_min, null)
+  assert.equal(sessionFilterParams({ ...emptySessionFilters(), key: "Personal Go" }).key_id, null)
 })

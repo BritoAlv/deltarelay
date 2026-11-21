@@ -22,6 +22,7 @@ import { readViewParams, replaceViewParams } from "../../lib/preferences.js"
 import { requiredById } from "../dom.js"
 import { mountInspection } from "./inspection.js"
 import { createRequestPages } from "./request-pages.js"
+import { requestUsageDetails } from "../../lib/usage-presentation.js"
 
 export interface MeasurementFeature {
   render(state: DashboardViewState): void
@@ -462,6 +463,7 @@ export function mountMeasurement(root: HTMLElement): MeasurementFeature {
         </div>
       </summary>
       ${body}
+      ${requestUsageDetails(request)}
     </details>`
   }
 

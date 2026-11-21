@@ -1,11 +1,13 @@
 ---
 import Icon from "./Icon.astro"
+interface Props { controls?: string }
+const { controls = "stats-grid traffic-panel" } = Astro.props
 ---
 <div class="overview-range" id="overview-range">
   <div class="overview-range-bar">
     <p class="overview-range-scope">Selected period <span id="overview-range-summary">Last 30 days</span></p>
     <label class="overview-range-select" for="chart-range"><Icon name="clock" size={15} /><span>Time range</span>
-      <select id="chart-range" name="overview-range" autocomplete="off" aria-controls="stats-grid traffic-panel">
+      <select id="chart-range" name="overview-range" autocomplete="off" aria-controls={controls}>
         <option value="24h">Last 24 hours</option>
         <option value="7d">Last 7 days</option>
         <option value="30d" selected>Last 30 days</option>

@@ -1,0 +1,28 @@
+---
+import Icon from "./Icon.astro"
+import OverviewRange from "./OverviewRange.astro"
+---
+<div id="local-usage" class="local-usage">
+  <h3 class="sr-only">Locally observed model usage</h3>
+  <div class="usage-view-bar">
+    <span class="usage-local-label"><Icon name="activity" size={14} />Locally observed model usage</span>
+  </div>
+  <div class="usage-scope">
+    <OverviewRange controls="usage-summary session-table-scroll" />
+  </div>
+  <div class="usage-period-caption" id="usage-period-caption">Matching requests by local start time. Start included, end excluded.</div>
+  <div class="panel usage-summary" id="usage-summary" aria-busy="true">
+    <dl class="usage-headlines">
+      <div><dt>Requests observed</dt><dd id="usage-requests">—</dd><small>Matching this period</small></div>
+      <div><dt>Sessions</dt><dd id="usage-sessions">—</dd><small id="usage-unattributed">Distinct session IDs</small></div>
+      <div><dt>Input tokens</dt><dd id="usage-input">—</dd><small id="usage-input-coverage">Waiting for local measurements</small></div>
+      <div><dt>Output tokens</dt><dd id="usage-output">—</dd><small id="usage-output-coverage">Waiting for local measurements</small></div>
+    </dl>
+    <div class="usage-summary-footer">
+      <span id="usage-coverage" role="status">Loading local usage…</span>
+      <span id="usage-cache-note">Provider token cache is separate from relay byte cache</span>
+      <span class="usage-summary-links"><a id="usage-export-csv" href="/api/dashboard/usage/export?format=csv" download>Requests CSV</a><a id="usage-export-json" href="/api/dashboard/usage/export?format=json" download>Requests JSON</a></span>
+    </div>
+  </div>
+  <p class="usage-notice" id="usage-notice" role="status" hidden></p>
+</div>

@@ -2,6 +2,7 @@ import { fetchRequestPage, type RequestPage } from "../../lib/api.js"
 import { escapeHtml } from "../../lib/html.js"
 import { sessionRequests } from "../../lib/metrics.js"
 import type { Snapshot } from "../../lib/types.js"
+import { matchesUsage, type UsageFilter } from "../../lib/usage.js"
 
 /** Holds only the current page, never an accumulating cache of request rows. */
 export function createRequestPages(onChange: () => void) {
@@ -9,6 +10,7 @@ export function createRequestPages(onChange: () => void) {
   let revision: Snapshot | null = null
   let session = ""
   let host = ""
+  let filter: UsageFilter = {}
   let limit = 8
   let before = 0
   let previous: number[] = []
@@ -26,7 +28,7 @@ export function createRequestPages(onChange: () => void) {
     loading = true
     error = ""
     try {
-      const next = await fetchRequestPage(session, host, before, limit, AbortSignal.any([controller.signal, AbortSignal.timeout(7000)]))
+      const next = await fetchRequestPage(session, host, before, limit, AbortSignal.any([controller.signal, AbortSignal.timeout(7000)]), filter)
       if (destroyed || generation !== current) return
       page = next
     } catch (cause) {
@@ -41,16 +43,17 @@ export function createRequestPages(onChange: () => void) {
   }
 
   return {
-    sync(snapshot: Snapshot, id: string, selectedHost: string, size = 8, selectedSequence: number | null = null) {
+    sync(snapshot: Snapshot, id: string, selectedHost: string, size = 8, selectedSequence: number | null = null, selectedFilter: UsageFilter = {}) {
       if (!snapshot.requests_paged) {
-        const requests = sessionRequests(snapshot, id, selectedHost)
+        const requests = sessionRequests(snapshot, id, selectedHost).filter((r) => matchesUsage(r, selectedFilter))
         return { requests, total: requests.length, paged: false, loading: false, error: "" }
       }
-      const key = JSON.stringify([id, selectedHost])
+      const key = JSON.stringify([id, selectedHost, selectedFilter])
       if (identity !== key) {
         identity = key
         session = id
         host = selectedHost
+        filter = selectedFilter
         limit = size
         before = selectedSequence === null ? 0 : selectedSequence + 1
         previous = before ? [0] : []

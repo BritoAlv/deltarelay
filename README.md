@@ -167,6 +167,14 @@ predates the separate **Response mailbox** node, its saved-bytes return lane, an
 the remote host's heading treatment in the current map. See
 [architecture](docs/ARCHITECTURE.md).
 
+The local dashboard can also group retained requests by the saved OpenCode
+credential **label** used for each call — API keys and OAuth access tokens — and
+record numeric token/context measurements from responses already received on
+this computer. This usage accounting is local-only: it adds nothing to the relay
+protocol or remote storage, does not change the active key, and is not a provider
+invoice. Missing counters remain unavailable rather than estimated. See
+[the dashboard guide](docs/DASHBOARD.md).
+
 OpenChamber Desktop is an optional attach-only graphical frontend for the
 **same** shared OpenCode service: `OpenChamber → shared frontend gate → OpenCode
 service`. When `components.openchamber` is configured with a launchable command,

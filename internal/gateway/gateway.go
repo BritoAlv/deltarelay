@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"deltarelay/internal/telemetry"
 	"deltarelay/internal/transfer"
 	"deltarelay/internal/upstream"
+	"deltarelay/internal/usage"
 )
 
 // DefaultMaxConcurrent is the gateway's default provider-request admission
@@ -57,6 +59,7 @@ type Config struct {
 	OnStart               func(string)
 	StatsFile             string
 	HistoryHost           string
+	OpenCodeServiceFile   string
 	Inspection            inspection.Config
 }
 
@@ -82,6 +85,8 @@ type Gateway struct {
 	slots                                                                                      chan struct{}
 	history                                                                                    *telemetry.Recorder
 	inspection                                                                                 *inspection.Store
+	credentialNames                                                                            *credentialNames
+	backfill                                                                                   sync.WaitGroup
 	startedAt                                                                                  time.Time
 	requests, active, failed, cancelled, bodyBytes, uploadedBytes, encodedBytes, responseBytes atomic.Int64
 }
@@ -122,6 +127,12 @@ func New(config Config) (*Gateway, error) {
 		return nil, err
 	}
 	g := &Gateway{config: config, policy: policy, tokenHash: sha256.Sum256([]byte(config.LocalToken)), mux: http.NewServeMux(), slots: make(chan struct{}, config.MaxConcurrent), history: history, inspection: captures, startedAt: time.Now().UTC()}
+	g.credentialNames = openCredentialNames(config.OpenCodeServiceFile)
+	g.backfill.Add(1)
+	go func() {
+		defer g.backfill.Done()
+		g.backfillHistoricalUsageKey()
+	}()
 	g.mux.HandleFunc("POST /proxy", g.proxy)
 	g.mux.HandleFunc("GET /healthz", g.health)
 	g.mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +144,8 @@ func New(config Config) (*Gateway, error) {
 	g.mux.HandleFunc("GET /metrics", g.metrics)
 	g.mux.HandleFunc("GET /dashboard", g.dashboard)
 	g.mux.HandleFunc("GET /dashboard/requests", g.dashboardRequests)
+	g.mux.HandleFunc("GET /dashboard/usage", g.dashboardUsage)
+	g.mux.HandleFunc("GET /dashboard/usage/export", g.dashboardUsageExport)
 	g.mux.Handle("GET /inspection/{rest...}", captures)
 	return g, nil
 }
@@ -153,7 +166,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // Close releases the optional statistics-file lock after HTTP shutdown.
-func (g *Gateway) Close() { g.history.Close(); g.inspection.Close() }
+func (g *Gateway) Close() {
+	g.credentialNames.close()
+	g.backfill.Wait()
+	g.history.Close()
+	g.inspection.Close()
+}
 
 func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	select {
@@ -168,6 +186,9 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	result := Result{Status: http.StatusBadGateway, Failed: true}
 	var observation uint64
 	var capture *inspection.Capture
+	measurement := usage.Measurement{Version: 1, State: "unavailable", Reason: "no_local_response"}
+	var observer *usage.ResponseObserver
+	var responseEOF bool
 	defer func() {
 		g.active.Add(-1)
 		result.DurationMillis = time.Since(started).Milliseconds()
@@ -188,6 +209,10 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		g.uploadedBytes.Add(result.Stats.UploadedChunkBytes)
 		g.encodedBytes.Add(result.Stats.RequestBodyBytesSent)
 		g.responseBytes.Add(result.ResponseBytes)
+		if observer != nil {
+			measurement = observer.Finish(responseEOF)
+		}
+		g.history.AttachUsage(observation, measurement)
 		g.history.Finish(observation, result.Status, result.Failed, result.ErrorCode, result.Stats, result.ResponseBytes, result.DurationMillis)
 		captureState := "completed"
 		if result.Failed {
@@ -250,6 +275,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		gatewayError(w, result.Status, err.Error())
 		return
 	}
+	g.history.AttachAPIKey(observation, g.credentialNames.resolve(r.Header))
 	capture = g.inspection.Begin(id, observation, r.Header.Get("Content-Type"))
 	g.history.AttachCapture(observation, capture.ID())
 	ctx := r.Context()
@@ -279,7 +305,9 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	headers := upstream.CleanHeaders(r.Header)
 	headers.Del("Content-Encoding")
-	response, stats, err := g.config.Client.Forward(ctx, client.Request{ID: id, Target: target, Method: r.Method, Headers: headers}, body)
+	requestObserver := usage.ObserveRequest(body)
+	response, stats, err := g.config.Client.Forward(ctx, client.Request{ID: id, Target: target, Method: r.Method, Headers: headers}, requestObserver)
+	measurement = requestObserver.Metadata()
 	result.Stats = stats
 	if err != nil {
 		if ctx.Err() != nil {
@@ -334,6 +362,8 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	observer = usage.ObserveResponse(measurement, response.Header.Get("Content-Type"), response.Header.Get("Content-Encoding"), started)
+	response.Body = &observedResponse{ReadCloser: response.Body, observer: observer, eof: &responseEOF}
 	result.Status = response.StatusCode
 	w.Header().Set("X-DeltaRelay-Request-ID", id)
 	w.Header().Set("X-DeltaRelay-Body-Hash", stats.Hash)
@@ -349,6 +379,23 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request) {
 		}
 		panic(http.ErrAbortHandler)
 	}
+}
+
+type observedResponse struct {
+	io.ReadCloser
+	observer *usage.ResponseObserver
+	eof      *bool
+}
+
+func (r *observedResponse) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 {
+		_, _ = r.observer.Write(p[:n])
+	}
+	if err == io.EOF {
+		*r.eof = true
+	}
+	return n, err
 }
 
 // reconcileFinalState resolves a downstream cancellation against the relay's

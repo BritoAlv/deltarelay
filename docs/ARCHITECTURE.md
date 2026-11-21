@@ -39,7 +39,8 @@ lifecycle ownership, and dependency direction. The normative relay contract is
 | `internal/journal` | Exclusive, durable provider-dispatch claims and replay refusal. |
 | `internal/mailbox` | Relay identity, request tombstones/status, checksummed response frames, retention, ACK/expiry reclamation, and response storage limits. |
 | `internal/server` | VPS HTTP routes, provider-request validation/fingerprints, the request/job service, provider concurrency, cancellation, and shutdown. |
-| `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, and request capture attachment. |
+| `internal/gateway` | Loopback OpenCode gateway authentication, provider proxying, request concurrency, metadata-only accounting, saved credential-label attribution, local numeric usage observation, and request capture attachment. |
+| `internal/usage` | Local-only extraction and normalization of provider token/context metadata from request and response bytes; never part of relay storage or the wire protocol. |
 | `internal/gate` | Attach-only frontend health gate shared by OpenChamber and Varro/VS Code: local `/livez` supervisor proof, local service/plugin checks for forwarded requests, full relay-aware `/healthz`, fail-closed 503 responses for local failures, and authenticated HTTP/SSE/WebSocket forwarding to the shared OpenCode service. It is a health/authorization shim, never a provider proxy or service owner. |
 | `internal/telemetry` | Bounded in-memory session/request history and its optional background persistence worker. |
 | `internal/dashboard` | Local diagnostics proxy, static-asset serving, browser-origin protection, the narrow supervisor-control bridge, and optional local-only OpenCode session metadata for the measurement browser. |
@@ -134,6 +135,17 @@ unfinished provider work is marked interrupted, never automatically regenerated.
   through `/api/opencode/sessions`. Messages, content, credentials, cost, token
   counts, permissions, and full paths never cross that boundary. The catalog is
   optional and failure falls back to gateway-retained sessions.
+- The **gateway's** optional `--opencode-service-file` is separate from the
+  dashboard's catalog reader. It polls only the registered loopback credential
+  list, hashes API-key secrets and OAuth access tokens in memory to attribute
+  each request to its saved label, and discards the hashes/secrets. When exactly
+  one saved credential maps to an upstream that still has unattributed history,
+  the gateway may apply that credential once; multiple candidates remain unknown
+  rather than guessed. The response path observes copies of bytes already
+  downloaded, extracts supported token/context counters, and stores numeric
+  metadata with the request in local history. Nothing about usage is sent to the
+  relay, VPS, provider, or browser credentials. The parser is bounded and failure
+  never changes forwarding or response delivery.
 - `/api/system` and approved control POSTs go to the optional private supervisor
   Unix socket. They do not depend on gateway availability. `/api/system/history`
   is a bounded read-only aggregate of the supervisor's local state timeline, not
@@ -228,7 +240,7 @@ no worker and no lock.
 | Remote-provider plugin | v1 JSON envelope and required/optional operations. |
 | Supervisor status | Only current version 2 status with `remote` metadata and remote-host actions is accepted. Optional sanitized `topology` is contract version 1. |
 | Recovery run/topology | Bounded node/edge/action/readiness vocabulary, recovery checkpoints, network generation, and intent. Diagnostics only; never a command queue or relay contract. |
-| Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates and per-host attribution/totals. Optional `capture_id` links identify retained request evidence. |
+| Dashboard history | Version 1 metadata-only statistics snapshot with required traffic aggregates and per-host attribution/totals. Optional `capture_id` links identify retained request evidence. Optional request fields carry a sanitized credential label/opaque local saved-record reference and numeric token/context measurements; secrets, prompts, request bodies, and response bodies are excluded. |
 | System state history | Private supervisor transition log and a version 1 bounded aggregate response for the dashboard. Timestamps and fixed state names only; no command output or credentials. |
 | Request inspection | Optional and enabled by default. A gateway with an empty `--capture-dir` omits the status block and never reconstructs historical payloads; inspection routes remain bounded and read-only. |
 | Persisted state | Mailbox identity/records/frames, exclusive journal markers, client relay pin, download checkpoints, and cancellation outbox use their existing formats. No storage migration is planned. |

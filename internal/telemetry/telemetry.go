@@ -22,6 +22,7 @@ import (
 
 	"deltarelay/internal/fsx"
 	"deltarelay/internal/transfer"
+	"deltarelay/internal/usage"
 )
 
 const (
@@ -82,22 +83,24 @@ type Session struct {
 }
 
 type Request struct {
-	Host           string         `json:"host,omitempty"`
-	CaptureID      string         `json:"capture_id,omitempty"`
-	Sequence       uint64         `json:"sequence"`
-	ID             string         `json:"id"`
-	SessionID      string         `json:"session_id"`
-	Upstream       string         `json:"upstream"`
-	Client         string         `json:"client,omitempty"`
-	Kind           string         `json:"kind"`
-	StartedAt      time.Time      `json:"started_at"`
-	FinishedAt     *time.Time     `json:"finished_at,omitempty"`
-	State          string         `json:"state"`
-	Status         int            `json:"status"`
-	ErrorCode      string         `json:"error_code,omitempty"`
-	Transfer       transfer.Stats `json:"transfer"`
-	ResponseBytes  int64          `json:"response_bytes"`
-	DurationMillis int64          `json:"duration_ms"`
+	APIKey         *usage.Key         `json:"api_key,omitempty"`
+	Usage          *usage.Measurement `json:"usage,omitempty"`
+	Host           string             `json:"host,omitempty"`
+	CaptureID      string             `json:"capture_id,omitempty"`
+	Sequence       uint64             `json:"sequence"`
+	ID             string             `json:"id"`
+	SessionID      string             `json:"session_id"`
+	Upstream       string             `json:"upstream"`
+	Client         string             `json:"client,omitempty"`
+	Kind           string             `json:"kind"`
+	StartedAt      time.Time          `json:"started_at"`
+	FinishedAt     *time.Time         `json:"finished_at,omitempty"`
+	State          string             `json:"state"`
+	Status         int                `json:"status"`
+	ErrorCode      string             `json:"error_code,omitempty"`
+	Transfer       transfer.Stats     `json:"transfer"`
+	ResponseBytes  int64              `json:"response_bytes"`
+	DurationMillis int64              `json:"duration_ms"`
 }
 
 // TrafficBucket is a metadata-only aggregate of finished requests. It keeps
@@ -330,6 +333,9 @@ func openRecorder(path, host string, write func(string, any) error, flushAfter, 
 		}
 		if !ValidLabel(request.Host) || request.Sequence == 0 || sequences[request.Sequence] || request.StartedAt.IsZero() || request.SessionID != "" && !ValidLabel(request.SessionID) || request.Client != "" && !ValidLabel(request.Client) || request.CaptureID != "" && !validCaptureID(request.CaptureID) {
 			return nil, errors.New("invalid statistics request")
+		}
+		if !usage.Valid(request.Usage) || request.APIKey != nil && (!validCaptureID(request.APIKey.ID) || request.APIKey.Name == "" || usage.Label(request.APIKey.Name) != request.APIKey.Name) {
+			return nil, errors.New("invalid statistics usage metadata")
 		}
 		hosts[request.Host] = true
 		sequences[request.Sequence] = true

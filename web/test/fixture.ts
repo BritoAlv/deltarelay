@@ -93,6 +93,25 @@ export function makeSnapshot(now = Date.now()): Snapshot {
   }
 }
 
+// Representative usage data is confined to tests/previews, never production UI.
+export function makeUsageSnapshot(now = Date.now()): Snapshot {
+  const snapshot = makeSnapshot(now)
+  for (const [i,r] of snapshot.history.recent_requests.entries()) {
+    if (i < 4) continue // Legacy requests have neither attribution nor tokens.
+    r.api_key = i % 5 < 3 ? {id:"a".repeat(32),name:"Personal Go"} : {id:"b".repeat(32),name:"Work tools"}
+    if (r.state === "running") continue
+    const input = i % 12 === 0 ? 12_000 + i*80 : 18_000 + (i % 12)*6_300 + i*190
+    r.usage = {
+      version:1, state:i % 11 === 0 ? "partial" : "complete", source:r.upstream === "openai" ? "openai.responses" : "openai.chat",
+      model:r.upstream === "openai" ? "gpt-5" : "deepseek-v4.1-flash", response_model:r.upstream === "openai" ? "gpt-5" : "deepseek-v4.1-flash",
+      input_tokens:input, output_tokens:800+i*37, total_tokens:input+800+i*37, cache_read_tokens:Math.round(input*.75), reasoning_tokens:i*11,
+      messages:8+i, tools:14, max_output_tokens:8192, first_response_ms:850+i*31,
+    }
+    if (i % 13 === 0) r.usage = {version:1,state:"unavailable",reason:"usage_not_reported",model:r.usage.model}
+  }
+  return snapshot
+}
+
 export interface FixtureHistory {
   version: 1
   tracking_since: string

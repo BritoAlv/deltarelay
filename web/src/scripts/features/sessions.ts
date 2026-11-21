@@ -5,11 +5,14 @@ import { bytes, displaySessions, duration, filterSessions, historyHosts, percent
 import { dataValue } from "../../lib/presentation.js"
 import { activeColumnFilterCount, compileSessionFilters, emptySessionFilters, filterSessionViews, isColumnFilterActive, parseByteSize, parseDateBound, parseFilterNumber, readSessionFilters, sessionFilterParams, type SessionFilterInput } from "../../lib/session-filters.js"
 import { dataPhase, type DashboardViewState } from "../../lib/state.js"
-import type { Snapshot } from "../../lib/types.js"
+import type { RelayRequest, Snapshot } from "../../lib/types.js"
 import { readSort, sortParams, type SortState } from "../../lib/url-state.js"
 import { readViewParams, replaceViewParams } from "../../lib/preferences.js"
+import { compactTokens, keyNames, keySummary, tokenNumber, type UsageReport, type UsageSession } from "../../lib/usage.js"
+import { contextChart, requestUsageDetails } from "../../lib/usage-presentation.js"
 import { required, requiredById } from "../dom.js"
 import { createRequestPages } from "./request-pages.js"
+import { mountUsageScope } from "./usage-scope.js"
 
 export interface SessionsFeature {
   render(state: DashboardViewState): void
@@ -24,16 +27,20 @@ const defaultPageSize = 8
 const pageSizes = [8, 25, 50, 100] as const
 const integer = (value: number) => value.toLocaleString()
 const pill = (label: string, state: string) => `<span class="status-pill ${state}">${escape(label)}</span>`
-const sortKeys = ["session", "host", "state", "requests", "original", "uploaded", "reduction", "activity"] as const
+const sortKeys = ["session", "host", "state", "key", "requests", "original", "uploaded", "reduction", "input", "output", "context", "activity"] as const
 type SessionSortKey = (typeof sortKeys)[number]
 const sortLabels: Record<SessionSortKey, string> = {
   session: "session",
   host: "remote host",
   state: "state",
+  key: "credential label",
   requests: "requests",
   original: "original size",
   uploaded: "uploaded size",
   reduction: "reduction",
+  input: "input tokens",
+  output: "output tokens",
+  context: "context",
   activity: "last activity",
 }
 const asSortKey = (value: string | undefined): SessionSortKey | null => sortKeys.find((key) => key === value) ?? null
@@ -97,6 +104,13 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   let pendingOpen = initial.get("session")
   let openFilterKey: SessionSortKey | null = null
   let filterTrigger: HTMLButtonElement | null = null
+  let usageReport: UsageReport | null = null
+  let usageIndex = new Map<string, UsageSession>()
+  const usage = mountUsageScope(root, () => {
+    refreshUsage()
+    renderSessions()
+    if (dialog.open) renderDetail()
+  })
   const requestPages = createRequestPages(renderDetail)
   detail.addEventListener("click", (event) => {
     const button = (event.target as Element).closest<HTMLElement>("[data-request-page]")
@@ -115,6 +129,24 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     })
   }
 
+  function refreshUsage(): void {
+    const next = usage.report()
+    if (next === usageReport) return
+    usageReport = next
+    usageIndex = new Map((next?.sessions ?? []).map((session) => [session.id, session]))
+  }
+
+  function usageNumber(session: SessionView, key: "input" | "output" | "context"): number | null {
+    const metrics = usageIndex.get(session.id)?.metrics
+    return key === "input" ? metrics?.input_tokens ?? null : key === "output" ? metrics?.output_tokens ?? null : metrics?.latest_context ?? null
+  }
+
+  function compareNullable(left: number | null, right: number | null, direction: number): number {
+    if (left === null) return right === null ? 0 : 1
+    if (right === null) return -1
+    return (left - right) * direction
+  }
+
   function compareSessions(a: SessionView, b: SessionView): number {
     const direction = sortState.direction === "asc" ? 1 : -1
     switch (sortState.key) {
@@ -124,6 +156,13 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
         return a.hosts.join(", ").localeCompare(b.hosts.join(", "), undefined, { numeric: true, sensitivity: "base" }) * direction
       case "state":
         return sessionState(a).localeCompare(sessionState(b)) * direction
+      case "key": {
+        const left = usageIndex.get(a.id)
+        const right = usageIndex.get(b.id)
+        if (!left) return right ? 1 : 0
+        if (!right) return -1
+        return keyNames(left).localeCompare(keyNames(right), undefined, { numeric: true, sensitivity: "base" }) * direction
+      }
       case "requests":
         return (a.requests - b.requests) * direction
       case "original":
@@ -137,6 +176,10 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
         if (right === null) return -1
         return (left - right) * direction
       }
+      case "input":
+      case "output":
+      case "context":
+        return compareNullable(usageNumber(a, sortState.key), usageNumber(b, sortState.key), direction)
       case "activity": {
         const left = Date.parse(a.updated_at)
         const right = Date.parse(b.updated_at)
@@ -146,8 +189,18 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   }
 
   function visibleSessions(): SessionView[] {
+    refreshUsage()
     const sessions = displaySessions(state?.snapshot ?? null, state?.host ?? "")
-    return filterSessionViews(filterSessions(sessions, search.value, filterValue), compileSessionFilters(columnFilters))
+    return filterSessionViews(filterSessions(sessions, search.value, filterValue), compileSessionFilters(columnFilters), (session) => {
+      const measured = usageIndex.get(session.id)
+      return measured ? {
+        keyIDs: measured.api_keys.map((key) => key.id),
+        unknownKeyRequests: measured.unknown_key_requests,
+        inputTokens: measured.metrics.input_tokens,
+        outputTokens: measured.metrics.output_tokens,
+        contextTokens: measured.metrics.latest_context,
+      } : null
+    })
       .sort((a, b) => compareSessions(a, b))
   }
 
@@ -200,11 +253,38 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     measureLink.hidden = false
     measureLink.href = `/measurement?session=${encodeURIComponent(session.id)}${state.host ? `&host=${encodeURIComponent(state.host)}` : ""}`
     detailTitle.textContent = session.id || "Unattributed requests"
+    refreshUsage()
     const requestPage = requestPages.sync(snapshot, session.id, state.host)
     const requests = requestPage.requests
     const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
-    detail.innerHTML = `<div class="detail-meta"><span class="metadata-line">${dataValue(session.upstream || "Unknown upstream")}<span>${dataValue(session.hosts.join(", "))}</span><span>${dataValue(integer(session.requests))} requests</span><span>${dataValue(integer(session.failed))} failed</span>${session.legacy ? `<span>${dataValue(integer(session.legacy))} legacy</span>` : ""}<span>${dataValue(integer(session.cancelled))} cancelled</span></span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div><h3>Recent requests <span class="section-meta">${dataValue(integer(requests.length))} retained</span></h3>${requests.map((request) => `<div class="request-entry"><div><code translate="no">${escape(request.id)}</code><p class="metadata-line">${dataValue(request.kind)}${dataValue(request.host || "local")}${dataValue(relativeTime(request.started_at))}${dataValue(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? dataValue(`HTTP ${request.status}`) : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : request.state === "cancelled" ? "neutral" : "warning")}<p class="request-transfer metadata-line">${request.state === "running" ? "Transfer totals pending" : `${dataValue(bytes(request.transfer.body_bytes))}${iconMarkup("arrow-right", 14)}<span class="sr-only">to</span>${dataValue(bytes(request.transfer.request_body_bytes_sent))}`}</p></div></div>`).join("")}<p class="detail-note">${session.id ? "Session ID is opaque; no title or content is shown." : "Requests without a valid session ID are grouped here."} New history is retained indefinitely; request lists may still be incomplete for sessions recorded before unlimited retention. “Interrupted” after a gateway restart does not mean the remote job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
+    const measuredUsage = usageIndex.get(session.id)
+    const metrics = measuredUsage?.metrics
+    const usageHeading = `<h3>Model usage <span class="section-meta">${usage.ready() ? "Selected time range" : "Loading selected time range"}</span></h3>`
+    const usageStats = measuredUsage
+      ? `<div class="detail-stats usage-stats"><div class="detail-stat"><span>Input tokens</span><strong title="${escape(tokenNumber(metrics!.input_tokens))}">${escape(compactTokens(metrics!.input_tokens))}</strong></div><div class="detail-stat"><span>Output tokens</span><strong title="${escape(tokenNumber(metrics!.output_tokens))}">${escape(compactTokens(metrics!.output_tokens))}</strong></div><div class="detail-stat"><span>Latest context</span><strong title="${escape(tokenNumber(metrics!.latest_context))}">${escape(compactTokens(metrics!.latest_context))}</strong></div><div class="detail-stat"><span>Peak context</span><strong title="${escape(tokenNumber(metrics!.peak_context))}">${escape(compactTokens(metrics!.peak_context))}</strong></div></div><p class="detail-note">${escape(keyNames(measuredUsage))} · Token data for ${dataValue(integer(metrics!.measured_requests))} of ${dataValue(integer(measuredUsage.requests))} requests; ${dataValue(integer(metrics!.complete_requests))} complete. Input totals count repeated context across requests, not unique conversation content.</p><section class="usage-context" aria-label="Context measurements"><div class="usage-detail-heading"><h3>Input context</h3><span class="usage-quality">Requests on this page · oldest to newest</span></div>${contextChart(requests, (doc.defaultView?.innerWidth ?? 1000) - 100)}</section>`
+      : usage.ready()
+        ? `<p class="detail-note">No requests for this session match the selected time range.</p>`
+        : `<p class="detail-note">Loading local token measurements…</p>`
+    const requestUsage = (request: RelayRequest) => {
+      const measurementState = request.state === "running" ? "Pending" : request.usage?.state === "complete" ? "Complete" : request.usage?.state === "partial" ? "Partial" : "Unavailable"
+      return `<p class="request-usage metadata-line">${dataValue(request.api_key?.name ?? "Unknown credential")}${dataValue(request.usage?.response_model || request.usage?.model || request.upstream)}<span>${dataValue(`${compactTokens(request.usage?.input_tokens)} in`)}</span><span>${dataValue(`${compactTokens(request.usage?.output_tokens)} out`)}</span>${dataValue(measurementState)}</p>`
+    }
+    detail.innerHTML = `<div class="detail-meta"><span class="metadata-line">${dataValue(session.upstream || "Unknown upstream")}<span>${dataValue(session.hosts.join(", "))}</span><span>${dataValue(integer(session.requests))} requests</span><span>${dataValue(integer(session.failed))} failed</span>${session.legacy ? `<span>${dataValue(integer(session.legacy))} legacy</span>` : ""}<span>${dataValue(integer(session.cancelled))} cancelled</span></span>${pill(sessionState(session), sessionState(session))}</div><div class="detail-stats"><div class="detail-stat"><span>Upload reduction</span><strong class="${reduction !== null && reduction < 0 ? "negative" : "accent"}">${escape(percentage(reduction))}</strong></div><div class="detail-stat"><span>Bandwidth saved</span><strong>${escape(bytes(session.body_bytes - session.encoded_upload_bytes))}</strong></div><div class="detail-stat"><span>Recorded call time</span><strong>${escape(duration(session.duration_ms))}</strong></div></div>${usageHeading}${usageStats}<h3>Recent requests <span class="section-meta">${dataValue(integer(requests.length))} retained</span></h3>${requests.map((request) => `<div class="request-entry"><div><code translate="no">${escape(request.id)}</code><p class="metadata-line">${dataValue(request.kind)}${dataValue(request.host || "local")}${dataValue(relativeTime(request.started_at))}${dataValue(duration(request.state === "running" ? Date.parse(snapshot.collected_at) - Date.parse(request.started_at) : request.duration_ms))}${request.status ? dataValue(`HTTP ${request.status}`) : ""}</p>${request.error_code ? `<p class="request-error">${escape(request.error_code)}</p>` : ""}</div><div>${pill(request.state, request.state === "completed" ? "good" : request.state === "running" ? "active" : request.state === "cancelled" ? "neutral" : "warning")}<p class="request-transfer metadata-line">${request.state === "running" ? "Transfer totals pending" : `${dataValue(bytes(request.transfer.body_bytes))}${iconMarkup("arrow-right", 14)}<span class="sr-only">to</span>${dataValue(bytes(request.transfer.request_body_bytes_sent))}`}</p></div>${requestUsage(request)}</div>`).join("")}<p class="detail-note">${session.id ? "Session ID is opaque; no title or content is shown." : "Requests without a valid session ID are grouped here."} New history is retained indefinitely; request lists may still be incomplete for sessions recorded before unlimited retention. “Interrupted” after a gateway restart does not mean the remote job was cancelled. Recover saved responses with the request CLI before resubmitting.</p>`
     if (requestPage.paged) detail.insertAdjacentHTML("beforeend", requestPages.controls())
+    if (requests.length) detail.insertAdjacentHTML("beforeend", `<details class="usage-transfer-details"><summary class="text-button">Full model usage for requests on this page</summary>${requests.map((request) => requestUsageDetails(request)).join("")}</details>`)
+    const readout = detail.querySelector<HTMLOutputElement>("#usage-context-readout")
+    const crosshair = detail.querySelector<SVGLineElement>("#usage-context-crosshair")
+    for (const point of detail.querySelectorAll<SVGElement>("[data-context-point]")) {
+      const show = () => {
+        if (readout) readout.textContent = point.getAttribute("aria-label")
+        const x = point.querySelector("circle")?.getAttribute("cx") ?? "0"
+        crosshair?.setAttribute("x1", x)
+        crosshair?.setAttribute("x2", x)
+        crosshair?.setAttribute("visibility", "visible")
+      }
+      point.addEventListener("pointerenter", show)
+      point.addEventListener("focus", show)
+    }
   }
 
   function openDetail(sessionId: string): void {
@@ -254,6 +334,32 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     switch (key) {
       case "session":
         return `<label class="filter-text-field"><span class="sr-only">Session ID contains</span><input type="search" data-filter-field="session" value="${escape(columnFilters.session)}" placeholder="Contains session ID…" autocomplete="off" spellcheck="false" maxlength="200"></label>`
+      case "key": {
+        const sessions = [...usageIndex.values()]
+        const counts = new Map<string, number>()
+        let unknown = 0
+        for (const session of sessions) {
+          for (const key of session.api_keys) counts.set(key.id, (counts.get(key.id) ?? 0) + 1)
+          if (session.unknown_key_requests > 0) unknown++
+        }
+        const known = usageReport?.keys ?? []
+        const duplicateNames = new Set(known.filter((key) => known.some((other) => other.id !== key.id && other.name === key.name)).map((key) => key.name))
+        const options = known.map((key) => ({
+          value: key.id,
+          label: duplicateNames.has(key.name) ? `${key.name} · ${key.id.slice(0, 6)}` : key.name,
+          count: counts.get(key.id) ?? 0,
+        }))
+        if (columnFilters.key && columnFilters.key !== "unknown" && !options.some((option) => option.value === columnFilters.key)) {
+          options.unshift({ value: columnFilters.key, label: `Selected credential · ${columnFilters.key.slice(0, 6)}`, count: counts.get(columnFilters.key) ?? 0 })
+        }
+        const values = [
+          { value: "", label: "All credentials", count: sessions.length },
+          ...options,
+          { value: "unknown", label: "Unknown credential", count: unknown },
+        ]
+        return `<div class="filter-options" role="radiogroup" aria-label="Credential label">${values.map((option) => radioOption("filter-key", "key", option.value, option.label, option.count, option.value === columnFilters.key)).join("")}</div>
+        <p class="filter-popover-note">Saved credentials known to the local gateway. Counts are sessions in the selected time range and host; a session can include more than one credential.</p>`
+      }
       case "host": {
         const hosts = historyHosts(state?.snapshot ?? null)
         const selected = state?.host ?? ""
@@ -309,6 +415,18 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
           <label class="filter-range-field"><span>Maximum</span><input type="number" step="any" placeholder="No maximum" data-filter-field="reductionMax" value="${escape(columnFilters.reductionMax)}"></label>
         </div>
         <p class="filter-popover-note">Percent. Negative reductions are allowed.</p>`
+      case "input":
+      case "output":
+      case "context": {
+        const minField = `${key}Min` as const
+        const maxField = `${key}Max` as const
+        return `<div class="filter-range-fields">
+          <label class="filter-range-field"><span>Minimum</span><input type="number" min="0" step="1" inputmode="numeric" placeholder="No minimum" data-filter-field="${minField}" value="${escape(columnFilters[minField])}"></label>
+          <span class="filter-range-separator">to</span>
+          <label class="filter-range-field"><span>Maximum</span><input type="number" min="0" step="1" inputmode="numeric" placeholder="No maximum" data-filter-field="${maxField}" value="${escape(columnFilters[maxField])}"></label>
+        </div>
+        <p class="filter-popover-note">Locally observed tokens in the selected time range and credential filter. Enter exact counts; hover a cell for its value. Sessions without a measurement are hidden. Blank means no limit.</p>`
+      }
       case "activity":
         return `<div class="filter-range-fields">
           <label class="filter-range-field"><span>From</span><input type="date" data-filter-field="activityFrom" value="${escape(columnFilters.activityFrom)}"></label>
@@ -316,6 +434,8 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
           <label class="filter-range-field"><span>To</span><input type="date" data-filter-field="activityTo" value="${escape(columnFilters.activityTo)}"></label>
         </div>
         <p class="filter-popover-note">Inclusive dates in local time.</p>`
+      default:
+        return ""
     }
   }
 
@@ -333,19 +453,20 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
       return
     }
     let message = ""
-    if (key === "requests" || key === "original" || key === "uploaded" || key === "reduction") {
+    if (key === "requests" || key === "original" || key === "uploaded" || key === "reduction" || key === "input" || key === "output" || key === "context") {
       const minField = `${key}Min` as keyof SessionFilterInput
       const maxField = `${key}Max` as keyof SessionFilterInput
       const parse = key === "original" || key === "uploaded" ? parseByteSize : parseFilterNumber
+      const nonNegative = key === "requests" || key === "input" || key === "output" || key === "context"
       const minRaw = columnFilters[minField].trim()
       const maxRaw = columnFilters[maxField].trim()
       const min = minRaw ? parse(minRaw) : null
       const max = maxRaw ? parse(maxRaw) : null
-      const invalidMin = minRaw !== "" && (min === null || (key === "requests" && min < 0))
-      const invalidMax = maxRaw !== "" && (max === null || (key === "requests" && max < 0))
+      const invalidMin = minRaw !== "" && (min === null || (nonNegative && min < 0))
+      const invalidMax = maxRaw !== "" && (max === null || (nonNegative && max < 0))
       markInvalid(minField, invalidMin)
       markInvalid(maxField, invalidMax)
-      if (invalidMin || invalidMax) message = key === "requests" ? "Enter a non-negative number." : key === "reduction" ? "Enter a valid percentage." : "Enter sizes like 1 MiB or 500 KB."
+      if (invalidMin || invalidMax) message = nonNegative ? "Enter a non-negative number." : key === "reduction" ? "Enter a valid percentage." : "Enter sizes like 1 MiB or 500 KB."
       else if (min !== null && max !== null && min > max) {
         message = "Minimum is greater than maximum."
         markInvalid(minField, true)
@@ -469,6 +590,11 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
       options.onHostChange(radio.value)
       return
     }
+    if (option === "key") {
+      columnFilters = { ...columnFilters, key: radio.value }
+      renderSessions()
+      return
+    }
     if (option === "state") setFilter(radio.value)
   }
 
@@ -478,12 +604,16 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     page = 1
     switch (key) {
       case "session": columnFilters = { ...columnFilters, session: "" }; break
+      case "key": columnFilters = { ...columnFilters, key: "" }; break
       case "host": options.onHostChange(""); break
       case "state": filterValue = "all"; break
       case "requests": columnFilters = { ...columnFilters, requestsMin: "", requestsMax: "" }; break
       case "original": columnFilters = { ...columnFilters, originalMin: "", originalMax: "" }; break
       case "uploaded": columnFilters = { ...columnFilters, uploadedMin: "", uploadedMax: "" }; break
       case "reduction": columnFilters = { ...columnFilters, reductionMin: "", reductionMax: "" }; break
+      case "input": columnFilters = { ...columnFilters, inputMin: "", inputMax: "" }; break
+      case "output": columnFilters = { ...columnFilters, outputMin: "", outputMax: "" }; break
+      case "context": columnFilters = { ...columnFilters, contextMin: "", contextMax: "" }; break
       case "activity": columnFilters = { ...columnFilters, activityFrom: "", activityTo: "" }; break
     }
     renderFilterBody()
@@ -550,7 +680,14 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
       const current = sessionState(session)
       const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
       const label = session.id || "Unattributed requests"
-      return `<tr><td><button class="session-name" type="button" data-session-id="${escape(session.id)}" title="${escape(label)}" translate="no">${escape(label)}</button></td><td><span class="session-host" translate="no" title="${escape(session.hosts.join(", ") || "local")}">${escape(session.hosts.join(", ") || "local")}</span></td><td>${pill(current === "active" ? `${session.active} active` : current === "attention" ? "Attention" : "Idle", current)}</td><td class="number">${integer(session.requests)}</td><td class="number">${escape(bytes(session.body_bytes))}</td><td class="number">${escape(bytes(session.encoded_upload_bytes))}</td><td class="number"><span class="reduction-cell ${reduction !== null && reduction < 0 ? "negative" : ""}">${escape(percentage(reduction))}<span class="reduction-track" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, reduction ?? 0))}%"></span></span></span></td><td title="${escape(new Date(session.updated_at).toLocaleString())}">${escape(relativeTime(session.updated_at))}</td><td><button class="row-detail" type="button" data-session-id="${escape(session.id)}" aria-label="Inspect ${escape(label)}">${iconMarkup("arrow", 16)}</button></td></tr>`
+      const measured = usageIndex.get(session.id)
+      const metrics = measured?.metrics
+      const keyLabel = measured ? keySummary(measured) : "—"
+      const keyTitle = measured ? keyNames(measured) : "No measured usage in the selected time range"
+      const inputTitle = metrics?.input_tokens == null ? "No input token measurement in the selected scope" : `${tokenNumber(metrics.input_tokens)} input tokens · reported for ${tokenNumber(metrics.input_requests)} of ${tokenNumber(measured!.requests)} requests`
+      const outputTitle = metrics?.output_tokens == null ? "No output token measurement in the selected scope" : `${tokenNumber(metrics.output_tokens)} output tokens · reported for ${tokenNumber(metrics.output_requests)} of ${tokenNumber(measured!.requests)} requests`
+      const contextTitle = metrics?.latest_context == null ? "No input context measurement in the selected scope" : `Latest ${tokenNumber(metrics.latest_context)} · peak ${tokenNumber(metrics.peak_context)} input tokens`
+      return `<tr><td><button class="session-name" type="button" data-session-id="${escape(session.id)}" title="${escape(label)}" translate="no">${escape(label)}</button></td><td><span class="session-host" translate="no" title="${escape(session.hosts.join(", ") || "local")}">${escape(session.hosts.join(", ") || "local")}</span></td><td>${pill(current === "active" ? `${session.active} active` : current === "attention" ? "Attention" : "Idle", current)}</td><td><span class="usage-key-name${measured ? "" : " unknown"}" title="${escape(keyTitle)}">${escape(keyLabel)}</span></td><td class="number">${integer(session.requests)}</td><td class="number">${escape(bytes(session.body_bytes))}</td><td class="number">${escape(bytes(session.encoded_upload_bytes))}</td><td class="number"><span class="reduction-cell ${reduction !== null && reduction < 0 ? "negative" : ""}">${escape(percentage(reduction))}<span class="reduction-track" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, reduction ?? 0))}%"></span></span></span></td><td class="number usage-number" title="${escape(inputTitle)}">${escape(compactTokens(metrics?.input_tokens))}</td><td class="number usage-number" title="${escape(outputTitle)}">${escape(compactTokens(metrics?.output_tokens))}</td><td class="number usage-number" title="${escape(contextTitle)}">${escape(compactTokens(metrics?.latest_context))}</td><td title="${escape(new Date(session.updated_at).toLocaleString())}">${escape(relativeTime(session.updated_at))}</td><td><button class="row-detail" type="button" data-session-id="${escape(session.id)}" aria-label="Inspect ${escape(label)}">${iconMarkup("arrow", 16)}</button></td></tr>`
     }).join("")
     if (focusedSession !== undefined) {
       const replacement = [...rowsBody.querySelectorAll<HTMLButtonElement>(`button.${focusedClass}[data-session-id]`)].find((button) => button.dataset.sessionId === focusedSession)
@@ -666,7 +803,20 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
     if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close()
   })
   exportButton.addEventListener("click", () => {
-    const blob = new Blob([sessionCsv(visibleSessions())], { type: "text/csv;charset=utf-8" })
+    const sessions = visibleSessions()
+    refreshUsage()
+    const csv = sessionCsv(sessions, (session) => {
+      const measured = usageIndex.get(session.id)
+      if (!measured) return undefined
+      return {
+        apiKeys: keyNames(measured),
+        inputTokens: measured.metrics.input_tokens,
+        outputTokens: measured.metrics.output_tokens,
+        latestContext: measured.metrics.latest_context,
+        peakContext: measured.metrics.peak_context,
+      }
+    })
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement("a")
     anchor.href = url
@@ -679,9 +829,11 @@ export function mountSessions(root: HTMLElement, dialog: HTMLDialogElement, opti
   updateFilterControls()
 
   return {
-    destroy() { requestPages.destroy() },
+    destroy() { requestPages.destroy(); usage.destroy() },
     render(nextState) {
       state = nextState
+      usage.render(nextState)
+      refreshUsage()
       renderSessions()
       if (dialog.open) renderDetail()
     },

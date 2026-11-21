@@ -42,6 +42,7 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 	quiet := flags.Bool("quiet", false, "disable per-request metadata-only statistics logs")
 	statsFile := flags.String("stats-file", defaultEnv("DELTARELAY_STATS_FILE", defaultStatsFile), "private bounded session statistics; empty disables persistence")
 	historyHost := flags.String("history-host", defaultEnv("DELTARELAY_HISTORY_HOST", "local"), "label for the remote host that carries this gateway's traffic")
+	serviceFile := flags.String("opencode-service-file", "", "private local OpenCode service registration for saved API-key names (no remote collection)")
 	captureDir := flags.String("capture-dir", defaultEnv("DELTARELAY_CAPTURE_DIR", defaultCaptureDir), "private request/payload captures (sensitive prompts/code); empty disables capture")
 	captureBytes := flags.Int64("capture-max-bytes", inspection.DefaultMaxBytes, "maximum retained inspection bytes, including metadata; 0 keeps everything")
 	captureRequestBytes := flags.Int64("capture-max-request-bytes", inspection.DefaultMaxCaptureBytes, "maximum inspection bytes per request including its evidence index; 0 keeps everything")
@@ -89,7 +90,8 @@ func gatewayCommand(ctx context.Context, args []string, stderr io.Writer) error 
 		Client: c, LocalToken: localToken, Upstreams: rules, AllowPrivateUpstreams: *allowPrivate,
 		MaxBodySize: *maxBody, MaxConcurrent: *concurrent, RequestTimeout: *requestTimeout,
 		StatsFile: *statsFile, HistoryHost: *historyHost,
-		Inspection: inspection.Config{Dir: *captureDir, MaxBytes: *captureBytes, MaxCaptureBytes: *captureRequestBytes, MaxCaptures: *captureCount, MaxAge: *captureAge},
+		OpenCodeServiceFile: *serviceFile,
+		Inspection:          inspection.Config{Dir: *captureDir, MaxBytes: *captureBytes, MaxCaptureBytes: *captureRequestBytes, MaxCaptures: *captureCount, MaxAge: *captureAge},
 		OnStart: func(id string) {
 			if !*quiet {
 				logMu.Lock()

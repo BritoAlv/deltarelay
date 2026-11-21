@@ -3,10 +3,39 @@ import StatsGrid from "./StatsGrid.astro"
 import SystemStates from "./SystemStates.astro"
 import TrafficPanel from "./TrafficPanel.astro"
 import OverviewRange from "./OverviewRange.astro"
+import Icon from "./Icon.astro"
 ---
 <section id="overview" aria-label="Overview">
   <OverviewRange />
   <StatsGrid />
   <TrafficPanel />
+  <article class="panel overview-model-usage" id="overview-model-usage" aria-label="Locally observed model usage">
+    <div class="overview-usage-head">
+      <div><h2>Model usage</h2><p data-usage-overview-coverage>Loading local token measurements…</p></div>
+      <div class="overview-usage-actions">
+        <div class="chart-view-toggle" role="group" aria-label="Token measure">
+          <button type="button" class="chart-view-button" data-usage-metric="total" aria-pressed="true">Total</button>
+          <button type="button" class="chart-view-button" data-usage-metric="input" aria-pressed="false">Input</button>
+          <button type="button" class="chart-view-button" data-usage-metric="output" aria-pressed="false">Output</button>
+        </div>
+        <a class="text-button" href="/sessions?usage_view=usage">View sessions <Icon name="arrow" size={14} /></a>
+      </div>
+    </div>
+    <dl class="usage-overview-stats">
+      <div><dt>Input tokens</dt><dd data-usage-overview-input>—</dd></div>
+      <div><dt>Output tokens</dt><dd data-usage-overview-output>—</dd></div>
+      <div><dt>Peak context</dt><dd data-usage-overview-context>—</dd></div>
+      <div><dt>Model labels</dt><dd data-usage-overview-models>—</dd></div>
+    </dl>
+    <div class="usage-overview-toolbar">
+      <div class="usage-model-legend" data-usage-overview-legend role="group" aria-label="Models in the chart"></div>
+    </div>
+    <div class="usage-overview-chart-frame chart-frame">
+      <div id="usage-overview-chart" class="usage-overview-chart" role="img" tabindex="0" aria-label="Token usage by model loading" aria-busy="true" aria-describedby="usage-overview-hint usage-overview-tooltip"><div class="chart-placeholder"><span class="loading-indicator"><span class="loading-spinner" aria-hidden="true"></span>Loading local token measurements…</span></div></div>
+      <span id="usage-overview-hint" class="sr-only">Focus the chart and use the left and right arrow keys, Home, and End to inspect buckets. Use the model buttons to hide or show a model.</span>
+      <div id="usage-overview-tooltip" class="chart-tooltip" role="tooltip" aria-live="polite" aria-atomic="true" hidden></div>
+    </div>
+    <div class="panel-bottom"><span>Request-start time · all credential labels</span><span>Missing counters are gaps, never zero</span></div>
+  </article>
   <SystemStates />
 </section>

@@ -1,4 +1,5 @@
 import type { CaptureStatus } from "./inspection.js"
+import type { APIKey, UsageMeasurement } from "./usage.js"
 
 export interface Totals {
   requests: number
@@ -43,6 +44,8 @@ export interface Transfer {
 }
 
 export interface RelayRequest {
+  api_key?: APIKey
+  usage?: UsageMeasurement
   host?: string
   client?: string
   capture_id?: string

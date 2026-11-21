@@ -99,7 +99,7 @@ export function mergeSessions(sessions: Session[]): SessionView[] {
     const current = merged.get(session.id)
     const host = sessionHost(session)
     if (!current) {
-      merged.set(session.id, { ...session, clients: [...(session.clients ?? [])], hosts: [host] })
+      merged.set(session.id, { ...session, clients: [...(session.clients ?? [])], hosts: [...((session as SessionView).hosts ?? [host])] })
       continue
     }
     addTotals(current, session)

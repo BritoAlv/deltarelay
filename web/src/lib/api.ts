@@ -3,6 +3,7 @@ import { captureID, isCaptureStatus } from "./inspection.js"
 import { counters, nonnegativeInteger, object, optionalString, optionalTimestamp, timestamp } from "./validation.js"
 import type { TrafficRange } from "./traffic.js"
 import type { RelayRequest } from "./types.js"
+import { isAPIKey, isUsageMeasurement, usageParams, type UsageFilter } from "./usage.js"
 
 const totalKeys = ["requests", "active", "failed", "cancelled", "body_bytes", "uploaded_chunk_bytes", "encoded_upload_bytes", "reused_body_bytes", "response_bytes", "duration_ms"]
 const transferKeys = ["body_bytes", "chunks", "unique_chunks", "uploaded_chunks", "uploaded_chunk_bytes", "missing_chunk_bytes", "reused_body_bytes", "request_body_bytes_sent", "requests", "duration_ms"]
@@ -25,7 +26,8 @@ function request(value: unknown): boolean {
     typeof value.kind === "string" && typeof value.state === "string" && ["running", "completed", "failed", "cancelled", "interrupted"].includes(value.state) &&
     timestamp(value.started_at) && optionalTimestamp(value.finished_at) && optionalString(value.error_code) &&
     counters(value, ["sequence", "status", "response_bytes", "duration_ms"]) && object(value.transfer) &&
-    typeof value.transfer.hash === "string" && counters(value.transfer, transferKeys) && (value.capture_id === undefined || captureID(value.capture_id))
+    typeof value.transfer.hash === "string" && counters(value.transfer, transferKeys) && (value.capture_id === undefined || captureID(value.capture_id)) &&
+    (value.api_key === undefined || isAPIKey(value.api_key)) && (value.usage === undefined || isUsageMeasurement(value.usage))
 }
 
 function trafficBucket(value: unknown): boolean {
@@ -142,8 +144,9 @@ export interface RequestPage {
   next_before: number
 }
 
-export async function fetchRequestPage(session: string, host: string, before: number, limit: number, signal: AbortSignal): Promise<RequestPage> {
-  const params = new URLSearchParams({ session, limit: String(limit) })
+export async function fetchRequestPage(session: string, host: string, before: number, limit: number, signal: AbortSignal, filter: UsageFilter = {}): Promise<RequestPage> {
+  const params = usageParams({ ...filter, session, host })
+  params.set("limit", String(limit))
   if (host) params.set("host", host)
   if (before) params.set("before", String(before))
   const response = await fetch(`/api/dashboard/requests?${params}`, { signal, cache: "no-store", credentials: "same-origin", redirect: "error" })

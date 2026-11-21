@@ -13,6 +13,7 @@ import { mountSessions } from "./features/sessions.js"
 import { mountStats } from "./features/stats.js"
 import { mountSystemStates } from "./features/system-states.js"
 import { mountTraffic } from "./features/traffic.js"
+import { mountOverviewUsage } from "./features/overview-usage.js"
 
 export interface DashboardOptions {
   autoStart?: boolean
@@ -81,8 +82,10 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
   })
   const stats = statsRoot ? mountStats(statsRoot) : null
   const traffic = trafficRoot ? mountTraffic(trafficRoot) : null
-  const rangeRoot = doc.getElementById("overview-range")
+  const rangeRoot = sessionsRoot ? null : doc.getElementById("overview-range")
   const range = rangeRoot ? mountOverviewRange(rangeRoot, () => { render(); requestRefresh() }) : null
+  const overviewUsageRoot = doc.getElementById("overview-model-usage")
+  const overviewUsage = overviewUsageRoot ? mountOverviewUsage(overviewUsageRoot) : null
   const sessions = sessionsRoot && dialog ? mountSessions(sessionsRoot, dialog, { onHostChange: setHost }) : null
   const health = healthRoot ? mountHealth(healthRoot) : null
   const unsubscribe = systemObservations.subscribe((system) => {
@@ -125,6 +128,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
     traffic?.render(state, overview)
     systemStates?.render(state.snapshot ? selectedRange ?? null : null, state.paused)
     sessions?.render(state)
+    overviewUsage?.render(state.snapshot, selectedRange)
     health?.render(state)
     // On the overview, the sidebar count follows the selected period like the
     // Sessions card. Pages without a range fall back to the retained catalog.
@@ -208,6 +212,7 @@ export function startDashboard(doc: Document = document, options: DashboardOptio
       systemStates?.destroy()
       range?.destroy()
       sessions?.destroy()
+      overviewUsage?.destroy()
     },
     get paused() { return state.paused },
   }

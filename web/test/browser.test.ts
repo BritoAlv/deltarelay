@@ -5,9 +5,10 @@ import { startDashboard } from "../src/scripts/dashboard.js"
 import { startMeasurementPage } from "../src/scripts/measurement-page.js"
 import { startSystemStatus } from "../src/scripts/system.js"
 import { renderBrandStatus } from "../src/scripts/features/brand-status.js"
-import { makeOpenCodeSessions, makeSnapshot, makeSystemHistory } from "./fixture.js"
+import { makeOpenCodeSessions, makeSnapshot, makeSystemHistory, makeUsageSnapshot } from "./fixture.js"
 import { sessionCsv } from "../src/lib/csv.js"
 import { dateInputValue, presetRange, trafficData } from "../src/lib/traffic.js"
+import { usageFromSnapshot } from "../src/lib/usage.js"
 import { sessionDayKey } from "../src/lib/session-catalog.js"
 import type { SystemStatus } from "../src/lib/system.js"
 import type { SetupStatus } from "../src/lib/setup.js"
@@ -1274,6 +1275,71 @@ test("overview refresh renders stats and an accessible chart without session or 
   await page.close()
 })
 
+test("overview model usage chart stacks models, switches measure, and toggles a model", async () => {
+  const page = openPage()
+  const snapshot = makeUsageSnapshot(now)
+  page.setFetch((url) => {
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
+    if (url.startsWith("/api/system/history?")) {
+      const parsed = new URL(url, "http://127.0.0.1:8790")
+      return json(makeSystemHistory(Number(parsed.searchParams.get("start")), Number(parsed.searchParams.get("end")), Number(parsed.searchParams.get("bucket"))))
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  const chart = doc.querySelector<HTMLElement>("#usage-overview-chart")!
+  const segments = [...chart.querySelectorAll<SVGRectElement>(".usage-model-segment")]
+  assert.ok(segments.length > 0)
+  assert.ok(segments.some((segment) => segment.dataset.model === "deepseek-v4.1-flash"))
+  assert.match(doc.querySelector("[data-usage-overview-legend]")?.textContent ?? "", /deepseek-v4\.1-flash/)
+  assert.match(chart.getAttribute("aria-label") ?? "", /total tokens stacked by model/)
+  const output = doc.querySelector<HTMLButtonElement>('[data-usage-metric="output"]')!
+  output.click()
+  assert.equal(output.getAttribute("aria-pressed"), "true")
+  assert.match(chart.getAttribute("aria-label") ?? "", /output tokens stacked by model/)
+  const first = doc.querySelector<HTMLButtonElement>("[data-usage-model]")!
+  const hidden = first.dataset.usageModel!
+  first.click()
+  assert.equal(first.getAttribute("aria-pressed"), "false")
+  assert.equal([...chart.querySelectorAll<SVGRectElement>(".usage-model-segment")].some((segment) => segment.dataset.model === hidden), false)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("overview model usage fetches the bucketed series for a paged snapshot", async () => {
+  const page = openPage()
+  const snapshot = makeUsageSnapshot(now)
+  snapshot.requests_paged = true
+  const selected = presetRange("30d", now)
+  const usage = usageFromSnapshot(snapshot, { start: selected.start, end: selected.end, bucket: selected.bucketMs })
+  page.setFetch((url) => {
+    if (url.startsWith("/api/dashboard/usage?")) {
+      const parsed = new URL(url, "http://127.0.0.1:8790")
+      assert.equal(parsed.searchParams.get("bucket"), String(selected.bucketMs))
+      assert.equal(parsed.searchParams.get("start"), String(selected.start))
+      assert.equal(parsed.searchParams.get("end"), String(selected.end))
+      return json(usage)
+    }
+    if (url.startsWith("/api/dashboard?")) return json(snapshot)
+    if (url.startsWith("/api/system/history?")) {
+      const parsed = new URL(url, "http://127.0.0.1:8790")
+      return json(makeSystemHistory(Number(parsed.searchParams.get("start")), Number(parsed.searchParams.get("end")), Number(parsed.searchParams.get("bucket"))))
+    }
+    throw new Error(`Unexpected URL ${url}`)
+  })
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const chart = page.document.querySelector<HTMLElement>("#usage-overview-chart")!
+  for (let attempt = 0; attempt < 200 && !chart.querySelector(".usage-model-segment"); attempt++) await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.ok(page.fetchCalls.some((call) => call.url.startsWith("/api/dashboard/usage?") && call.url.includes(`bucket=${selected.bucketMs}`)))
+  assert.ok(chart.querySelectorAll(".usage-model-segment").length > 0)
+  assert.match(page.document.querySelector("[data-usage-overview-legend]")?.textContent ?? "", /deepseek-v4\.1-flash/)
+  dashboard.destroy()
+  await page.close()
+})
+
 test("overview labels legacy lifetime outcomes separately instead of assigning them to a period", async () => {
   const page = openPage()
   const snapshot = makeSnapshot(now)
@@ -1490,6 +1556,77 @@ test("session text filter opens from its header and closes with Escape or an out
   trigger.click()
   page.fire(doc.body, "pointerdown")
   assert.equal(popover.hidden, true)
+  dashboard.destroy()
+  await page.close()
+})
+
+test("usage columns in the sessions table expose working column filters", async () => {
+  const page = openPage("sessions")
+  const snapshot = makeUsageSnapshot(now)
+  const sessionIDs = [...new Set(snapshot.history.recent_requests.map((request) => request.session_id))]
+  for (const request of snapshot.history.recent_requests) {
+    if (!request.api_key) continue
+    request.api_key = sessionIDs.indexOf(request.session_id) % 2
+      ? { id: "b".repeat(32), name: "Work tools" }
+      : { id: "a".repeat(32), name: "Personal Go" }
+  }
+  page.setFetch((url) => url.startsWith("/api/dashboard") ? json(snapshot) : json({}, 404))
+  const dashboard = startDashboard(page.document, { autoStart: false })
+  await dashboard.refresh()
+  const doc = page.document
+  for (const key of ["key", "input", "output", "context"]) {
+    assert.ok(doc.querySelector(`button[data-filter-key="${key}"]`), `missing ${key} filter button`)
+  }
+
+  const selected = presetRange("30d", now)
+  const report = usageFromSnapshot(snapshot, { start: selected.start, end: selected.end })
+  const work = report.sessions.filter((session) => session.api_keys.some((key) => key.name === "Work tools")).map((session) => session.id).sort()
+  assert.ok(work.length > 0 && work.length < report.sessions.length)
+  const rowIDs = () => [...doc.querySelectorAll<HTMLButtonElement>("#session-rows .session-name")].map((cell) => cell.dataset.sessionId ?? "").sort()
+
+  let popover = openColumnFilter(doc, "key")
+  assert.match(popover.textContent ?? "", /All credentials/)
+  assert.match(popover.textContent ?? "", /Personal Go/)
+  assert.match(popover.textContent ?? "", /Work tools/)
+  assert.equal(popover.querySelector<HTMLInputElement>('input[data-filter-option="key"][value=""]')?.checked, true)
+  const workID = "b".repeat(32)
+  const workOption = popover.querySelector<HTMLInputElement>(`input[data-filter-option="key"][value="${workID}"]`)
+  assert.ok(workOption, "missing Work tools credential option")
+  workOption.checked = true
+  page.fire(workOption, "change")
+  assert.deepEqual(rowIDs(), work)
+  assert.equal(new URL(page.window.location.href).searchParams.get("key_id"), workID)
+  assert.equal(doc.querySelector('button[data-filter-key="key"]')?.getAttribute("data-active"), "true")
+
+  const unknown = report.sessions.filter((session) => session.unknown_key_requests > 0).map((session) => session.id).sort()
+  assert.ok(unknown.length > 0 && unknown.length < report.sessions.length)
+  const unknownOption = popover.querySelector<HTMLInputElement>('input[data-filter-option="key"][value="unknown"]')!
+  unknownOption.checked = true
+  page.fire(unknownOption, "change")
+  assert.deepEqual(rowIDs(), unknown)
+  assert.equal(new URL(page.window.location.href).searchParams.get("key_id"), "unknown")
+
+  const tokenValues = report.sessions.map((session) => session.metrics.input_tokens).filter((value): value is number => value !== null).sort((left, right) => left - right)
+  const threshold = tokenValues[Math.floor(tokenValues.length / 2)]!
+  const tokenInput = report.sessions.filter((session) => session.metrics.input_tokens !== null && session.metrics.input_tokens >= threshold)
+  assert.ok(tokenInput.length > 0 && tokenInput.length < report.sessions.length)
+  doc.querySelector<HTMLButtonElement>("#clear-session-filters")!.click()
+  popover = openColumnFilter(doc, "input")
+  const inputMin = popover.querySelector<HTMLInputElement>('[data-filter-field="inputMin"]')!
+  inputMin.value = String(threshold)
+  page.fire(inputMin, "input")
+  assert.deepEqual(rowIDs(), tokenInput.map((session) => session.id).sort())
+  assert.equal(new URL(page.window.location.href).searchParams.get("in_min"), String(threshold))
+  assert.equal(doc.querySelector('button[data-filter-key="input"]')?.getAttribute("data-active"), "true")
+
+  doc.querySelector<HTMLButtonElement>("#clear-session-filters")!.click()
+  for (const [key, field] of [["output", "outputMax"], ["context", "contextMin"]] as const) {
+    const panel = openColumnFilter(doc, key)
+    assert.ok(panel.querySelector(`[data-filter-field="${field}"]`), `missing ${field} field`)
+    panel.querySelector<HTMLButtonElement>("#done-session-filter")!.click()
+  }
+  assert.equal(new URL(page.window.location.href).searchParams.get("key_id"), null)
+  assert.equal(new URL(page.window.location.href).searchParams.get("in_min"), null)
   dashboard.destroy()
   await page.close()
 })
@@ -1990,7 +2127,7 @@ test("session sorting toggles numeric columns, resets pagination, and restores f
   assert.equal(requestsHeader.getAttribute("aria-sort"), "descending")
   assert.equal(sortSelect.value, "requests")
   assert.match(requestsButton.getAttribute("aria-label") ?? "", /sorted descending/)
-  assert.ok(descending(numbers(3, Number)), "requests sort numerically descending")
+  assert.ok(descending(numbers(4, Number)), "requests sort numerically descending")
 
   doc.querySelector<HTMLButtonElement>("#next-page")!.click()
   assert.equal(doc.querySelector("#page-label")?.textContent, "Page 2 of 2")
@@ -1999,21 +2136,21 @@ test("session sorting toggles numeric columns, resets pagination, and restores f
   assert.equal(requestsHeader.getAttribute("aria-sort"), "ascending")
   assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "requests")
   assert.equal(new URL(page.window.location.href).searchParams.get("dir"), "asc")
-  assert.ok(ascending(numbers(3, Number)), "requests sort numerically ascending")
+  assert.ok(ascending(numbers(4, Number)), "requests sort numerically ascending")
 
   originalHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(originalHeader.getAttribute("aria-sort"), "ascending")
   assert.equal(requestsHeader.getAttribute("aria-sort"), "none")
   assert.equal(new URL(page.window.location.href).searchParams.get("sort"), "original")
-  assert.ok(ascending(numbers(4, parseBytesLabel)), "original bytes sort numerically")
+  assert.ok(ascending(numbers(5, parseBytesLabel)), "original bytes sort numerically")
 
   originalHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(originalHeader.getAttribute("aria-sort"), "descending")
-  assert.ok(descending(numbers(4, parseBytesLabel)), "original bytes sort numerically descending")
+  assert.ok(descending(numbers(5, parseBytesLabel)), "original bytes sort numerically descending")
 
   reductionHeader.querySelector<HTMLButtonElement>("button")!.click()
   assert.equal(reductionHeader.getAttribute("aria-sort"), "ascending")
-  assert.ok(ascending(numbers(6, parsePercentLabel)), "reduction percentage sorts numerically")
+  assert.ok(ascending(numbers(7, parsePercentLabel)), "reduction percentage sorts numerically")
   assert.match(reductionHeader.querySelector("button")!.getAttribute("aria-label") ?? "", /sorted ascending/)
 
   sortSelect.value = "activity"

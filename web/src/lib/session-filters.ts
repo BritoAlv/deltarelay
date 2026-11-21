@@ -5,6 +5,7 @@ import { savings, type SessionView } from "./metrics.js"
 // typed, while compiled criteria are cheap to apply on every render.
 export interface SessionFilterInput {
   session: string
+  key: string
   requestsMin: string
   requestsMax: string
   originalMin: string
@@ -13,11 +14,17 @@ export interface SessionFilterInput {
   uploadedMax: string
   reductionMin: string
   reductionMax: string
+  inputMin: string
+  inputMax: string
+  outputMin: string
+  outputMax: string
+  contextMin: string
+  contextMax: string
   activityFrom: string
   activityTo: string
 }
 
-export type SessionColumnFilterKey = "session" | "requests" | "original" | "uploaded" | "reduction" | "activity"
+export type SessionColumnFilterKey = "session" | "key" | "requests" | "original" | "uploaded" | "reduction" | "input" | "output" | "context" | "activity"
 
 export interface NumericRange {
   min: number | null
@@ -26,11 +33,25 @@ export interface NumericRange {
 
 export interface SessionFilterCriteria {
   session: string
+  key: string
   requests: NumericRange
   original: NumericRange
   uploaded: NumericRange
   reduction: NumericRange
+  input: NumericRange
+  output: NumericRange
+  context: NumericRange
   activity: { from: number | null; to: number | null }
+}
+
+// Usage columns are measured separately from retained transfer totals. Filtering
+// receives that scope's credentials and token aggregates for each rendered session.
+export interface SessionUsageFilterValues {
+  keyIDs: readonly string[]
+  unknownKeyRequests: number
+  inputTokens: number | null
+  outputTokens: number | null
+  contextTokens: number | null
 }
 
 const byteUnits: Record<string, number> = {
@@ -51,10 +72,14 @@ const byteUnits: Record<string, number> = {
 }
 
 const datePattern = /^(\d{4})-(\d{2})-(\d{2})$/
+const keyIDPattern = /^[a-f0-9]{32}$/
+
+export const isCredentialFilterValue = (value: string): boolean => value === "unknown" || keyIDPattern.test(value)
 
 export function emptySessionFilters(): SessionFilterInput {
   return {
     session: "",
+    key: "",
     requestsMin: "",
     requestsMax: "",
     originalMin: "",
@@ -63,6 +88,12 @@ export function emptySessionFilters(): SessionFilterInput {
     uploadedMax: "",
     reductionMin: "",
     reductionMax: "",
+    inputMin: "",
+    inputMax: "",
+    outputMin: "",
+    outputMax: "",
+    contextMin: "",
+    contextMax: "",
     activityFrom: "",
     activityTo: "",
   }
@@ -118,10 +149,14 @@ function compileRange(min: string, max: string, parse: (value: string) => number
 export function compileSessionFilters(input: SessionFilterInput): SessionFilterCriteria {
   return {
     session: input.session.trim().toLowerCase(),
+    key: input.key.trim(),
     requests: compileRange(input.requestsMin, input.requestsMax, (value) => numberBound(value, 0)),
     original: compileRange(input.originalMin, input.originalMax, sizeBound),
     uploaded: compileRange(input.uploadedMin, input.uploadedMax, sizeBound),
     reduction: compileRange(input.reductionMin, input.reductionMax, parseFilterNumber),
+    input: compileRange(input.inputMin, input.inputMax, (value) => numberBound(value, 0)),
+    output: compileRange(input.outputMin, input.outputMax, (value) => numberBound(value, 0)),
+    context: compileRange(input.contextMin, input.contextMax, (value) => numberBound(value, 0)),
     activity: {
       from: input.activityFrom.trim() ? parseDateBound(input.activityFrom) : null,
       to: input.activityTo.trim() ? parseDateBound(input.activityTo, true) : null,
@@ -139,8 +174,16 @@ function hasRange(range: NumericRange): boolean {
   return range.min !== null || range.max !== null
 }
 
-export function matchesSessionFilters(session: SessionView, criteria: SessionFilterCriteria): boolean {
+function matchesUsageRange(value: number | null | undefined, range: NumericRange): boolean {
+  return typeof value === "number" && inRange(value, range)
+}
+
+export function matchesSessionFilters(session: SessionView, criteria: SessionFilterCriteria, usage?: SessionUsageFilterValues | null): boolean {
   if (criteria.session && !(session.id || "Unattributed requests").toLowerCase().includes(criteria.session)) return false
+  if (criteria.key) {
+    if (!usage) return false
+    if (criteria.key === "unknown" ? usage.unknownKeyRequests <= 0 : !usage.keyIDs.includes(criteria.key)) return false
+  }
   if (!inRange(session.requests, criteria.requests)) return false
   if (!inRange(session.body_bytes, criteria.original)) return false
   if (!inRange(session.encoded_upload_bytes, criteria.uploaded)) return false
@@ -148,6 +191,9 @@ export function matchesSessionFilters(session: SessionView, criteria: SessionFil
     const reduction = savings(session.body_bytes, session.encoded_upload_bytes)
     if (reduction === null || !inRange(reduction, criteria.reduction)) return false
   }
+  if (hasRange(criteria.input) && !matchesUsageRange(usage?.inputTokens, criteria.input)) return false
+  if (hasRange(criteria.output) && !matchesUsageRange(usage?.outputTokens, criteria.output)) return false
+  if (hasRange(criteria.context) && !matchesUsageRange(usage?.contextTokens, criteria.context)) return false
   if (criteria.activity.from !== null || criteria.activity.to !== null) {
     const activity = Date.parse(session.updated_at)
     if (!Number.isFinite(activity)) return false
@@ -157,8 +203,8 @@ export function matchesSessionFilters(session: SessionView, criteria: SessionFil
   return true
 }
 
-export function filterSessionViews<T extends SessionView>(sessions: T[], criteria: SessionFilterCriteria): T[] {
-  return sessions.filter((session) => matchesSessionFilters(session, criteria))
+export function filterSessionViews<T extends SessionView>(sessions: T[], criteria: SessionFilterCriteria, usageOf?: (session: T) => SessionUsageFilterValues | null | undefined): T[] {
+  return sessions.filter((session) => matchesSessionFilters(session, criteria, usageOf?.(session)))
 }
 
 function numberActive(value: string, minimum?: number): boolean {
@@ -176,16 +222,20 @@ function dateActive(value: string, endOfDay: boolean): boolean {
 export function isColumnFilterActive(input: SessionFilterInput, key: SessionColumnFilterKey): boolean {
   switch (key) {
     case "session": return input.session.trim() !== ""
+    case "key": return input.key.trim() !== ""
     case "requests": return numberActive(input.requestsMin, 0) || numberActive(input.requestsMax, 0)
     case "original": return sizeActive(input.originalMin) || sizeActive(input.originalMax)
     case "uploaded": return sizeActive(input.uploadedMin) || sizeActive(input.uploadedMax)
     case "reduction": return numberActive(input.reductionMin) || numberActive(input.reductionMax)
+    case "input": return numberActive(input.inputMin, 0) || numberActive(input.inputMax, 0)
+    case "output": return numberActive(input.outputMin, 0) || numberActive(input.outputMax, 0)
+    case "context": return numberActive(input.contextMin, 0) || numberActive(input.contextMax, 0)
     case "activity": return dateActive(input.activityFrom, false) || dateActive(input.activityTo, true)
   }
 }
 
 export function activeColumnFilterCount(input: SessionFilterInput): number {
-  return (["session", "requests", "original", "uploaded", "reduction", "activity"] as const)
+  return (["session", "key", "requests", "original", "uploaded", "reduction", "input", "output", "context", "activity"] as const)
     .filter((key) => isColumnFilterActive(input, key)).length
 }
 
@@ -197,6 +247,7 @@ function validRaw(params: URLSearchParams, name: string, validate: (value: strin
 export function readSessionFilters(params: URLSearchParams): SessionFilterInput {
   return {
     session: validRaw(params, "sid", () => true),
+    key: validRaw(params, "key_id", isCredentialFilterValue),
     requestsMin: validRaw(params, "req_min", (value) => numberBound(value, 0) !== null),
     requestsMax: validRaw(params, "req_max", (value) => numberBound(value, 0) !== null),
     originalMin: validRaw(params, "orig_min", sizeActive),
@@ -205,6 +256,12 @@ export function readSessionFilters(params: URLSearchParams): SessionFilterInput 
     uploadedMax: validRaw(params, "up_max", sizeActive),
     reductionMin: validRaw(params, "red_min", (value) => parseFilterNumber(value) !== null),
     reductionMax: validRaw(params, "red_max", (value) => parseFilterNumber(value) !== null),
+    inputMin: validRaw(params, "in_min", (value) => numberBound(value, 0) !== null),
+    inputMax: validRaw(params, "in_max", (value) => numberBound(value, 0) !== null),
+    outputMin: validRaw(params, "out_min", (value) => numberBound(value, 0) !== null),
+    outputMax: validRaw(params, "out_max", (value) => numberBound(value, 0) !== null),
+    contextMin: validRaw(params, "ctx_min", (value) => numberBound(value, 0) !== null),
+    contextMax: validRaw(params, "ctx_max", (value) => numberBound(value, 0) !== null),
     activityFrom: validRaw(params, "act_from", (value) => parseDateBound(value) !== null),
     activityTo: validRaw(params, "act_to", (value) => parseDateBound(value, true) !== null),
   }
@@ -214,6 +271,7 @@ export function sessionFilterParams(input: SessionFilterInput): Record<string, s
   const valid = (value: string, validate: (value: string) => boolean) => value.trim() && validate(value.trim()) ? value.trim() : null
   return {
     sid: input.session.trim() || null,
+    key_id: input.key.trim() && isCredentialFilterValue(input.key.trim()) ? input.key.trim() : null,
     req_min: valid(input.requestsMin, (value) => numberBound(value, 0) !== null),
     req_max: valid(input.requestsMax, (value) => numberBound(value, 0) !== null),
     orig_min: valid(input.originalMin, sizeActive),
@@ -222,6 +280,12 @@ export function sessionFilterParams(input: SessionFilterInput): Record<string, s
     up_max: valid(input.uploadedMax, sizeActive),
     red_min: valid(input.reductionMin, (value) => parseFilterNumber(value) !== null),
     red_max: valid(input.reductionMax, (value) => parseFilterNumber(value) !== null),
+    in_min: valid(input.inputMin, (value) => numberBound(value, 0) !== null),
+    in_max: valid(input.inputMax, (value) => numberBound(value, 0) !== null),
+    out_min: valid(input.outputMin, (value) => numberBound(value, 0) !== null),
+    out_max: valid(input.outputMax, (value) => numberBound(value, 0) !== null),
+    ctx_min: valid(input.contextMin, (value) => numberBound(value, 0) !== null),
+    ctx_max: valid(input.contextMax, (value) => numberBound(value, 0) !== null),
     act_from: valid(input.activityFrom, (value) => parseDateBound(value) !== null),
     act_to: valid(input.activityTo, (value) => parseDateBound(value, true) !== null),
   }

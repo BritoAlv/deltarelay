@@ -147,5 +147,10 @@ func (g *Gateway) dashboardRequests(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(g.history.Requests(session, host, before, limit))
+	query, queryErr := usageQuery(r)
+	if queryErr != nil {
+		http.Error(w, "invalid request filter", http.StatusBadRequest)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(g.history.FilteredRequests(query, before, limit))
 }

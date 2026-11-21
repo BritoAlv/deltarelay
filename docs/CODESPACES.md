@@ -71,6 +71,7 @@ The supervisor configuration points through the pointer:
         "--state-dir", "/absolute/path/.runtime/current/state",
         "--stats-file", "/absolute/path/.runtime/codespace-profile/dashboard-stats.json",
         "--capture-dir", "/absolute/path/.runtime/codespace-profile/captures",
+        "--opencode-service-file", "/absolute/path/.local/state/opencode/service.json",
         "--history-host", "alpha"
       ]
     }

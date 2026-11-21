@@ -13,6 +13,9 @@ restored on subsequent visits, including after closing the browser:
 - Theme; Overview time range, custom bounds, date-entry mode, and chart view.
 - Shared host selection on Sessions and Measurement (Overview remains all hosts).
 - Session search, status/column filters, sort order, and rows per page.
+- Usage time range. Usage columns in the sessions table use the same selected
+  range. A session dialog is a URL-addressable record link but is not reopened
+  by a bare visit.
 - Measurement session-browser search, day, availability filter, and sort order.
 - Component-table search, column filters, and sort order.
 - System controls tab, architecture flow-channel visibility, payload presentation
@@ -125,8 +128,24 @@ infer a working connection merely because two processes are running.
   and label session counts as retained records only; missing timestamps are not
   inferred from aggregates. Legacy lifetime outcome warnings remain separate
   from period totals because older aggregate outcomes were not reconciled.
+- **Overview → Model usage** plots the selected range as a locally observed
+  token trend stacked by model. **Total / Input / Output** switches the
+  measure, and legend buttons hide or show a model without repainting the
+  survivors. The five largest models by observed tokens remain separate; the
+  tail folds into **Other models**. Requests without token measurements are
+  hatched gaps, never zero, and the tooltip reports coverage per bucket.
+  Model colors are theme tokens assigned once per model and kept while the
+  legend or range changes within the page.
+- **Sessions** keeps one table with the original transfer columns and adds
+  locally observed usage columns: saved credential label, input/output tokens,
+  and latest context. A time range above the table scopes those usage columns
+  and the usage summary. Selecting a session opens one
+  inspector with both transfer accounting and model usage, including coverage, a
+  context chart, per-request credential label/model/tokens, and a full numeric
+  breakdown. Session CSV and matching-request CSV/JSON exports use the same
+  filters.
 - Active requests, upstream, request kind (primary/title/compaction/generate),
-  status, duration, and safe error codes in a session inspector.
+  status, duration, and safe error codes in the same session inspector.
 - A separate **Measurement** page traces any gateway-measured session with the
   same read-only snapshot. Its session browser can also list the sessions stored by
   the local OpenCode service, with titles, start dates, projects, agents, and
@@ -171,12 +190,15 @@ infer a working connection merely because two processes are running.
 - Session search, per-column filters, pagination with adjustable rows per page
   (8, 25, 50, or 100), CSV export, manual refresh, and pause/resume. Each
   sortable sessions column has its own filter button:
-  option lists for the remote host and state, minimum/maximum bounds for
-  requests, transfer sizes, and reduction, and a from/to date range for last
-  activity. The State filter carries the active, idle, and needs-attention
-  choices; there are no duplicate state chips in the toolbar. Column filters
-  combine with the search text, and invalid bounds are explained in the popover
-  instead of being applied silently.
+  option lists for the remote host, state, and saved credential label,
+  minimum/maximum bounds for requests, transfer sizes, reduction, and observed
+  input/output/context tokens, and a from/to date range for last activity. The
+  State filter carries the active, idle, and needs-attention choices; there are
+  no duplicate state chips in the toolbar. The credential-label list includes
+  every saved credential known to the local gateway; its counts cover the usage
+  scope selected above the table, so credentials outside that scope can match no
+  session. Column filters combine with the search text, and invalid bounds are
+  explained in the popover instead of being applied silently.
   Automatic refresh is every ten seconds while the tab is visible. A failed
   refresh keeps the last live snapshot and explicitly marks it stale.
 - First loads and failed loads are distinct from a genuinely empty history.
@@ -189,8 +211,9 @@ infer a working connection merely because two processes are running.
   search/state/column filters/page/page size, an open session detail, and the
   measurement session/request plus session-browser search, day, availability,
   and page are kept in the URL and restored on reload. Column filters use `sid`,
-  `req_min`, `req_max`, `orig_min`, `orig_max`, `up_min`, `up_max`, `red_min`,
-  `red_max`, `act_from`, and `act_to` in addition to the existing `q`, `state`,
+  `key_id`, `req_min`, `req_max`, `orig_min`, `orig_max`, `up_min`, `up_max`,
+  `red_min`, `red_max`, `in_min`, `in_max`, `out_min`, `out_max`, `ctx_min`,
+  `ctx_max`, `act_from`, and `act_to` in addition to the existing `q`, `state`,
   and `rows`.
   Changes use `replaceState`, so filtering does not fill the browser history.
 - A **Theme** picker above Overview offers Graphite + Blue (the default),
@@ -281,10 +304,15 @@ kept indefinitely unless an operator explicitly configures capture limits:
   --token-file /path/to/private/relay.token \
   --local-token-file /path/to/private/local.token \
   --upstreams /path/to/private/upstreams.json \
-  --stats-file .runtime/dashboard-stats.json
+  --stats-file .runtime/dashboard-stats.json \
+  --opencode-service-file /path/to/private/opencode/service.json
 ```
 
-Use your existing gateway flags, upload budgets, and recovery configuration; do
+`--opencode-service-file` is optional. When present, the gateway reads the local
+OpenCode service's saved credential labels and OAuth access tokens so requests
+can be grouped by label without reading provider-side key IDs. The supervisor
+adds it from `opencode_service_file` automatically. Use your
+existing gateway flags, upload budgets, and recovery configuration; do
 not start another gateway on the same port. `--stats-file` selects the history
 location and `--history-host` labels observations with the active remote host
 (the supervisor sets it automatically for profiles). `DELTARELAY_STATS_FILE` and
@@ -361,12 +389,57 @@ render that journal; System controls uses structured topology and recovery-run
 data instead. Existing gateway authentication and browser-origin rejection remain
 intact.
 
+The browser reads usage through `GET /api/dashboard/usage` for the selected
+range and optional key, and `<key>&start=<ms>&end=<ms>` on
+`GET /api/dashboard/requests` for scoped request pages. The Overview chart adds
+`bucket=<ms>` to `/api/dashboard/usage` for its model-stacked series. Exports use
+`GET /api/dashboard/usage/export?format=csv|json`. The dashboard proxy forwards
+only `session`, `host`, `key`, `start`, `end`, `bucket`, `before`, `limit`, and
+`format` to those read routes. Usage totals always use the local request start
+time; start is inclusive and end is exclusive. Session lifetime/task totals
+remain separate.
+
+Usage metadata is collected on this computer only. No usage measurement,
+credential label, or derived aggregate is added to the relay protocol, VPS
+state, provider request, or model response. The gateway reads the local request
+it already forwards and the response bytes it already downloads; it does not
+buffer response delivery, request model usage, or make a provider call for
+metrics. The saved-credential matcher hashes each saved API-key secret or OAuth
+access token in memory and stores no fingerprint in retained history. Retained
+names are the sanitized labels from OpenCode and an opaque local reference
+derived from the saved record. That reference is used only to filter and
+disambiguate duplicate labels; it is not a provider key ID. If a secret is not
+saved, or if multiple saved records contain the same secret, the request is
+**Unknown credential** rather than guessed from the currently selected account.
+
+Token counters are only recorded when the provider's response actually contains
+them and this computer reads that response through its terminal usage event. A
+client that stops receiving before that point can leave a request **Partial** or
+**Unavailable**; there is no remote backfill. Numbers may differ by provider:
+OpenAI-style cached input and reasoning tokens can be subsets of the
+input/output totals, while Anthropic cache read/write sources are added to the
+displayed input context. Missing counters remain
+**Unavailable**, never zero; partial streams remain **Partial**. These counters
+are provider diagnostics, not an invoice: providers define cache, reasoning, and
+audio subsets differently, and the relay does not convert them to money. Input
+totals sum the context sent with every request, so repeated history counts again;
+**latest/peak context** is the measured per-request input context, not unique
+conversation content. Token counters from requests that predate usage tracking
+remain unknown; saved-credential attribution can be backfilled once as described
+below.
+The Overview card shows the selected-range aggregate with token coverage,
+a model-stacked trend, and explicitly identifies it as locally observed.
+The chart's **Other models** bucket only folds models beyond the five largest;
+it never invents attribution for unmeasured requests.
+
 With `--opencode-service-file` configured, the measurement page also requests
 `GET /api/opencode/sessions`. The Go dashboard reads only session metadata from
 the local OpenCode V2 service: opaque ID, title, start/update times, directory
-basename, agent, and model. It never reads messages, conversation content,
-provider credentials, cost, token counts, permissions, or full filesystem paths,
-and it never sends titles to the gateway, relay, or a provider. OpenCode session
+basename, agent, and model. That OpenCode metadata path never reads messages,
+conversation content, provider credentials, cost, token counts, permissions, or
+full filesystem paths; token/context usage is the separate local gateway path
+described above. It never sends titles to the gateway, relay, or a provider.
+OpenCode session
 titles are local-only metadata and are visible to any local process/user that can
 reach the loopback dashboard. If the service is not configured or unavailable,
 the browser falls back to gateway-retained sessions and opaque IDs.
@@ -472,6 +545,53 @@ History uses a mode-600, atomic JSON snapshot with a single-writer file lock:
 
 `.runtime/`, `web/dist/`, `.astro/`, `node_modules/`, and test output are ignored
 by Git. CSV exports contain session metadata; store them privately too.
+
+### Saved credential usage and context
+
+Usage recording is deliberately separate from provider billing and from the
+relay's upload-savings counters:
+
+| Measurement | Meaning |
+| --- | --- |
+| Requests observed | Matching requests by local start time; running requests remain included in the count and are marked pending in the ledger |
+| Sessions | Distinct nonempty session IDs with matching requests; requests without a session ID are reported separately |
+| Input tokens | Sum of provider-reported input/context counters; includes cache read/write where the provider reports them as additional input |
+| Output tokens | Provider-reported generated tokens; reasoning tokens remain a separate diagnostic subset |
+| Latest context | Input tokens of the newest matching request with a reported input counter |
+| Peak context | Largest single-request input context in the matching scope |
+| Coverage | Requests with any token counter, and requests with a complete terminal usage report |
+| Provider cache | Cache-read/write counters as reported by the provider, never inferred from DeltaRelay byte-cache reuse |
+
+Per-request metadata also keeps the requested and response model, finish reason,
+message/tool counts, output-token limit, first local response time, status,
+timing, transfer accounting, and the measurement source/reason. Export file names
+are fixed, and formula-prefixed text fields are escaped for spreadsheets. The
+CSV/JSON exports contain
+numeric metrics and local metadata, not prompts, model bodies, credentials, or key
+fingerprints. Re-importing an export is not an accounting reconciliation and does
+not count as a provider generation. A failed export or observation never changes a
+completed transfer.
+
+The Credential label column filter on Sessions offers every saved OpenCode label,
+including a credential that has not yet observed a request. The label is the
+human-facing name. The gateway also keeps an opaque local reference derived from
+the OpenCode saved-record ID; that reference is the `key_id` session-filter
+value and is shown as a short suffix only when two labels are identical. It is not a provider
+key ID and never contains a secret. For retained requests that predate
+saved-credential matching, the gateway performs one conservative historical
+attribution at startup: unattributed requests are assigned per gateway upstream
+when exactly one unobserved saved credential maps to that upstream. OpenCode Go
+keys map to the `opencode` upstream, and saved OpenAI OAuth credentials map to
+the `openai` upstream. If multiple credentials are candidates for one upstream,
+that history remains **Unknown credential** rather than guessed. A final fallback
+applies only when exactly one unobserved credential and one unattributed upstream
+remain. This rule is only for existing history. New requests with an unregistered
+credential remain **Unknown credential**.
+
+The sessions table's usage columns and the Overview card use the same local
+history. The transfer columns keep their original lifetime session totals and
+bandwidth semantics. Filtering usage or opening a session does not change the
+active OpenCode key, contact the OpenCode service, or send a model request.
 
 ## How savings are measured
 

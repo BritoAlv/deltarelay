@@ -19,7 +19,7 @@ export interface SystemObservation {
   auth: AuthStatus | null
   /** OpenCode Go allowance, when the local service reports it. */
   go: GoAllowance | null
-  /** Usage for every saved OpenCode API key, including inactive accounts. */
+  /** Usage for every saved OpenCode credential label, including inactive accounts. */
   goAccounts?: GoAccountUsage[]
 }
 

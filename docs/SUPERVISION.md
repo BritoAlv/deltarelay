@@ -442,6 +442,13 @@ private OpenCode V2 service registration (usually
 `$XDG_STATE_HOME/opencode/service.json`). Configure the isolated profile's path
 explicitly. `--auth-integration` defaults to `openai`.
 
+The supervisor also passes `opencode_service_file` to the **gateway** as
+`--opencode-service-file`. That separate read-only poll supplies sanitized saved
+credential labels and OAuth access tokens for local usage attribution; it never
+activates a key or changes
+the active OpenCode selection. The dashboard's own service-file reader remains a
+separate metadata path.
+
 Go reads that registration without editing it, authenticates only to its loopback
 endpoint, reads the active integration credential's `expires` metadata using the
 supported OpenCode API, and returns only status, expiry and observation time.

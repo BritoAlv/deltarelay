@@ -149,7 +149,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "read-only dashboard", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path == "/api/dashboard" || r.URL.Path == "/api/dashboard/requests" {
+	if r.URL.Path == "/api/dashboard" || r.URL.Path == "/api/dashboard/requests" || r.URL.Path == "/api/dashboard/usage" || r.URL.Path == "/api/dashboard/usage/export" {
 		h.snapshot(w, r)
 		return
 	}
@@ -201,7 +201,16 @@ func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
 	keys := []string{"compact", "start", "end", "bucket", "host", "exact", "now"}
 	if r.URL.Path == "/api/dashboard/requests" {
 		path += "/requests"
-		keys = []string{"session", "host", "before", "limit"}
+		keys = []string{"session", "host", "before", "limit", "key", "start", "end"}
+	} else if r.URL.Path == "/api/dashboard/usage" || r.URL.Path == "/api/dashboard/usage/export" {
+		path += "/usage"
+		keys = []string{"session", "host", "key", "start", "end"}
+		if strings.HasSuffix(r.URL.Path, "/export") {
+			path += "/export"
+			keys = append(keys, "format")
+		} else {
+			keys = append(keys, "bucket")
+		}
 	}
 	// Forward only this read API's allowlisted query fields. Never forward a
 	// target URL, token, arbitrary path, or incoming credentials.
@@ -241,14 +250,18 @@ func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request) {
 		writeUnavailable(w, http.StatusBadGateway, code)
 		return
 	}
-	if !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+	export := strings.HasSuffix(r.URL.Path, "/usage/export")
+	if !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") && !(export && strings.HasPrefix(response.Header.Get("Content-Type"), "text/csv")) {
 		writeUnavailable(w, http.StatusBadGateway, "invalid_gateway_response")
 		return
 	}
 	// Retained history has no request-count, age, or file-size limit, so the
 	// snapshot is not bounded either. Stream it instead of rejecting a valid
 	// snapshot once it outgrows an in-memory proxy cap.
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", response.Header.Get("Content-Type"))
+	if export {
+		w.Header().Set("Content-Disposition", response.Header.Get("Content-Disposition"))
+	}
 	if r.Method != http.MethodHead {
 		_, _ = io.Copy(w, response.Body)
 	}

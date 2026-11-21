@@ -61,6 +61,8 @@ def rewrite_gateway_history(config, host):
     _set_flag(command, '--stats-file', str(stats))
     _set_flag(command, '--capture-dir', str(captures))
     _set_flag(command, '--history-host', host)
+    if config.get('opencode_service_file'):
+        _set_flag(command, '--opencode-service-file', config['opencode_service_file'])
     return result, before != command
 
 
